@@ -1,0 +1,14 @@
+\section{Introduction}
+\label{sec:intro}
+
+Low-cost optical particle counters drift with humidity and temperature;
+without correction, raw readings overestimate $\mathrm{PM}_{2.5}$ by up to
+60\% during fog events~\cite{crilley2018}. We deploy a network of 24 nodes
+and fit a per-node correction against a gravimetric reference.
+
+Our calibration model is deliberately simple:
+\begin{itemize}
+  \item a multiplicative humidity-growth term,
+  \item an additive per-node offset,
+  \item no temporal drift term (the deployment is short).
+\end{itemize}

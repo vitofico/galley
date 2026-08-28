@@ -1,0 +1,33 @@
+TY  - JOUR
+TI  - Adaptive Mesh Refinement for Kinetic Schemes
+AU  - Voss, Anna
+AU  - Hendriks, Pieter
+PY  - 2021/03/15
+JO  - Journal of Computational Physics
+VL  - 430
+IS  - 7
+SP  - 110049
+DO  - 10.1016/j.jcp.2020.110049
+UR  - https://example.org/amr-kinetic
+KW  - lattice Boltzmann
+KW  - adaptive refinement
+N2  - Abstract text that the importer deliberately drops rather than guesses.
+ER  -
+
+TY  - THES
+TI  - Spectral Methods on Unstructured Grids
+AU  - Okafor, Lena
+PY  - 2018
+PB  - ETH Zurich
+ER  -
+
+TY  - ELEC
+TI  - Typst Documentation
+PY  - 2024
+UR  - https://typst.app/docs
+ER  -
+
+TY  - JOUR
+TI  - Record Missing Its Terminator
+AU  - Last, Author
+PY  - 1999

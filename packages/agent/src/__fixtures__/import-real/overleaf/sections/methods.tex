@@ -1,0 +1,14 @@
+\section{Methods}
+\label{sec:methods}
+
+Let $y_t$ be the reference mass concentration and $x_{i,t}$ the raw count
+of node $i$ at hour $t$. We fit the \(\kappa\)-corrected model
+
+\begin{equation}
+  \label{eq:model}
+  y_t = \alpha_i \cdot \frac{x_{i,t}}{1 + \kappa \, a_w(t)} + \beta_i
+\end{equation}
+
+by least squares, where $a_w$ is the water activity derived from relative
+humidity. Residuals are reported per node; see also \cite{difantonio2018}
+for the hygroscopic growth correction.

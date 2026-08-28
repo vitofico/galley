@@ -1,0 +1,32 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\graphicspath{{figures/}}
+
+\title{Calibration of a Low-Cost Particle Sensor Network}
+\author{Field Methods Group}
+
+\begin{document}
+\maketitle
+
+% The chapter files live under sections/ — the classic Overleaf layout.
+\input{sections/intro}
+\include{sections/methods}
+
+\section{Deployment}
+
+The sensors were co-located with the reference station for six weeks. The
+apparatus is shown in Figure~\ref{fig:setup}.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.8\linewidth]{setup}
+  \caption{Co-location rig on the station roof.}
+  \label{fig:setup}
+\end{figure}
+
+\bibliographystyle{plain}
+\bibliography{refs}
+
+\end{document}

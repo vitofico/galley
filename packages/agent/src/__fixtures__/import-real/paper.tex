@@ -1,0 +1,117 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+
+% A custom macro actually used in the body below.
+\newcommand{\keyword}[1]{\textbf{#1}}
+\newcommand{\Reals}{\mathbb{R}}
+
+\title{Spectral Gaps of Random Regular Graphs}
+\author{Lena Okafor \and Maren Brandt}
+\date{March 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We give an elementary proof that random $d$-regular graphs are nearly
+Ramanujan with high probability, and survey the trace-method machinery
+behind Friedman's theorem.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+Random $d$-regular graphs are \keyword{expanders} with high
+probability~\cite{friedman2008}. The second eigenvalue $\lambda_2$ of the
+adjacency matrix controls the mixing time of the simple random walk; see
+\cite{hoory2006} for a survey. Throughout, $G = (V, E)$ denotes a graph on
+$n$ vertices and $A \in \Reals^{n \times n}$ its adjacency matrix.
+
+We make three contributions:
+\begin{itemize}
+  \item An \emph{elementary} second-moment argument for the spectral gap.
+  \item A \texttt{numpy} implementation of the non-backtracking trace bound.
+  \item Empirical evidence that the constant in \eqref{eq:gap} is tight.
+\end{itemize}
+
+\section{Main results}
+\label{sec:results}
+
+\subsection{The spectral gap}
+
+Our main theorem refines the bound of \cite{friedman2008}.
+
+\begin{equation}
+  \label{eq:gap}
+  \lambda_2(A) \le 2\sqrt{d-1} + \epsilon
+\end{equation}
+
+The proof proceeds in three steps:
+\begin{enumerate}
+  \item Reduce to the non-backtracking operator $B$.
+  \item Bound $\operatorname{tr}(B^k)$ by counting closed walks.
+  \item Apply Markov's inequality with $k \approx \log n$.
+\end{enumerate}
+
+\subsection{A two-line lemma}
+
+For any unit vector $x \perp \mathbf{1}$ we have the variational bound
+\[
+  \lambda_2(A) = \max_{x \perp \mathbf{1}, \|x\| = 1} x^\top A x .
+\]
+
+The aligned chain below is standard but worth recording:
+\begin{align}
+  x^\top A x &= \sum_{(u,v) \in E} 2 x_u x_v \\
+             &\le \sum_{(u,v) \in E} (x_u^2 + x_v^2) = d \|x\|^2 .
+\end{align}
+
+\section{Experiments}
+\label{sec:experiments}
+
+Figure~\ref{fig:gap-hist} shows the empirical distribution of
+$\lambda_2 / 2\sqrt{d-1}$ over $10^4$ samples; Table~\ref{tab:constants}
+lists the fitted constants. The 50\% quantile sits within 1\% of the
+conjectured value.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.7\linewidth]{figures/gap-histogram}
+  \caption{Histogram of normalized second eigenvalues, $d = 4$.}
+  \label{fig:gap-hist}
+\end{figure}
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{lrr}
+    \toprule
+    $d$ & mean & std \\
+    \midrule
+    3 & 0.981 & 0.012 \\
+    4 & 0.987 & 0.009 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Fitted constants per degree.}
+  \label{tab:constants}
+\end{table}
+
+The sampling harness is reproduced verbatim:
+\begin{verbatim}
+for d in 3 4 5; do
+  python sample.py --degree $d --trials 10000
+done
+\end{verbatim}
+
+As discussed in Section~\ref{sec:intro}, the bound \eqref{eq:gap} cannot be
+improved beyond the Ramanujan threshold.
+
+\input{appendix-proofs}
+
+\bibliographystyle{plain}
+\bibliography{refs}
+
+\end{document}
