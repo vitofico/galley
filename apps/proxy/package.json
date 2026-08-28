@@ -1,0 +1,23 @@
+{
+  "name": "@galley/proxy",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Thin, stateless, optional forward-proxy for cloud model APIs. Holds keys server-side, relays streaming traffic, solves CORS. Self-hostable / localhost by default.",
+  "main": "./src/index.ts",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@galley/shared": "workspace:*",
+    "@hono/node-server": "^1.13.0",
+    "hono": "^4.12.25",
+    "tsx": "^4.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.0"
+  }
+}
