@@ -1,0 +1,22 @@
+{
+  "name": "@galley/collab",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Framework-agnostic CRDT collaboration core (Yjs): the agent as a peer. No React, no DOM, no network.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@galley/shared": "workspace:*",
+    "lib0": "^0.2.117",
+    "y-protocols": "^1.0.6",
+    "yjs": "^13.6.0"
+  }
+}
