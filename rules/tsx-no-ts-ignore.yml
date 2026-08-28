@@ -1,0 +1,7 @@
+id: tsx-no-ts-ignore
+language: Tsx
+severity: warning
+message: "Prefer '@ts-expect-error' over '@ts-ignore' so stale suppressions are flagged."
+rule:
+  kind: comment
+  regex: "@ts-ignore"

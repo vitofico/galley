@@ -1,0 +1,10 @@
+id: ts-no-console-log
+language: TypeScript
+severity: warning
+message: "Avoid console.log — use a structured logger, or console.warn/error for diagnostics."
+note: |
+  console.log left in shipping code is noise. Server code should use the
+  project logger; intentional CLI/script output can use console.error/warn or
+  carry an ast-grep ignore comment.
+rule:
+  pattern: console.log($$$ARGS)

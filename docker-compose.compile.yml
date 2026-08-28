@@ -1,0 +1,40 @@
+# Server-side compile overlay (BUG-1 fix) — wires web ↔ compile so the in-app
+# Server/Auto compiler toggle "just works", WITHOUT forcing the heavier compile
+# image onto every `docker compose up`. Use it ALONGSIDE the base compose:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.compile.yml \
+#     --profile compile up --build
+#   # → open http://localhost:8080, then Settings → Compile → Server / Auto
+#
+# Why `--profile compile` is still needed: the base file gates the `compile`
+# service behind `profiles: ["compile"]`, and Docker Compose MERGES the
+# `profiles` list across `-f` files (it cannot REMOVE a profile an overlay
+# inherits) — so the overlay can pre-wire the URL but the profile flag is what
+# actually schedules the service. The flag + this overlay together are the
+# one-command on-ramp; without the overlay you'd also have to hand-export
+# GALLEY_COMPILE_URL (the original BUG-1 footgun).
+#
+# What this overlay does (and only this):
+#   Advertises the BROWSER-reachable compile endpoint to the web-server via
+#   GALLEY_COMPILE_URL. The web-server serves it at /config.js so the SPA's
+#   Settings → Compile reads a real URL instead of "Not configured", and the
+#   Server/Auto toggle has a live endpoint to call.
+#
+# Why this exact URL — http://127.0.0.1:3001/compile :
+#   * The compile service publishes `127.0.0.1:3001:3001` (base compose), so from
+#     the BROWSER the service is reachable at 127.0.0.1:3001 (NOT the in-network
+#     `compile` hostname — the browser runs on the host, not the compose network).
+#   * apps/compile/src/index.ts mounts the handler at `POST /compile`, and the
+#     web client (packages/compiler/src/remote-compiler-client.ts) POSTs to the
+#     configured URL VERBATIM (it appends no path) — so the URL MUST include the
+#     `/compile` path. (`/healthz` is liveness; `/readyz` is readiness.)
+#   * The compile service's ALLOWED_ORIGINS already lists http://localhost:8080
+#     and http://127.0.0.1:8080, and the web-server's CSP `connect-src` already
+#     permits http/https/ws/wss, so this cross-origin call is allowed as-is.
+#
+# Defaults stay opt-in: the base `docker compose up` is unchanged (web-only, no
+# compile service, empty GALLEY_COMPILE_URL). This overlay is the easy on-ramp.
+services:
+  web:
+    environment:
+      GALLEY_COMPILE_URL: "http://127.0.0.1:3001/compile"

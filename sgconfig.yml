@@ -1,0 +1,5 @@
+# ast-grep configuration — structural lint rules for the TypeScript workspace.
+# Run locally with `pnpm lint:ast` (or `ast-grep scan`); also wired into
+# pre-commit and CI. Rule files live in `rules/`.
+ruleDirs:
+  - rules

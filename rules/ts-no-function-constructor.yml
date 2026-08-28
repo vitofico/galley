@@ -1,0 +1,9 @@
+id: ts-no-function-constructor
+language: TypeScript
+severity: error
+message: "Avoid the Function constructor — it is eval in disguise."
+note: |
+  `new Function("a", "return a")` compiles a string at runtime. Prefer a real
+  function or a typed dispatch table.
+rule:
+  pattern: new Function($$$ARGS)

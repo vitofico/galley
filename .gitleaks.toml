@@ -1,0 +1,65 @@
+# Gitleaks configuration for Galley (roadmap #22.1).
+#
+# Extends the upstream default ruleset, then allowlists KNOWN test sentinels —
+# deliberately fake credential constants that exist to TEST token-redaction
+# logic (they are never real and never hit the wire). This keeps the secret
+# scan honest: real secrets anywhere still fail; only these documented dummies
+# are suppressed. Every allowlist entry below is justified in
+# docs/security-scanning.md.
+#
+# Used by scripts/security-scan.sh and the security.yml gitleaks job.
+title = "Galley gitleaks config"
+
+[extend]
+# Inherit gitleaks' built-in detectors (github tokens, AWS keys, etc.).
+useDefault = true
+
+[allowlist]
+description = "Known-fake test sentinels + generated/lock artifacts"
+
+# Fake GitHub-PAT-shaped sentinels used only in token-redaction tests. They are
+# constant, obviously-bogus, and exist to prove credentials are stripped. Matched
+# by EXACT VALUE (not a blanket test-file path glob) so a REAL secret accidentally
+# committed to a test/spec file still fails the scan — the wave-26 follow-up to
+# tighten the allowlist. Keep in sync with the `ghp_…` constants in
+# *.test.ts / *.spec.ts (grep `ghp_` to enumerate).
+regexes = [
+  '''ghp_TOPSECRET1234567890''',
+  '''ghp_LIVEPROBE_SENTINEL_NEVER_ON_WIRE_0001''',
+  '''ghp_SECRETSENTINEL_DO_NOT_LEAK_0001''',
+  '''ghp_URLEMBEDDED_NEVER_RENDER_7777''',
+  '''ghp_URLEMBEDDEDPAT_456''',
+  '''ghp_LEGACY_PAT''',
+  '''ghp_URLPAT_999''',
+  '''ghp_E2E_SENTINEL_NEVER_RENDER_4242''',
+  '''ghp_store_SENTINEL_42''',
+  '''ghp_unit_SENTINEL_token_123456''',
+  '''ghp_top''',
+  '''ghp_authfield''',
+  '''ghp_topsecret''',
+  '''ghp_secret''',
+  '''ghp_keepme''',
+  '''ghp_x''',
+  # BibTeX cite-keys (author surname + 4-digit year, e.g. `michelson1887`) in the
+  # citation test fixtures: the generic-api-key heuristic flags `key: "name1887"`.
+  # These are bibliography identifiers, never secrets. Anchored to the whole secret
+  # so a real high-entropy key (mixed symbols / longer) still fails the scan.
+  '''^[A-Za-z][A-Za-z.\-]*[0-9]{4}$''',
+]
+
+# Path allowlist: ONLY generated lockfiles + dependency caches / build artifacts /
+# vendored third-party trees — never the repo's own source. (gitleaks runs
+# `detect --no-git`, which walks the whole working tree, so a populated
+# `.pnpm-store`/`node_modules` would otherwise flag API-key-shaped strings inside
+# third-party packages — false positives that are not Galley secrets.) Test/spec
+# files are deliberately NOT here: their fake sentinels are covered by exact-value
+# regexes above, so a REAL secret committed to a test file still fails.
+paths = [
+  '''(^|/)pnpm-lock\.yaml$''',
+  '''(^|/)\.pnpm-store/''',
+  '''(^|/)node_modules/''',
+  '''(^|/)\.git/''',
+  '''(^|/)dist/''',
+  '''(^|/)\.ui-shots/''',
+  '''(^|/)\.security/out/''',
+]

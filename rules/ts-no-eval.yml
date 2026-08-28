@@ -1,0 +1,10 @@
+id: ts-no-eval
+language: TypeScript
+severity: error
+message: "Avoid 'eval' — it executes arbitrary code and defeats bundler/type analysis."
+note: |
+  Use JSON.parse for data, a lookup table/Map for dynamic dispatch, or an
+  explicit parser. If you truly need dynamic evaluation, isolate it and add an
+  ast-grep ignore comment with justification.
+rule:
+  pattern: eval($$$ARGS)

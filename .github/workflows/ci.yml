@@ -1,0 +1,101 @@
+name: CI
+
+# Fast feedback on every branch push and pull request. `main` is covered by
+# release.yml. Static checks run on the host; the test suite runs in Docker
+# because that is the canonical green-gate (host Vitest is intentionally not
+# supported — see docker-compose.test.yml).
+
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    name: Lint & typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: ast-grep structural lint
+        run: pnpm lint:ast
+
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+  unit:
+    name: Typecheck + unit (Docker)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Run the unit green-gate
+        run: docker compose -f docker-compose.test.yml run --build unit
+
+  cross-browser-smoke:
+    name: Cross-browser smoke (Firefox + WebKit)
+    runs-on: ubuntu-latest
+    # Roadmap 23.3 — a SMALL smoke subset (preview / offline / save-state) run on
+    # Firefox + WebKit to catch divergences in WASM, Web Workers, IndexedDB, and
+    # font/glyph rendering that the chromium-only gate can't see. NON-BLOCKING for
+    # now: this matrix is freshly introduced, so a newly-surfaced cross-browser
+    # issue should be REPORTED and triaged (see docs/known-issues.md), not hard-
+    # block every PR on day one. Flip `continue-on-error` to false once it is
+    # reliably green on both engines. The canonical chromium green-gate is
+    # unaffected — it lives in the `unit`/release gates and stays chromium-only.
+    continue-on-error: true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      # Reuse the canonical Playwright test image (chromium + firefox + webkit are
+      # all pre-installed in mcr.microsoft.com/playwright:v1.60.0-jammy, the `test`
+      # stage). Build the web bundle, then run the firefox+webkit smoke subset.
+      # `--entrypoint sh` overrides the image's default green-gate CMD so ONLY the
+      # cross-browser script runs here.
+      - name: Build bundle + run Firefox/WebKit smoke
+        run: >
+          docker compose -f docker-compose.test.yml run --rm --build
+          --entrypoint sh test -lc
+          "pnpm --filter @galley/web build && pnpm --filter @galley/web e2e:cross"
+
+  k8s-manifests:
+    name: Validate k8s manifests (offline)
+    runs-on: ubuntu-latest
+    # Pure repo-only check (deploy/k8s + scripts/validate-k8s.sh); isolated from
+    # the app green-gate so manifests can't silently rot as features grow (#5 slice 6).
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      # Single static binary — schema-aware, fully offline validation (the
+      # renderer is the kustomize bundled into the runner's kubectl).
+      - name: Install kubeconform
+        run: |
+          KUBECONFORM_VERSION=v0.6.7
+          curl -sSL \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | tar -xz -C /usr/local/bin kubeconform
+          kubeconform -v
+
+      - name: Validate base + every overlay
+        run: ./scripts/validate-k8s.sh

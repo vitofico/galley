@@ -1,0 +1,6 @@
+id: tsx-no-console-log
+language: Tsx
+severity: warning
+message: "Avoid console.log — use a structured logger, or console.warn/error for diagnostics."
+rule:
+  pattern: console.log($$$ARGS)

@@ -1,0 +1,14 @@
+id: ts-no-skipped-tests
+language: TypeScript
+severity: warning
+message: "Skipped test (.skip / xit / xdescribe) — track it or remove it."
+note: |
+  A skipped test is invisible debt. Prefer a linked TODO explaining why, or
+  delete it. Acceptable temporarily; the warning keeps it visible.
+rule:
+  any:
+    - pattern: describe.skip($$$ARGS)
+    - pattern: it.skip($$$ARGS)
+    - pattern: test.skip($$$ARGS)
+    - pattern: xit($$$ARGS)
+    - pattern: xdescribe($$$ARGS)

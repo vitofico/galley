@@ -1,0 +1,191 @@
+# Self-host runtime (roadmap #5, ADR-0017): `docker compose up` RUNS Galley.
+#
+#   docker compose up --build           # web + proxy + sync (the default profile)
+#   docker compose --profile compile up --build   # + the server-side compile service
+#   docker compose -f docker-compose.yml build     # just build the runtime image
+#
+# Server-side compile is OPT-IN (BUG-1): a plain `up` advertises no compile URL,
+# so /settings → Compile reads "Not configured." The easy on-ramp is the overlay
+# docker-compose.compile.yml, which pre-sets GALLEY_COMPILE_URL for you:
+#   docker compose -f docker-compose.yml -f docker-compose.compile.yml \
+#     --profile compile up --build
+# See docs/self-host.md → "Enabling server-side compile".
+#
+# The green-gate lives in docker-compose.test.yml and is untouched by this file.
+#
+# ONE shared runtime image (galley-runtime, built by the `web` service from the
+# Dockerfile `runtime` target) runs every service; each overrides `command:` to
+# exec its own package's tsx entry. The web app is STANDALONE by default
+# (in-browser worker compile, local CRDT); proxy/sync/compile are opt-in from the
+# browser (query params / settings), so `web` alone is a complete Galley.
+#
+# Ports bind to 127.0.0.1 by default — sync has no auth/persistence yet, so do not
+# expose it publicly without the auth seam (roadmap #4). Override the host bind /
+# ALLOWED_ORIGINS for a real deployment.
+services:
+  # The static web server — serves the built @galley/web SPA bundle. Owns the
+  # build of the shared runtime image; the other services reuse the same tag.
+  web:
+    build:
+      context: .
+      target: runtime
+    image: galley-runtime
+    # (default CMD = the web-server; stated here for clarity)
+    command: ["apps/web-server/node_modules/.bin/tsx", "apps/web-server/src/server.ts"]
+    environment:
+      PORT: "8080"
+      # No CSP override needed: the web-server's DEFAULT_CSP already grants the
+      # typst.ts compiler what it needs ('wasm-unsafe-eval' + 'unsafe-eval').
+      #
+      # Serve-time runtime config (roadmap #5 slice 5): the BROWSER-REACHABLE
+      # URL of the compile service. Empty by default ON PURPOSE — a web-only
+      # `docker compose up` must not advertise a dead server (the SPA's
+      # Server/Auto compiler toggle stays fail-closed). `--profile compile`
+      # deployments set it to the published compile port before `up`, e.g.:
+      #   export GALLEY_COMPILE_URL=http://127.0.0.1:3001/compile
+      #   docker compose --profile compile up --build
+      # When set, the web-server serves /config.js + injects its <script> tag
+      # into index.html so ONE image serves any deployment (no rebuild).
+      GALLEY_COMPILE_URL: "${GALLEY_COMPILE_URL:-}"
+      #
+      # OIDC auth (default OFF). To enable, uncomment these AND the matching block
+      # under `sync`, AND the `galley-sessions:`/`galley-projects:` volume mounts
+      # below + at the bottom.
+      # GALLEY_SESSION_DIR is REQUIRED under OIDC and MUST be the SAME path mounted
+      # into both web and sync (the shared session volume), else the web-server
+      # fails closed at startup (in-memory sessions can't reach the sync container).
+      # GALLEY_DATA_DIR is the SAME shared projects volume sync mounts: web writes
+      # the capability-room registry there (Share / Agent Access) so the relay can
+      # authorize those rooms. Without it, those flows fail closed against an
+      # auth-required relay (web logs a startup warning).
+      # GALLEY_AUTH_MODE: "oidc"
+      # GALLEY_OIDC_ISSUER: "https://idp.example.com/application/o/galley/"
+      # GALLEY_OIDC_CLIENT_ID: "galley"
+      # GALLEY_PUBLIC_BASE_URL: "https://galley.example.com"
+      # GALLEY_SESSION_DIR: "/var/lib/galley/sessions"
+      # GALLEY_DATA_DIR: "/var/lib/galley/projects"
+    ports:
+      - "127.0.0.1:8080:8080"
+    # volumes:
+    #   # Shared session volume — the SAME named volume is mounted into `sync` so a
+    #   # web-minted session validates there. Opt-in (uncomment) with OIDC above.
+    #   - galley-sessions:/var/lib/galley/sessions
+    #   # SAME shared projects volume as `sync` — web writes the capability-room
+    #   # registry here; sync reads it to authorize Share / Agent Access rooms.
+    #   - galley-projects:/var/lib/galley/projects
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  # The model proxy (ADR-0004): holds cloud keys server-side, relays streaming,
+  # solves CORS. Configure upstreams via UPSTREAM_<ID>_* env (none by default).
+  proxy:
+    image: galley-runtime
+    command: ["apps/proxy/node_modules/.bin/tsx", "apps/proxy/src/server.ts"]
+    environment:
+      PORT: "8787"
+      ALLOWED_ORIGINS: "http://localhost:8080,http://127.0.0.1:8080"
+    ports:
+      - "127.0.0.1:8787:8787"
+    depends_on:
+      web:
+        condition: service_started
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  # The collaboration sync relay (ADR-0008): a doc-holding y-websocket server.
+  # Health is GET / -> 200 "galley-sync ok". No auth/persistence yet.
+  sync:
+    image: galley-runtime
+    command: ["apps/sync/node_modules/.bin/tsx", "apps/sync/src/server.ts"]
+    environment:
+      PORT: "1234"
+      # Room authorization (default OFF — open rooms). To enable, uncomment these
+      # AND the OIDC block under `web`, AND both `galley-sessions:`/`galley-projects:`
+      # mounts + the volume declarations at the bottom. GALLEY_SESSION_DIR MUST
+      # equal web's path (the shared volume); GALLEY_DATA_DIR is the shared projects
+      # volume used for membership + capability-room authorization (web writes the
+      # registry there). GALLEY_SYNC_ALLOWED_ORIGINS is the CSWSH wall — set it to
+      # your EXACT public origin(s), comma-separated; the auth-required relay
+      # REFUSES TO START without it (capability rooms are authorized by
+      # registration, not cookies, so the Origin allowlist is what stops a hostile
+      # page from driving a leaked room id). With auth required and either dir or
+      # the origins missing, sync fails closed at startup (it refuses to run an
+      # "enforcing" relay it can't enforce).
+      # GALLEY_SYNC_AUTH: "required"
+      # GALLEY_SESSION_DIR: "/var/lib/galley/sessions"
+      # GALLEY_DATA_DIR: "/var/lib/galley/projects"
+      # GALLEY_SYNC_ALLOWED_ORIGINS: "https://galley.example.com"
+    ports:
+      - "127.0.0.1:1234:1234"
+    # volumes:
+    #   # SAME shared session volume as `web` (web mints → sync validates).
+    #   - galley-sessions:/var/lib/galley/sessions
+    #   # SAME shared projects volume as `web` (web writes the capability-room
+    #   # registry; sync reads it for membership + room authorization).
+    #   - galley-projects:/var/lib/galley/projects
+    depends_on:
+      web:
+        condition: service_started
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "fetch('http://127.0.0.1:1234/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  # The optional server-side Typst compile service (ADR-0015) — heavier (WASM +
+  # optional Universe package fetch), so it's behind the `compile` profile.
+  # Packages stay fail-closed unless REGISTRY_BASE_URL + REGISTRY_INTEGRITY_FILE
+  # are configured (ADR-0016).
+  compile:
+    image: galley-runtime
+    command: ["apps/compile/node_modules/.bin/tsx", "apps/compile/src/server.ts"]
+    profiles: ["compile"]
+    environment:
+      PORT: "3001"
+      ALLOWED_ORIGINS: "http://localhost:8080,http://127.0.0.1:8080"
+      # Compile isolation (default since the 2026-07 flip: worker). Each compile
+      # runs in a terminable worker_thread so a runaway document returns 503
+      # instead of wedging the service. Registry users MUST override to inline
+      # (worker isolation is incompatible with REGISTRY_BASE_URL — the server
+      # throws at startup if both are set): GALLEY_COMPILE_ISOLATION=inline.
+      GALLEY_COMPILE_ISOLATION: "${GALLEY_COMPILE_ISOLATION:-worker}"
+    ports:
+      - "127.0.0.1:3001:3001"
+    depends_on:
+      web:
+        condition: service_started
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+# Named volumes. The shared session + projects volumes are OPT-IN: they only
+# matter when OIDC / sync auth is enabled (see the commented env + mounts under
+# `web` and `sync`). Declaring them is inert until a service mounts them, so the
+# default no-auth `docker compose up` is unchanged. Uncomment alongside the
+# mounts above.
+# volumes:
+#   # Web mints sessions here; sync reads the SAME volume to validate them.
+#   galley-sessions:
+#   # Web writes the capability-room registry here; sync reads the SAME volume for
+#   # membership + Share / Agent Access room authorization.
+#   galley-projects:

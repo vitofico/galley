@@ -1,0 +1,12 @@
+id: ts-no-focused-tests
+language: TypeScript
+severity: error
+message: "Remove focused tests (.only) — they silently skip the rest of the suite."
+note: |
+  `describe.only` / `it.only` / `test.only` make CI pass while running only one
+  test. Drop `.only` before committing.
+rule:
+  any:
+    - pattern: describe.only($$$ARGS)
+    - pattern: it.only($$$ARGS)
+    - pattern: test.only($$$ARGS)

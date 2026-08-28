@@ -1,0 +1,10 @@
+id: ts-no-ts-ignore
+language: TypeScript
+severity: warning
+message: "Prefer '@ts-expect-error' over '@ts-ignore' so stale suppressions are flagged."
+note: |
+  @ts-expect-error errors out when the underlying issue is fixed; @ts-ignore
+  silently rots. Add a short reason after the directive.
+rule:
+  kind: comment
+  regex: "@ts-ignore"

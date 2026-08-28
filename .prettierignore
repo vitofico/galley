@@ -1,0 +1,19 @@
+# Generated / vendored — never reformat.
+pnpm-lock.yaml
+node_modules/
+.pnpm-store/
+dist/
+build/
+coverage/
+**/dist/
+**/build/
+**/.vite/
+**/playwright-report/
+**/test-results/
+
+# Worktrees created by tooling.
+.claude/worktrees/
+
+# Typst / binary fixtures and assets.
+*.pdf
+*.typ

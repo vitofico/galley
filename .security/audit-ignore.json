@@ -1,0 +1,61 @@
+{
+  "$comment": [
+    "Pinned ignore-list policy for `scripts/security-scan.sh`.",
+    "ONLY pnpm-audit advisory IDs (GHSA-* or the numeric npm id) belong here — never secrets.",
+    "An advisory listed here is TRIAGED, not silenced: every entry MUST carry a rationale and a",
+    "review date, and the triage write-up lives in docs/security-scanning.md. The scanner FAILS",
+    "on any NEW high/critical advisory that is NOT on this list; listed ones are reported as",
+    "'IGNORED (triaged)' so they never disappear silently. Re-review on each scheduled run.",
+    "Match is by GHSA id first, then numeric id — list both for robustness."
+  ],
+  "policy": {
+    "failOn": ["high", "critical"],
+    "note": "moderate/low/info advisories are REPORTED but do not fail the build; high/critical fail unless ignored below."
+  },
+  "ignore": [
+    {
+      "id": "GHSA-gv7w-rqvm-qjhr",
+      "module": "esbuild",
+      "severity": "high",
+      "reason": "Dev/build-only and not applicable: this is esbuild's Deno-module install path fetching the esbuild binary from NPM_CONFIG_REGISTRY without integrity verification (RCE only if a Deno consumer points NPM_CONFIG_REGISTRY at a malicious registry). Galley consumes esbuild ONLY transitively via vite/vitest under Node + pnpm with a locked registry — it never uses esbuild's Deno loader, and NPM_CONFIG_REGISTRY is not attacker-controlled in CI or local dev. The runtime image ships prebuilt dist (no esbuild). Not exploitable. Clears when vite/vitest pull a fixed esbuild.",
+      "addedDate": "2026-06-15",
+      "reviewBy": "2026-09-15"
+    },
+    {
+      "id": "GHSA-5xrq-8626-4rwp",
+      "npmId": 1120126,
+      "module": "vitest",
+      "severity": "critical",
+      "reason": "Dev-only: arbitrary file read via the Vitest UI server, and only when the UI/Browser-mode server is started AND exposed (--api.host) or run on Windows. Galley runs Vitest headless in Docker (`pnpm test` = `vitest run`); the UI is never started and the runtime image ships only built dist (served by tsx), not vitest. Not exploitable in CI or production. Bundled vitest is pinned by the lockfile; bumping to >=3.2.6 is a major (vitest 2->3) toolchain upgrade tracked as a follow-up.",
+      "addedDate": "2026-06-11",
+      "reviewBy": "2026-09-11"
+    },
+    {
+      "id": "GHSA-67mh-4wv8-2f99",
+      "npmId": 1102341,
+      "module": "esbuild",
+      "severity": "moderate",
+      "reason": "Dev-server-only CORS leak: esbuild's serve mode sets Access-Control-Allow-Origin:*. Reached only transitively via vite's dev server. Galley never runs `esbuild --serve`; production serves prebuilt dist. Moderate, so it would not fail the gate anyway — listed for completeness/transparency. Clears when vite/vitest pull esbuild>=0.25.0.",
+      "addedDate": "2026-06-11",
+      "reviewBy": "2026-09-11"
+    },
+    {
+      "id": "GHSA-4w7w-66w2-5vf9",
+      "npmId": 1116229,
+      "module": "vite",
+      "severity": "moderate",
+      "reason": "Path traversal in vite's optimized-deps `.map` handling — exploitable only against a running vite DEV server. Galley's dev server is a localhost-only authoring convenience; the runtime image and CI never run `vite dev`. Moderate, so non-failing — listed for transparency. Clears on vite>=6.4.2.",
+      "addedDate": "2026-06-11",
+      "reviewBy": "2026-09-11"
+    },
+    {
+      "id": "GHSA-fx2h-pf6j-xcff",
+      "npmId": 1120789,
+      "module": "vite",
+      "severity": "high",
+      "reason": "Windows-dev-server-only and not applicable: `server.fs.deny` is bypassable via Windows alternate path forms (e.g. `\\\\?\\` / `8.3` short names), letting a request to a running `vite dev` server read files outside the allow-list. Galley consumes vite ONLY as a dev/build dependency (vitest + @vitejs/plugin-react); the runtime image ships prebuilt `apps/web/dist` served by Hono and never runs vite. The dev server is a localhost-only authoring convenience, and Galley dev + CI run on Linux/macOS (the bypass is specific to Windows path normalization). No 5.4.x backport exists — the fix first lands in vite 6.4.3 — so a real fix would require a vite 5->7 major toolchain bump for an advisory that cannot affect this project. Same applicability posture as GHSA-4w7w-66w2-5vf9 above. Clears when vitest/plugin-react pull a fixed vite.",
+      "addedDate": "2026-06-20",
+      "reviewBy": "2026-09-20"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+id: ts-no-debugger
+language: TypeScript
+severity: error
+message: "Remove 'debugger' statements before committing."
+rule:
+  pattern: debugger

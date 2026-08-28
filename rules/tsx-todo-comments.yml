@@ -1,0 +1,7 @@
+id: tsx-todo-comments
+language: Tsx
+severity: hint
+message: "TODO/FIXME comment found — consider filing an issue or addressing it."
+rule:
+  kind: comment
+  regex: "(TODO|FIXME|XXX)"

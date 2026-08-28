@@ -1,0 +1,7 @@
+id: ts-todo-comments
+language: TypeScript
+severity: hint
+message: "TODO/FIXME comment found — consider filing an issue or addressing it."
+rule:
+  kind: comment
+  regex: "(TODO|FIXME|XXX)"

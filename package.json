@@ -1,0 +1,36 @@
+{
+  "name": "galley",
+  "version": "0.0.0",
+  "private": true,
+  "description": "AI-native, local-first, model-agnostic document workspace built on Typst.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --filter @galley/web dev",
+    "dev:proxy": "pnpm --filter @galley/proxy dev",
+    "lint": "ast-grep scan -c sgconfig.yml",
+    "lint:ast": "ast-grep scan -c sgconfig.yml",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "pnpm -r typecheck",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@ast-grep/cli": "0.39.5",
+    "@types/node": "^20.16.0",
+    "prettier": "^3.3.0",
+    "typescript": "^5.5.0",
+    "vitest": "^3.2.6"
+  },
+  "pnpm": {
+    "overrides": {
+      "tsx>esbuild": "0.28.1"
+    }
+  }
+}

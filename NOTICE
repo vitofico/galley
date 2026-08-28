@@ -1,0 +1,25 @@
+Galley
+Copyright (C) 2026 Vito Fico
+
+This product is licensed under the GNU Affero General Public License,
+version 3 only (AGPL-3.0-only; see LICENSE).
+
+Galley is built on Typst (https://typst.app), the Typst compiler, which is
+licensed under the Apache License, Version 2.0.
+
+If you redistribute the Typst compiler binary as part of Galley, you must also
+include Typst's own NOTICE file alongside this one, per the terms of the Apache
+License. See https://github.com/typst/typst for Typst's license and NOTICE.
+
+Bundled fonts
+-------------
+Galley serves and bundles the following fonts so documents compile and render
+fully offline. Each is licensed under the SIL Open Font License, Version 1.1
+(OFL-1.1), which permits bundling and redistribution; the OFL is not modified by
+and does not modify Galley's own LICENSE.
+
+  - Inter — Copyright The Inter Project Authors (https://github.com/rsms/inter).
+  - Libertinus (Serif) and New Computer Modern — bundled from the typst-assets
+    project (https://github.com/typst/typst-assets).
+
+This NOTICE file is provided for attribution and does not modify the LICENSE.

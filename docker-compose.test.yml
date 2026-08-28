@@ -1,0 +1,84 @@
+# The canonical green-gate. Run it with:
+#
+#   docker compose -f docker-compose.test.yml run --rm --build test
+#
+# It builds the `test` image and runs typecheck -> unit -> web build -> e2e,
+# exiting non-zero on the first failure. This is the runnable definition
+# of "done" (manifest, Gate 1).
+#
+# Pass --build: plain `run` reuses a cached image and would silently test STALE
+# code after a change. And use `run`, NOT `up --exit-code-from test`: `up` starts
+# every service (unit, capture) and `--exit-code-from` tears the shared env down
+# when the slim `unit` service exits first — which can abort the e2e container.
+#
+# Postgres: the `test` gate depends on an internal-only Postgres (no host port)
+# whose data lives on tmpfs, so it is ephemeral and fast. The pg conformance
+# suites read `PG_TEST_DATABASE_URL` (set below) and run for real here; outside
+# Docker that var is unset and they skip (`describePg`). `run --rm` removes the
+# `test` container but NOT its `postgres` dependency — tear the project down
+# with:
+#   docker compose -f docker-compose.test.yml down -v --remove-orphans
+services:
+  # Ephemeral Postgres for the persistence conformance suites. Internal-only
+  # (no published port), data on tmpfs (nothing persists across runs), with a
+  # bounded healthcheck so the gate waits for readiness deterministically.
+  postgres:
+    # Digest-pinned: multi-arch manifest-list digest (docker buildx imagetools
+    # inspect); tag kept for readability. Bump tag+digest together.
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+    environment:
+      POSTGRES_USER: galley
+      POSTGRES_PASSWORD: galley
+      POSTGRES_DB: galley_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U galley -d galley_test"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  # The canonical green-gate: typecheck -> unit -> web build -> Playwright e2e.
+  # Parallel worktree runs set IMAGE_SUFFIX (e.g. "-wsb") alongside a unique
+  # `-p <name>` project so concurrent gates cannot race on the image tags.
+  test:
+    build:
+      context: .
+      target: test
+    image: galley-test${IMAGE_SUFFIX:-}
+    init: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # In-cluster DNS name of the postgres service above; the pg suites pick
+      # this up and run for real (absent it they skip).
+      PG_TEST_DATABASE_URL: postgres://galley:galley@postgres:5432/galley_test
+  # Fast typecheck + unit only (slim image), for quick iteration:
+  #   docker compose -f docker-compose.test.yml run --build unit
+  # DB-free on purpose — the pg suites skip here (no PG_TEST_DATABASE_URL), so
+  # this stays a quick inner-loop check.
+  unit:
+    build:
+      context: .
+      target: unit
+    image: galley-unit${IMAGE_SUFFIX:-}
+    init: true
+  # Capture-only screenshot harness. Run with:
+  #   docker compose -f docker-compose.test.yml run --build --rm capture
+  # Shots land on the host under apps/web/.ui-shots/ via the bind mount.
+  # NOTE: `vite preview` (the playwright webServer) serves dist/, so we must build
+  # the web bundle before running the capture spec.
+  capture:
+    build:
+      context: .
+      target: test
+    image: galley-test${IMAGE_SUFFIX:-}
+    init: true
+    working_dir: /app/apps/web
+    command: ["sh", "-lc", "pnpm --filter @galley/web build && pnpm --filter @galley/web exec playwright test ui-capture"]
+    environment:
+      CAPTURE: "1"
+    volumes:
+      - ./apps/web/.ui-shots:/app/apps/web/.ui-shots

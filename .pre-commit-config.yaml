@@ -1,0 +1,55 @@
+# Pre-commit hooks for the Galley workspace.
+#
+# One-time setup:
+#   pip install pre-commit   # or: brew install pre-commit
+#   pre-commit install
+#
+# Run against everything on demand:
+#   pre-commit run --all-files
+#
+# Hooks run on staged files before each commit. Prettier auto-formats; ast-grep
+# enforces the structural rules in `rules/` (see sgconfig.yml). The full
+# typecheck + test green-gate stays in Docker/CI — these hooks are the fast,
+# local first line of defense.
+fail_fast: false
+
+default_install_hook_types:
+  - pre-commit
+
+repos:
+  # Generic hygiene checks.
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^pnpm-lock\.yaml$
+      - id: end-of-file-fixer
+        exclude: ^pnpm-lock\.yaml$
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: check-yaml
+        args: [--allow-multiple-documents] # deploy/k8s/*.yaml are multi-doc manifests
+      - id: check-json
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # ast-grep — structural lint rules (rules/ + sgconfig.yml).
+  # Errors fail the commit; warnings/hints are advisory.
+  - repo: https://github.com/boidolr/ast-grep-pre-commit
+    rev: 0.39.5
+    hooks:
+      - id: ast-grep
+        args: [--config, sgconfig.yml]
+
+  # Prettier — format using the repo's pinned version (consistent with CI).
+  # `language: system` runs the workspace's own prettier via pnpm, so the
+  # version always matches package.json instead of a separately pinned mirror.
+  - repo: local
+    hooks:
+      - id: prettier
+        name: prettier
+        entry: pnpm exec prettier --write --ignore-unknown
+        language: system
+        pass_filenames: true
+        types_or: [ts, tsx, javascript, jsx, json, yaml, markdown, css]

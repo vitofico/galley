@@ -1,0 +1,35 @@
+name: Feature request
+description: Propose an improvement or new capability
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before proposing, skim [`docs/vision.md`](../blob/main/docs/vision.md) —
+        Galley deliberately keeps scope tight around the compile-feedback agent
+        loop, and some things are non-goals on purpose.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the writing/editing situation where Galley falls short.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What you'd like to happen. Sketches and concrete examples welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: invariants
+    attributes:
+      label: Fit with Galley's invariants
+      options:
+        - label: This respects the human Accept gate (no auto-applied document edits)
+        - label: This works local-first (no mandatory cloud dependency)

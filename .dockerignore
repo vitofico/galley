@@ -1,0 +1,22 @@
+# Keep the build context lean and deterministic. Dependencies are installed
+# inside the image from the lockfile; never copy host node_modules in.
+**/node_modules
+# The pnpm content-addressable store is a host build cache (hundreds of MB of
+# extracted packages incl. native binaries). Never copy it into the image — it
+# bloats the context and trivy flags its vendored binaries' CVEs (e.g. esbuild's
+# Go stdlib) even though nothing at runtime uses the store.
+**/.pnpm-store
+pnpm-store
+**/dist
+**/build
+**/*.tsbuildinfo
+**/coverage
+.git
+.gitignore
+**/.env
+**/.env.*
+**/*.local
+**/.DS_Store
+**/.vite
+**/test-results
+**/playwright-report

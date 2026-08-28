@@ -1,0 +1,164 @@
+name: Security
+
+# Recurring automated security-scanning baseline (roadmap #22.1). SEPARATE from
+# ci.yml — it never gates the app green-gate; it catches regressions continuously
+# and is runnable locally via scripts/security-scan.sh (the single source of truth
+# the dependency-audit job calls). Each scanner is its own job so one failing
+# scanner still lets the others report.
+#
+# Fail thresholds: a NEW high/critical dependency advisory (not on
+# .security/audit-ignore.json) fails; gitleaks fails on any non-allowlisted
+# secret; trivy fails on fixable HIGH/CRITICAL in the runtime image; semgrep
+# fails on its ruleset findings. Baseline/triaged findings are reported, never
+# silently dropped.
+
+on:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Weekly — Mondays 07:17 UTC. Catches newly-disclosed advisories against an
+    # unchanged tree (the value of a *recurring* baseline vs a one-off audit).
+    - cron: "17 7 * * 1"
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  # gitleaks-action enumerates a pull request's commits via the REST API, which
+  # needs `pull-requests: read`; without it the PR scan 403s ("Resource not
+  # accessible by integration"). All jobs here are otherwise read-only.
+  pull-requests: read
+
+jobs:
+  # --- dependency audit -------------------------------------------------------
+  # Calls scripts/security-scan.sh's policy directly via pnpm audit so CI and
+  # local runs share one source of truth for the ignore-list + thresholds.
+  dependency-audit:
+    name: Dependency audit (pnpm)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The script runs every scanner it can; on this runner only pnpm audit is
+      # present, so the others SKIP. That keeps the audit policy (ignore-list +
+      # new-high/critical threshold) identical to a local run.
+      - name: Run dependency audit via security-scan.sh
+        run: bash scripts/security-scan.sh
+
+  # --- secret scan ------------------------------------------------------------
+  gitleaks:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          # Full history so the scheduled run scans every commit, not just the tip.
+          fetch-depth: 0
+
+      - name: Gitleaks scan
+        uses: gitleaks/gitleaks-action@v3.0.0
+        env:
+          # Uses the repo's tuned .gitleaks.toml (allowlists documented test
+          # sentinels; real secrets still fail). No license needed for public repos.
+          GITLEAKS_CONFIG: .gitleaks.toml
+          # gitleaks-action@v3 requires a token to enumerate a pull request's
+          # commits; without it the PR scan errors out ("GITHUB_TOKEN is now
+          # required to scan pull requests"). The default automatic token suffices.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # --- SAST -------------------------------------------------------------------
+  semgrep:
+    name: SAST (semgrep)
+    runs-on: ubuntu-latest
+    if: always()
+    container:
+      image: semgrep/semgrep:1.97.0
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      # Tuned registry packs + the local high-signal ruleset under .security/.
+      # --error makes findings fail the job; results are also uploaded as SARIF.
+      - name: Semgrep scan
+        run: |
+          semgrep scan \
+            --config p/typescript \
+            --config p/javascript \
+            --config .security/semgrep-galley.yml \
+            --error --metrics off \
+            --sarif --output semgrep.sarif \
+            apps packages scripts
+
+      - name: Upload semgrep SARIF
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: semgrep-sarif
+          path: semgrep.sarif
+          if-no-files-found: ignore
+
+  # --- runtime-image scan -----------------------------------------------------
+  # Builds the galley-runtime target, then trivy-scans it. Fails only on fixable
+  # HIGH/CRITICAL so unpatched upstream noise doesn't wedge the gate.
+  trivy-image:
+    name: Runtime image scan (trivy)
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Build galley-runtime image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: runtime
+          push: false
+          load: true
+          tags: galley-runtime:scan
+
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: galley-runtime:scan
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+  # --- SBOM -------------------------------------------------------------------
+  # Generates a CycloneDX SBOM and attaches it as a workflow artifact (audit
+  # trail of what the build actually ships). Never fails the gate.
+  sbom:
+    name: SBOM (CycloneDX)
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@v0.24.0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom.cdx.json
+          artifact-name: galley-sbom.cdx.json

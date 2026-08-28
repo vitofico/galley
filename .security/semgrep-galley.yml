@@ -1,0 +1,43 @@
+# Small, tuned local Semgrep ruleset for Galley (roadmap #22.1).
+#
+# Run via `scripts/security-scan.sh` (which also runs the registry packs
+# p/typescript + p/javascript when online). These rules COMPLEMENT — they do not
+# duplicate — the ast-grep hygiene set in `rules/` (no-eval, no-Function,
+# no-debugger, no-console, no-ts-ignore). They focus on security smells the
+# structural-lint set does not cover. Keep this set small and high-signal so it
+# stays false-positive-light; the registry packs carry the broad coverage.
+rules:
+  - id: galley-child-process-shell-interpolation
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Command built from interpolated input passed to a shell (exec/execSync).
+      Use execFile/spawn with an argument array, or strictly validate/allowlist
+      the input, to avoid command injection.
+    patterns:
+      - pattern-either:
+          - pattern: child_process.exec(`...${...}...`, ...)
+          - pattern: child_process.execSync(`...${...}...`, ...)
+          - pattern: exec(`...${...}...`, ...)
+          - pattern: execSync(`...${...}...`, ...)
+
+  - id: galley-react-dangerously-set-inner-html
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >-
+      dangerouslySetInnerHTML renders raw HTML and can introduce XSS. Ensure the
+      value is sanitized (or is a trusted, compiler-produced SVG string) — never
+      pass unsanitized user/model output.
+    pattern: dangerouslySetInnerHTML={...}
+
+  - id: galley-non-literal-fs-path-from-request
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >-
+      File path derived from request input flows into a filesystem read. Confirm
+      it is resolved against a fixed root and path-traversal ('..') is rejected.
+    patterns:
+      - pattern-either:
+          - pattern: fs.readFile(req.$X, ...)
+          - pattern: fs.readFileSync(req.$X, ...)
+          - pattern: fs.createReadStream(req.$X, ...)
