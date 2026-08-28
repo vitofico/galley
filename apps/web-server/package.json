@@ -1,0 +1,26 @@
+{
+  "name": "@galley/web-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tiny static file server (Hono) for the built @galley/web SPA bundle. Serves dist/ with SPA fallback + /healthz, offline-first (no CDN). The self-host runtime web service (roadmap #5).",
+  "main": "./src/index.ts",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@galley/auth": "workspace:*",
+    "@galley/persistence": "workspace:*",
+    "@galley/shared": "workspace:*",
+    "@hono/node-server": "^1.13.0",
+    "hono": "^4.12.25",
+    "tsx": "^4.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.0",
+    "jose": "^5.9.0"
+  }
+}
