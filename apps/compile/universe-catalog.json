@@ -1,0 +1,9 @@
+{
+  "note": "OPERATOR-CURATED catalog of trusted, version-PINNED @preview packages. `pnpm --filter @galley/compile build:manifest` snapshots each from REGISTRY_BASE_URL (default https://packages.typst.org) into the {sha256,size} manifest the compile service loads via REGISTRY_INTEGRITY_FILE. Only packages listed here can ever resolve at compile time (fail-closed). Add/verify exact versions for your deployment; a wrong or missing version is reported as a SKIP at build time and simply won't resolve. Hashes are pinned at build time, so a later upstream change to a pinned version is rejected (size/hash mismatch).",
+  "packages": [
+    "@preview/cetz:0.2.2",
+    "@preview/tablex:0.0.8",
+    "@preview/oxifmt:0.2.1",
+    "@preview/polylux:0.3.1"
+  ]
+}

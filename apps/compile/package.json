@@ -1,0 +1,27 @@
+{
+  "name": "@galley/compile",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Optional server-side Typst compile service (ADR-0015): a thin Hono app that runs @galley/compiler's TypstEngine in Node and answers check/render/export over HTTP. Enables trusted Universe package access + heavy projects. Self-hostable / localhost by default.",
+  "main": "./src/index.ts",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "build:manifest": "tsx src/build-manifest-cli.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@galley/compiler": "workspace:*",
+    "@galley/shared": "workspace:*",
+    "@hono/node-server": "^1.13.0",
+    "@myriaddreamin/typst-ts-renderer": "0.7.0",
+    "@myriaddreamin/typst-ts-web-compiler": "0.7.0",
+    "hono": "^4.12.25",
+    "tsx": "^4.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.0"
+  }
+}
