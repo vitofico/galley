@@ -1,0 +1,28 @@
+{
+  "name": "@galley/mcp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Inbound MCP local kernel (#16.1, ADR-0020): exposes Galley's agent tools to external MCP clients over local stdio. Scaffold only — the kernel (sync-room peer + pending-proposal mailbox behind the browser Accept gate) lands as its own reviewed slice.",
+  "main": "./src/index.ts",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@galley/agent": "workspace:*",
+    "@galley/collab": "workspace:*",
+    "@galley/shared": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "tsx": "^4.19.0",
+    "ws": "^8.18.0",
+    "yjs": "^13.6.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.0",
+    "@types/ws": "^8.5.0"
+  }
+}
