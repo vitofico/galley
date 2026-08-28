@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      Baseline Content-Security-Policy for static hosts (vite preview / S3 /
+      GitHub Pages) that send NO CSP header. The runtime web-server sends the
+      authoritative `DEFAULT_CSP` header (apps/web-server/src/index.ts) and BOTH
+      then apply; this value mirrors it MINUS `frame-ancestors` (ignored in a
+      <meta> CSP — header-only). `'wasm-unsafe-eval'`+`'unsafe-eval'` are required
+      by the in-browser typst WASM compiler; see the web-server CSP comment.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https: http: ws: wss:; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="theme-color" content="#101113" media="(prefers-color-scheme: dark)" />
+    <meta
+      name="description"
+      content="Galley — a collaborative, browser-based Typst editor with an AI agent as a peer."
+    />
+    <title>Galley — collaborative Typst</title>
+    <style>
+      /* Paint the paper background before the bundle loads (no white flash). */
+      html,
+      body {
+        margin: 0;
+        background: #ffffff;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

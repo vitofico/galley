@@ -1,0 +1,74 @@
+/*
+ * Forward source→preview highlight (#11.3, opt-in).
+ *
+ * The overlay is a single absolutely-positioned box layered over the rendered
+ * page. It lives INSIDE `.preview-page-frame` — a box that shrink-wraps the
+ * rendered <svg> — and its inline left/top/width/height are PERCENTAGES of the
+ * SVG's viewBox (the entry rect's point coords ÷ the document's point size; see
+ * Preview.tsx `docSize`). Because the SVG's `max-width: 100%` shrink AND the
+ * preview-zoom transform both apply to that same frame, the percentage overlay
+ * scales 1:1 with the SVG at any pane width or zoom — no physical-px math. It is
+ * purely additive: it renders only when an active source region exists, and never
+ * when the opt-in props are absent, so the default preview is unchanged.
+ */
+.preview-page {
+  /* Anchor the absolutely-positioned highlight to the page box. Harmless when no
+     highlight is present (the page has no positioned descendants by default). */
+  position: relative;
+}
+
+/* Frame around the rendered <svg> on the opt-in highlight path. It shrink-wraps
+   the SVG (`width: fit-content`, capped at the pane via `max-width: 100%`) and is
+   the positioning context for the overlay, which is sized as a percentage of this
+   box. Because the SVG's own `max-width: 100%` shrink resolves against this same
+   box, the overlay scales 1:1 with the SVG at any pane width — fixing the "agent
+   pane open → highlight floats below its line" misalignment. */
+.preview-page-frame {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+}
+
+/* Transparent wrapper around the injected <svg>: `display: contents` removes it
+   from the box tree, so the frame tightly bounds the SVG itself and the page's
+   existing `.preview-page :where(svg)` rule and zoom transform apply unchanged. */
+.preview-svg-host {
+  display: contents;
+}
+
+.preview-source-highlight {
+  position: absolute;
+  pointer-events: none;
+  /* Floor so a tiny (sub-pixel) region stays visible at small zoom / narrow panes. */
+  min-width: 2px;
+  min-height: 2px;
+  /* Design-token colored: a subtle accent wash + outline, theme-aware. */
+  background: color-mix(in srgb, var(--accent, #4c6ef5) 14%, transparent);
+  outline: 1.5px solid
+    color-mix(in srgb, var(--accent, #4c6ef5) 55%, transparent);
+  border-radius: 2px;
+  /* A short fade so cursor moves feel responsive, not jumpy. */
+  transition:
+    top 0.12s ease,
+    left 0.12s ease,
+    width 0.12s ease,
+    height 0.12s ease,
+    opacity 0.12s ease;
+  opacity: 1;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .preview-source-highlight {
+    transition: none;
+  }
+}
+
+/* Inverse sync (#11.3, opt-in): a click-to-source affordance. Applied ONLY when
+   the page carries `data-source-clickable` (i.e. both `sourceMap` and
+   `onSourceClick` are wired); the default preview has no such attribute, so the
+   cursor is unchanged. The text-cursor hints that clicking the page jumps the
+   editor to the corresponding source. */
+.preview-page[data-source-clickable="true"] {
+  cursor: text;
+}

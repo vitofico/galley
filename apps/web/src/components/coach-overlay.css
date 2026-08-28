@@ -1,0 +1,153 @@
+/*
+ * First-run coach overlay (onboarding M3). Calm, one-time, NON-BLOCKING.
+ *
+ * The overlay layer and its scrim are `pointer-events: none` so they never
+ * intercept an edit — a click passes through to the app and doubles as
+ * "continue". Only the card re-enables pointer events so its "Got it" button
+ * clicks cleanly. Token-only (no brand literals) so it survives a skin swap and
+ * adapts to the light/dark themes through the shared token layer.
+ */
+
+.coach-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  pointer-events: none;
+}
+
+.coach-scrim {
+  position: absolute;
+  inset: 0;
+  /* A LIGHT dim — enough to lift the card, never the full modal scrim (this cue
+     never blocks the app). Neutral, so it darkens in both themes. */
+  background: rgba(20, 22, 28, 0.22);
+  pointer-events: none;
+}
+
+.coach-card {
+  position: relative;
+  width: min(30rem, 100%);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 1.3rem 1.4rem;
+  background: var(--chrome-opaque);
+  color: var(--ink);
+  border: 1px solid var(--chrome-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-2);
+  font-family: var(--font-ui);
+  /* Re-enable interaction for the card alone. */
+  pointer-events: auto;
+  animation: coach-rise 180ms ease both;
+}
+
+@keyframes coach-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.coach-title {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.coach-panes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.coach-pane {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+.coach-pane strong {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.coach-pane code {
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+  padding: 0.05em 0.3em;
+  border-radius: var(--radius-sm);
+  background: var(--paper-sunk);
+  color: var(--ink);
+}
+
+.coach-pane-mark {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  font-size: 0.76rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.coach-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.2rem;
+}
+
+.coach-dismiss {
+  appearance: none;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.4rem 1rem;
+  color: var(--on-accent);
+  background: var(--accent);
+  border: 1px solid var(--accent-deep);
+  border-radius: var(--radius-pill);
+  transition: background 140ms ease;
+}
+
+.coach-dismiss:hover {
+  background: var(--accent-deep);
+}
+
+.coach-dismiss:focus-visible {
+  outline: 2px solid var(--accent-deep);
+  outline-offset: 2px;
+}
+
+.coach-hint {
+  font-size: 0.74rem;
+  color: var(--ink-faint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .coach-card {
+    animation: none;
+  }
+}

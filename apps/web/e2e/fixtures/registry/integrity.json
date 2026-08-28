@@ -1,0 +1,10 @@
+{
+  "@preview/cetz:0.2.2": {
+    "sha256": "3489060ec85bbabbb3024da9da098d9dd1ebd0ab39d637334a58fa6a6f78abe8",
+    "size": 382
+  },
+  "@preview/galleytest:0.1.0": {
+    "sha256": "ff1deef264313a7a2e7020f5ae9694928201af870ee5f831f1b7e59ec483e76d",
+    "size": 258
+  }
+}

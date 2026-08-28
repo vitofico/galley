@@ -1,0 +1,574 @@
+/*
+ * Project library / dashboard (roadmap #12.3). Scoped class names with a
+ * `library` prefix so they never collide with global rules in styles.css.
+ * Colors/typography come from the design tokens (var(--…, fallback)) only; no
+ * hardcoded brand colors. Tokens referenced: --paper-raised, --paper-sunk,
+ * --ink, --ink-soft, --ink-faint, --line, --accent, --accent-soft,
+ * --accent-deep, --danger, --radius, --radius-sm, --font-ui, --shadow-1.
+ */
+
+.library {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1.5rem;
+  font-family: var(--font-ui, system-ui, sans-serif);
+  color: var(--ink, #1c140d);
+  background: var(--paper-sunk, #f4f5f7);
+  min-height: 100%;
+  box-sizing: border-box;
+}
+
+.library-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.library-header-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* Device-generic actions (Import project, Settings) — pushed to the trailing
+   edge, styled as quiet pills matching the back button. */
+.library-header-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.library-action {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 2rem;
+  padding: 0 0.85rem;
+  font: inherit;
+  font-size: 0.85rem;
+  line-height: 1;
+  color: var(--ink-soft, #55504a);
+  background: var(--paper-raised, #fff);
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: var(--radius-pill, 999px);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+.library-action:hover {
+  background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);
+  color: var(--ink, #1c140d);
+}
+
+.library-action:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* The settings gear is icon-only (square). */
+.library-settings {
+  width: 2rem;
+  padding: 0;
+  font-size: 1.05rem;
+}
+
+/* B9 — back button: a quiet pill-icon affordance matching the topbar aesthetic. */
+.library-back {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  font: inherit;
+  font-size: 1.05rem;
+  line-height: 1;
+  color: var(--ink-soft, #55504a);
+  background: var(--paper-raised, #fff);
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: var(--radius-pill, 999px);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+.library-back:hover {
+  background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);
+  color: var(--ink, #1c140d);
+  border-color: var(--line-strong, #dcdde2);
+}
+
+.library-back:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.library-title {
+  margin: 0;
+  font-family: var(--font-display, Georgia, serif);
+  font-size: 1.45rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ink, #1c140d);
+}
+
+.library-subtitle {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--ink-faint, #6b675f);
+}
+
+/* Create-project form */
+/* Loading + empty states */
+.library-loading,
+.library-empty {
+  margin: 0;
+  padding: 1.25rem 1rem;
+  text-align: center;
+  line-height: 1.55;
+  color: var(--ink-faint, #6b675f);
+  background: var(--paper-raised, #fff);
+  border: 1px dashed var(--line, #ececef);
+  border-radius: var(--radius, 10px);
+}
+
+/* Project grid */
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.9rem;
+}
+
+.library-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: var(--paper-raised, #fff);
+  border: 1px solid var(--chrome-border, rgba(20, 22, 28, 0.1));
+  border-radius: 14px;
+  box-shadow: var(--shadow-1, 0 1px 2px rgba(0, 0, 0, 0.05));
+  transition: box-shadow 140ms ease, border-color 140ms ease;
+}
+
+.library-card:hover {
+  border-color: var(--line-strong, #dcdde2);
+  box-shadow: var(--shadow-2, 0 8px 22px rgba(0, 0, 0, 0.07));
+}
+
+.library-card-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink, #1c140d);
+  word-break: break-word;
+}
+
+/* B11 — the name is click-to-edit: hint it (cursor + subtle hover wash) without
+   making it look like a button. */
+.library-card-name[role="button"] {
+  cursor: text;
+  border-radius: var(--radius-sm, 6px);
+  padding: 0.05rem 0.25rem;
+  margin: -0.05rem -0.25rem;
+  transition: background 140ms ease;
+}
+
+.library-card-name[role="button"]:hover {
+  background: color-mix(in srgb, var(--ink, #1c140d) 6%, transparent);
+}
+
+.library-card-name[role="button"]:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+/* B11 — the rename edit field, sized like the card name it replaces. */
+.library-card-name-input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink, #1c140d);
+  background: var(--paper-sunk, #f4f5f7);
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: var(--radius-sm, 6px);
+  padding: 0.1rem 0.35rem;
+}
+
+.library-card-name-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.library-card-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: auto;
+}
+
+.library-card-open {
+  flex: 1 1 auto;
+  padding: 0.4rem 0.75rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--on-accent);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-pill, 999px);
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+
+.library-card-open:hover {
+  background: var(--accent-deep);
+}
+
+.library-card-delete {
+  flex: 0 0 auto;
+  padding: 0.4rem 0.75rem;
+  font: inherit;
+  color: var(--err, #c0392b);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill, 999px);
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.library-card-delete:hover {
+  border-color: var(--err, #c0392b);
+  background: color-mix(in srgb, var(--err, #c0392b) 8%, transparent);
+}
+
+/* "+" new-project tile — first grid cell. A dashed ghost that expands into an
+   inline name field, so creating a project lives with the projects, not above. */
+.library-newcard {
+  display: flex;
+  min-height: 7.5rem;
+}
+
+.library-newcard-trigger {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 1rem;
+  font: inherit;
+  color: var(--ink-soft, #55504a);
+  background: transparent;
+  border: 1.5px dashed var(--line-strong, #dcdde2);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
+}
+
+.library-newcard-trigger:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.library-newcard-trigger:focus-visible {
+  outline: none;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.library-newcard-plus {
+  font-size: 1.6rem;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.library-newcard-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.library-newcard-form {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 1rem;
+  background: var(--paper-raised, #fff);
+  border: 1.5px solid var(--accent);
+  border-radius: 14px;
+  box-shadow: var(--shadow-1, 0 1px 2px rgba(0, 0, 0, 0.05));
+}
+
+.library-newcard-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.45rem 0.7rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink, #1c140d);
+  background: var(--paper-sunk, #f4f5f7);
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: var(--radius-sm, 6px);
+}
+
+.library-newcard-input::placeholder {
+  color: var(--ink-faint, #6b675f);
+  font-weight: 400;
+}
+
+.library-newcard-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.library-newcard-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.library-newcard-create {
+  flex: 1 1 auto;
+  padding: 0.4rem 0.75rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--on-accent);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-pill, 999px);
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+
+.library-newcard-create:hover:not(:disabled) {
+  background: var(--accent-deep);
+}
+
+.library-newcard-create:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.library-newcard-cancel {
+  flex: 0 0 auto;
+  padding: 0.4rem 0.85rem;
+  font: inherit;
+  color: var(--ink-soft, #55504a);
+  background: transparent;
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: var(--radius-pill, 999px);
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+
+.library-newcard-cancel:hover {
+  background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);
+}
+
+/* Inline delete confirm — replaces the action row with a clear destructive
+   choice: a one-line question, then a solid-red Delete and a quiet Cancel. */
+.library-card-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: auto;
+  padding: 0.7rem;
+  background: color-mix(in srgb, var(--err, #c0392b) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--err, #c0392b) 30%, transparent);
+  border-radius: 10px;
+}
+
+.library-card-confirm-text {
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--ink-soft, #55504a);
+}
+
+.library-card-confirm-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.library-card-delete-confirm {
+  flex: 1 1 auto;
+  padding: 0.4rem 0.85rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--on-accent);
+  background: var(--err, #c0392b);
+  border: none;
+  border-radius: var(--radius-pill, 999px);
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+
+.library-card-delete-confirm:hover {
+  background: color-mix(in srgb, var(--err, #c0392b) 85%, #000);
+}
+
+.library-card-delete-cancel {
+  flex: 1 1 auto;
+  padding: 0.4rem 0.85rem;
+  font: inherit;
+  color: var(--ink-soft, #55504a);
+  background: var(--paper-raised, #fff);
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: var(--radius-pill, 999px);
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+
+.library-card-delete-cancel:hover {
+  background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);
+}
+
+/* #12.4 — search + tag filter + archive */
+.library-controls {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.library-search {
+  flex: 1 1 14rem;
+  min-width: 0;
+  padding: 0.45rem 0.9rem;
+  font: inherit;
+  color: var(--ink, #1c140d);
+  background: var(--paper-raised, #fff);
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: var(--radius-pill, 999px);
+}
+
+.library-search::placeholder {
+  color: var(--ink-faint, #6b675f);
+}
+
+.library-search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.library-archived-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft, #55504a);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.library-tag-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.library-tag-chip {
+  --tag-color: var(--accent);
+  padding: 0.2rem 0.6rem;
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--tag-color);
+  background: transparent;
+  border: 1px solid var(--tag-color);
+  border-radius: 999px;
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+.library-tag-chip:hover {
+  opacity: 1;
+}
+
+.library-tag-chip[data-active="true"] {
+  color: var(--ink, #1c140d);
+  background: color-mix(in srgb, var(--tag-color) 22%, var(--paper, #ffffff));
+  border-color: color-mix(in srgb, var(--tag-color) 55%, transparent);
+  opacity: 1;
+}
+
+/* Per-card tags */
+.library-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.library-card-tag {
+  --tag-color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.72rem;
+  color: var(--tag-color);
+  background: color-mix(in srgb, var(--tag-color) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tag-color) 45%, transparent);
+  border-radius: 999px;
+}
+
+.library-card-tag-remove {
+  padding: 0;
+  font: inherit;
+  line-height: 1;
+  color: inherit;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  opacity: 0.65;
+}
+
+.library-card-tag-remove:hover {
+  opacity: 1;
+}
+
+.library-card-addtag {
+  display: inline-flex;
+}
+
+.library-card-addtag-input {
+  width: 5rem;
+  padding: 0.1rem 0.4rem;
+  font: inherit;
+  font-size: 0.72rem;
+  color: var(--ink, #1c140d);
+  background: var(--paper-sunk, #f4f5f7);
+  border: 1px dashed var(--line, #ececef);
+  border-radius: 999px;
+}
+
+.library-card-addtag-input:focus {
+  outline: none;
+  border-style: solid;
+  border-color: var(--accent);
+}
+
+.library-card-archive {
+  flex: 0 0 auto;
+  padding: 0.4rem 0.75rem;
+  font: inherit;
+  color: var(--ink-soft, #55504a);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill, 999px);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.library-card-archive:hover {
+  background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);
+  color: var(--ink, #1c140d);
+}
+
+.library-card-archived {
+  opacity: 0.6;
+}
+

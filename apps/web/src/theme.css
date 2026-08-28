@@ -1,0 +1,135 @@
+/*
+ * Galley — skin × theme overrides.
+ *
+ * DEFAULT skin (Studio, tangerine on white — the Galley logo color): the :root
+ * block in styles.css is Studio-light. This file provides the three non-default
+ * variants:
+ *   - [data-theme="dark"]                    → Studio-dark (the default dark)
+ *   - [data-skin="press"]                    → Press-light (warm parchment)
+ *   - [data-skin="press"][data-theme="dark"] → Press-dark
+ *
+ * Each skin block declares ONLY the 22 skin-varying tokens; the shared dark
+ * lifts (--syn-* / --agent* / --ok/--warn/--err) live in the default-dark block
+ * and are inherited by BOTH dark skins (they are cross-skin constants — a skin
+ * swap must never alter code readability or the agent/status semantics). All
+ * other shared tokens (--doc-paper, --radius*, --blur-chrome, --font-*) come
+ * from :root and are never overridden here.
+ */
+
+/* SKIN: Studio — DARK (the default dark). Also carries the shared dark lifts
+   for --syn-* / --agent* / --ok/--warn/--err that BOTH dark skins inherit. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #101113; --paper-raised: #17181b; --paper-sunk: #0b0c0d; --paper-hi: #1f2024;
+  --preview-gutter: #050506;
+  --ink: #ededf0; --ink-soft: #b6bac0; --ink-faint: #9aa0a6;
+  --line: #26282d; --line-strong: #34373d;
+  --brand: #ff6a3d; --accent: #ff6a3d; --accent-deep: #ff9170; --accent-soft: #33211a;
+  --on-accent: #1a0f08;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.45);
+  --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.45), 0 8px 22px rgba(0, 0, 0, 0.5);
+  --shadow-doc: 0 1px 3px rgba(0, 0, 0, 0.55), 0 16px 36px rgba(0, 0, 0, 0.6),
+    0 0 32px rgba(236, 228, 214, 0.07), 0 0 88px rgba(236, 228, 214, 0.05);
+  --chrome: #1c1e22; --chrome-opaque: #1c1e22; --chrome-border: rgba(255, 255, 255, 0.12);
+
+  /*
+   * Typst syntax-highlight palette (DARK) — a cross-skin constant. The light
+   * :root hex values score ~2:1 on this charcoal ground (R6 fail); these are
+   * tasteful, distinct lifts each clearing WCAG AA (4.5:1) on the editor ground.
+   * MUST mirror DARK_SYNTAX_COLORS in typst-highlight.ts (the contrast guard
+   * pins these values).
+   */
+  --syn-heading: #e8a06a;
+  --syn-keyword: #ec8466;
+  --syn-function: #54c2ba;
+  --syn-variable: #8fc4be;
+  --syn-string: #a3c178;
+  --syn-math: #54c2ba;
+  --syn-raw: #cf9f6e;
+  --syn-number: #d99f5f;
+  --syn-comment: #9a9082;
+  --syn-escape: #57c0b6;
+  --syn-label: #b298dc;
+  --syn-list: #ec8466;
+
+  /* Status colors, tuned for legibility on dark. */
+  --ok: #5bbd80;
+  --warn: #d6a23c;
+  --err: #e26a4f;
+
+  /* The AI peer — brightened teal (already AA on dark; --agent-bright is the
+     bright decorative teal used on the agent notice accent border). */
+  --agent: #46b8b0;
+  --agent-bright: #46b8b0;
+  --agent-soft: #14302d;
+  --on-agent: #10211f;
+}
+
+/* SKIN: Press (warm parchment) — LIGHT. Yesterday's styles.css :root values. */
+:root[data-skin="press"] {
+  color-scheme: light;
+  --paper: #f4efe4; --paper-raised: #fbf8f2; --paper-sunk: #eae3d4; --paper-hi: #ffffff;
+  --preview-gutter: #ddd5c4;
+  --ink: #1b1a16; --ink-soft: #5c574c; --ink-faint: #706a5e;
+  --line: #e4ddce; --line-strong: #d4ccba;
+  --brand: #e8b04b; --accent: #e8b04b; --accent-deep: #8a5a12; --accent-soft: #f6ead0;
+  --on-accent: #1b1a16;
+  --shadow-1: 0 1px 2px rgba(60, 45, 20, 0.05), 0 2px 6px rgba(60, 45, 20, 0.05);
+  --shadow-2: 0 2px 5px rgba(60, 45, 20, 0.06), 0 12px 30px rgba(60, 45, 20, 0.09);
+  --shadow-doc: 0 1px 3px rgba(60, 45, 20, 0.12), 0 16px 36px rgba(60, 45, 20, 0.14);
+  --chrome: #fbf8f2; --chrome-opaque: #fbf8f2; --chrome-border: rgba(40, 30, 15, 0.12);
+}
+
+/* SKIN: Press — DARK (deep navy-black press bed). Inherits the shared dark
+   --syn-* / --agent* / --ok/--warn/--err from the default-dark block above. */
+:root[data-skin="press"][data-theme="dark"] {
+  /* Native controls render dark (checkboxes/scrollbars stop reading as cold white). */
+  color-scheme: dark;
+  /* Surfaces — deep navy-black press bed. */
+  --paper: #0d0f14;
+  --paper-raised: #12151c;
+  --paper-sunk: #090b0f;
+  --paper-hi: #1a1e27;
+  --preview-gutter: #050608;
+
+  /* Foreground ink — warm off-white down to faint. */
+  --ink: #ece7dc;
+  --ink-soft: #a8a496;
+  --ink-faint: #8a8880; /* lightened from brief's #6f6d63: opaque AA on #14171e + 3:1 on glass/doc-paper */
+
+  /* Hairlines on the dark press ground. */
+  --line: #262b37;
+  --line-strong: #333b4b;
+
+  /* Press gold, same hue on the dark ground; on-accent is dark for legibility. */
+  --brand: #e8b04b;
+  --accent: #e8b04b;
+  --accent-deep: #c9912f;
+  --accent-soft: #2a2316;
+  --on-accent: #0d0f14;
+
+  /* Shadows read as deeper against the dark press ground. */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.45);
+  --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.45), 0 8px 22px rgba(0, 0, 0, 0.5);
+  /* The rendered page is the one luminous object on the press bed — a deep
+     drop plus a soft warm glow so the paper reads as lit, not pasted. */
+  --shadow-doc:
+    0 1px 3px rgba(0, 0, 0, 0.55),
+    0 16px 36px rgba(0, 0, 0, 0.6),
+    0 0 32px rgba(236, 228, 214, 0.07),
+    0 0 88px rgba(236, 228, 214, 0.05);
+
+  /* Chrome — a dark step lifted from the bed. */
+  --chrome: #14171e;
+  --chrome-opaque: #14171e;
+  --chrome-border: rgba(255, 255, 255, 0.12);
+}
+
+/* Glass only where backdrop blur exists (progressive enhancement; the opaque
+   token above is the readable fallback). Alpha values keep even the UNblurred
+   composite over the worst-case backdrop within WCAG AA for ink/ink-soft text
+   (pinned by theme.test.ts) — the blur is atmosphere, never legibility. */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root[data-theme="dark"] { --chrome: rgba(28, 30, 34, 0.88); }
+  :root[data-skin="press"][data-theme="dark"] { --chrome: rgba(20, 23, 30, 0.88); }
+}

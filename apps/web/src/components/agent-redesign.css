@@ -1,0 +1,390 @@
+/*
+ * agent-redesign.css — pane chrome for the redesigned agent mode.
+ *
+ * Covers: .agent-session-bar (compact header row), .agent-transcript
+ * (scrollable conversation), and .agent-cost-line (thin budget meter).
+ *
+ * Design tokens only — no hardcoded brand hexes. Supports light AND dark
+ * themes via the same tokens (theme.css overrides `:root[data-theme="dark"]`).
+ * Existing trace/stream/live/diff styles (agent-ux.css) are untouched.
+ */
+
+/* ── Panel sizing ────────────────────────────────────────────────────────────
+   The pane is a three-zone column: a fixed session bar, a flexible transcript
+   that scrolls, and a fixed composer. For the transcript's `flex:1` to resolve
+   (rather than collapse to one line), `.agent` itself must claim the height of
+   its `.sidebar` flex parent — otherwise it is auto-height (= sum of children),
+   the transcript's `flex-basis:0` resolves against zero free space, and the
+   diff-review + its Accept/Reject buttons get squeezed out below the panel.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.agent {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Transcript children keep their natural height; the transcript scrolls instead
+   of shrinking them (a squeezed diff-review buries the Accept/Reject buttons). */
+.agent-transcript > * {
+  flex-shrink: 0;
+}
+
+/* ── Session bar ─────────────────────────────────────────────────────────────
+   A compact horizontal chrome strip at the top of the agent panel.
+   LEFT: session title button (tap to open switcher dropdown).
+   RIGHT: `.agent-session-bar-actions` housing the + (new) and ⋯ (overflow).
+   The switcher and overflow menu float as absolute popovers.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.agent-session-bar {
+  position: relative;      /* anchor for the switcher popover */
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--line, #ececef);
+  background: var(--paper-raised, #ffffff);
+  flex: none;              /* never shrink within the agent panel column */
+  min-height: 0;
+}
+
+/* Session title — left-anchored, grows to fill remaining space */
+.agent-session-title {
+  appearance: none;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink, #1c140d);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm, 5px);
+  padding: 0.2rem 0.4rem;
+  cursor: pointer;
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.agent-session-title:hover {
+  background: color-mix(in srgb, var(--ink, #1c140d) 7%, transparent);
+}
+
+.agent-session-title:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Switcher dropdown — absolutely positioned below the bar */
+.agent-session-switcher {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0.25rem;
+  min-width: 14rem;
+  max-width: 22rem;
+  max-height: 16rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.3rem;
+  list-style: none;
+  background: var(--chrome, #ffffff);
+  border: 1px solid var(--chrome-border, rgba(20, 22, 28, 0.10));
+  border-radius: var(--radius, 8px);
+  box-shadow: var(--shadow-2, 0 2px 5px rgba(45, 34, 22, 0.05), 0 10px 26px rgba(45, 34, 22, 0.07));
+  z-index: 40;
+}
+
+.agent-session-switcher li {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  border-radius: var(--radius-sm, 5px);
+}
+
+.agent-session-switcher li + li {
+  margin-top: 1px;
+}
+
+/* Individual session entry */
+.agent-session-item {
+  appearance: none;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--ink, #1c140d);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm, 5px);
+  padding: 0.3rem 0.5rem;
+  cursor: pointer;
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 120ms ease;
+}
+
+.agent-session-item:hover,
+.agent-session-item[data-active="true"] {
+  background: color-mix(in srgb, var(--agent, #0c6a63) 10%, transparent);
+}
+
+.agent-session-item[data-active="true"] {
+  font-weight: 600;
+  color: var(--agent, #0c6a63);
+}
+
+/* Inline rename/delete affordances — appear beside each session entry */
+.agent-session-rename,
+.agent-session-delete {
+  appearance: none;
+  font: inherit;
+  font-size: 0.8rem;
+  line-height: 1;
+  padding: 0.15rem 0.35rem;
+  color: var(--ink-soft, #55504a);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm, 5px);
+  cursor: pointer;
+  flex: none;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+}
+
+.agent-session-switcher li:hover .agent-session-rename,
+.agent-session-switcher li:hover .agent-session-delete {
+  opacity: 1;
+}
+
+.agent-session-rename:hover {
+  background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);
+  color: var(--ink, #1c140d);
+}
+
+.agent-session-delete:hover {
+  background: color-mix(in srgb, var(--err, #c0392b) 12%, transparent);
+  color: var(--err, #c0392b);
+}
+
+.agent-session-rename:focus-visible,
+.agent-session-delete:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Inline rename input */
+.agent-session-rename-input {
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--ink, #1c140d);
+  background: var(--paper-sunk, #f4f5f7);
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: var(--radius-sm, 5px);
+  padding: 0.2rem 0.4rem;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.agent-session-rename-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* Right-side action buttons: + and ⋯ */
+.agent-session-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex: none;
+}
+
+.agent-session-new,
+.agent-overflow-button {
+  appearance: none;
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--ink-soft, #55504a);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm, 5px);
+  padding: 0.15rem 0.4rem;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.agent-session-new:hover,
+.agent-overflow-button:hover {
+  background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);
+  color: var(--ink, #1c140d);
+}
+
+.agent-session-new:focus-visible,
+.agent-overflow-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Persistent "instructions active" badge on the ⋯ button — a small teal dot in
+   the top-right corner, visible without opening the overflow menu. */
+.agent-overflow-button {
+  position: relative;
+}
+
+.agent-overflow-active-dot {
+  position: absolute;
+  top: 0.05rem;
+  right: 0.1rem;
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: var(--agent, #0c6a63);
+  box-shadow: 0 0 0 1.5px var(--paper-raised, #ffffff);
+}
+
+/* Overflow menu — absolute popover anchored to the right edge of the bar */
+.agent-overflow-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0.25rem;
+  min-width: 13rem;
+  max-width: 22rem;
+  padding: 0.4rem;
+  background: var(--chrome, #ffffff);
+  border: 1px solid var(--chrome-border, rgba(20, 22, 28, 0.10));
+  border-radius: var(--radius, 8px);
+  box-shadow: var(--shadow-2, 0 2px 5px rgba(45, 34, 22, 0.05), 0 10px 26px rgba(45, 34, 22, 0.07));
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+/* ── Transcript ──────────────────────────────────────────────────────────────
+   Vertically scrollable conversation log. User turns are right-ish with a
+   tinted background; assistant turns are left-aligned on the plain surface.
+   Status glyphs and step counts render as quiet secondary annotations.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.agent-transcript {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.75rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  background: var(--paper-sunk, #f4f5f7);
+}
+
+/* Base turn */
+.agent-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-width: 92%;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+/* User turn — right-aligned, tinted bubble */
+.agent-turn-user {
+  align-self: flex-end;
+  background: color-mix(in srgb, var(--agent, #0c6a63) 12%, var(--paper-raised, #ffffff));
+  border: 1px solid color-mix(in srgb, var(--agent, #0c6a63) 20%, var(--line, #ececef));
+  border-radius: var(--radius, 8px) var(--radius-sm, 5px) var(--radius-sm, 5px) var(--radius, 8px);
+  padding: 0.4rem 0.65rem;
+  color: var(--ink, #1c140d);
+}
+
+/* Assistant turn — left-aligned, plain surface */
+.agent-turn-assistant {
+  align-self: flex-start;
+  background: var(--paper-raised, #ffffff);
+  border: 1px solid var(--line, #ececef);
+  border-radius: var(--radius-sm, 5px) var(--radius, 8px) var(--radius, 8px) var(--radius-sm, 5px);
+  border-left: 2px solid var(--agent, #0c6a63);
+  padding: 0.4rem 0.65rem;
+  color: var(--ink, #1c140d);
+}
+
+/* Status glyph (✓ ■ ⚠) — rendered before the turn text */
+.agent-turn-status {
+  display: inline-block;
+  margin-right: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--ink-soft, #55504a);
+  vertical-align: text-top;
+  line-height: 1.6;
+}
+
+/* Step count annotation — quiet secondary metadata */
+.agent-turn-steps {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.72rem;
+  color: var(--ink-faint, #6b675f);
+}
+
+/* Steps disclosure toggle — a quiet inline button above the trace */
+.agent-steps-toggle {
+  appearance: none;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--ink-soft, #55504a);
+  background: color-mix(in srgb, var(--ink, #1c140d) 4%, transparent);
+  border: 1px solid var(--chrome-border, rgba(20, 22, 28, 0.10));
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  cursor: pointer;
+  align-self: flex-start;
+  letter-spacing: 0.01em;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.agent-steps-toggle:hover {
+  background: color-mix(in srgb, var(--ink, #1c140d) 9%, transparent);
+  color: var(--ink, #1c140d);
+}
+
+.agent-steps-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Cost line ───────────────────────────────────────────────────────────────
+   A thin, one-line budget meter that sits above the composer textarea.
+   `.agent-cost-line-over` switches to the warning color when overbudget.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.agent-cost-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.2rem 0.6rem;
+  border-top: 1px solid var(--line, #ececef);
+  background: var(--paper-raised, #ffffff);
+  color: var(--ink-soft, #55504a);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.72rem;
+  line-height: 1.3;
+  flex: none;
+}
+
+.agent-cost-line > span:last-child:not(:first-child) {
+  margin-left: auto;
+}
+
+.agent-cost-line-over {
+  border-top-color: var(--warn, #8a5a0a);
+  background: color-mix(in srgb, var(--warn, #8a5a0a) 8%, var(--paper-raised, #ffffff));
+  color: var(--warn, #8a5a0a);
+}

@@ -1,0 +1,244 @@
+/*
+ * Citation-panel-specific styles (#6). The overlay/card/inputs/buttons reuse the
+ * shared `authoring-` vocabulary (authoring-panels.css) — this file only adds the
+ * citation-specific bits: the rendered Hayagriva YAML preview + the cite-key line.
+ * Colors/type come from the design tokens only (var(--…, fallback)).
+ */
+
+.citation-key-line {
+  margin-bottom: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft, #55504a);
+}
+
+.citation-key-line code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.85rem;
+  color: var(--accent-deep);
+}
+
+.citation-yaml {
+  margin: 0;
+  max-height: 16rem;
+  overflow: auto;
+  padding: 0.6rem 0.7rem;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: pre;
+  color: var(--ink, #1c140d);
+  background: color-mix(in srgb, var(--ink, #1c140d) 4%, transparent);
+  border: 1px solid var(--chrome-border, rgba(20, 22, 28, 0.10));
+  border-radius: var(--radius-sm, 6px);
+}
+
+/*
+ * A citation-scoped Accept hook for the e2e. DiffReview already renders the
+ * visible Accept/Reject (testid "accept"/"reject"), shared across all panels;
+ * this gives Lane S a stable, citation-specific selector without changing the
+ * shared diff component. Visually hidden but still clickable in tests.
+ */
+.citation-insert-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/*
+ * Mode tabs (#17.1 / #17.4): Paste · Import library · Search. A thin segmented
+ * strip under the header; selected tab is accented. Tokens-only.
+ */
+.citation-tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.6rem 1.1rem 0;
+}
+
+/* #19.5: pill tabs, matching the Insert dock's segmented language. */
+.citation-tab {
+  padding: 0.35rem 0.8rem;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--ink-soft, #55504a);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill, 999px);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+.citation-tab:hover {
+  color: var(--ink, #1c140d);
+  background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);
+}
+
+.citation-tab[aria-selected="true"] {
+  color: var(--accent-deep);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  font-weight: 600;
+}
+
+/*
+ * #17.1 — the "Import library" tab's source selector (Paste file · Zotero ·
+ * Mendeley). A lighter segmented strip INSIDE the tab body, so adding a reference
+ * manager never grows the top tab bar. Reuses the pill-tab language one notch
+ * smaller, and reads as a sub-control of the tab.
+ */
+.citation-library-source {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-bottom: 0.7rem;
+}
+
+.citation-source-tab {
+  padding: 0.3rem 0.7rem;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--ink-soft, #55504a);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--ink, #1c140d) 14%, transparent);
+  border-radius: var(--radius-pill, 999px);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+.citation-source-tab:hover {
+  color: var(--ink, #1c140d);
+  background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);
+}
+
+.citation-source-tab[aria-selected="true"] {
+  color: var(--accent-deep);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  font-weight: 600;
+}
+
+/* Each source's body (paste / Zotero / Mendeley) — a plain flow wrapper; the
+   inner controls carry their own spacing. */
+.citation-source-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+/* The search query field sits inline with its Search button. */
+.citation-search-input {
+  flex: 1;
+  resize: none;
+}
+
+/* Reviewable result/import rows: title + sub-line + a per-row action button. */
+.citation-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 20rem;
+  overflow: auto;
+}
+
+.citation-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  background: color-mix(in srgb, var(--ink, #1c140d) 4%, transparent);
+  border: 1px solid var(--chrome-border, rgba(20, 22, 28, 0.10));
+  border-radius: 10px;
+}
+
+.citation-list-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+/* #6 search-insert: the per-result action cluster (Insert / Add to bib / Review).
+   Buttons stay compact and wrap rather than overflow the narrow docked panel. */
+.citation-search-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.citation-search-actions .authoring-primary,
+.citation-search-actions .authoring-secondary {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+/* #6 search-your-library: the filter box above an imported library's row list. */
+.citation-library-filter {
+  margin: 0.4rem 0;
+}
+
+.citation-list-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink, #1c140d);
+}
+
+.citation-list-sub {
+  font-size: 0.78rem;
+  color: var(--ink-soft, #55504a);
+}
+
+.citation-list-sub code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--accent-deep);
+}
+
+.citation-dup-badge {
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.4rem;
+  font-size: 0.72rem;
+  color: var(--err, #c0392b);
+  background: color-mix(in srgb, var(--err, #c0392b) 9%, transparent);
+  border: 1px solid var(--err, #c0392b);
+  border-radius: var(--radius-pill, 999px);
+}
+
+/* #17.1 Zotero pull — connection fields stacked above the reusable review list. */
+.citation-zotero-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0.5rem 0;
+}
+
+.citation-zotero-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.citation-zotero-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-soft, #55504a);
+}
+
+.citation-zotero-select {
+  /* match the other field inputs; selects size to content by default */
+  width: 100%;
+}
+
+/* Honest truncation notice — same calm tone as the empty/summary status. */
+.citation-truncated {
+  color: var(--err, #c0392b);
+}

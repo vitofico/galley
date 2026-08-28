@@ -1,0 +1,289 @@
+/*
+ * Git-sync-panel styles — unified, destination-first redesign (2026-06-18).
+ * The overlay / card / inputs / buttons reuse the shared `authoring-` vocabulary
+ * (authoring-panels.css); this file adds the git-sync-specific surfaces: the
+ * destination chooser cards, the two sub-flow forms, and the configured card.
+ * Colors / type come from the design tokens only (var(--…, fallback)).
+ */
+
+/* --- Shared bits carried from the original panel --------------------------- */
+
+.git-sync-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.85rem;
+}
+
+.git-sync-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink-soft, #55504a);
+}
+
+.git-sync-token-state {
+  font-weight: 400;
+  font-style: italic;
+  color: var(--ink-faint, #6b675f);
+}
+
+.git-sync-input {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.85rem;
+}
+
+.git-sync-lead {
+  margin: 0 0 0.25rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--ink-soft, #55504a);
+}
+
+.git-sync-disclosure {
+  margin: 0.2rem 0 0;
+  padding: 0.55rem 0.7rem;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--ink-soft, #55504a);
+  background: color-mix(in srgb, var(--ink, #1c140d) 4%, transparent);
+  border: 1px solid var(--chrome-border, rgba(20, 22, 28, 0.1));
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+}
+
+.git-sync-status {
+  margin-top: 0.5rem;
+  word-break: break-word;
+}
+
+/* --- Destination chooser --------------------------------------------------- */
+
+.git-dest-chooser {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.git-dest-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+@media (max-width: 30rem) {
+  .git-dest-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+.git-dest-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  padding: 1rem;
+  text-align: left;
+  font: inherit;
+  color: var(--ink, #1c140d);
+  background: color-mix(in srgb, var(--ink, #1c140d) 3%, transparent);
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: 12px;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    transform 140ms ease;
+}
+
+.git-dest-card:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  transform: translateY(-1px);
+}
+
+.git-dest-card:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.git-dest-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  margin-bottom: 0.1rem;
+  border-radius: 9px;
+  color: var(--accent-deep);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.git-dest-card-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.git-dest-card-sub {
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--ink-soft, #55504a);
+}
+
+/* --- Sub-flow forms (GitHub / generic git) --------------------------------- */
+
+.git-dest-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.git-dest-identity {
+  margin: 0;
+}
+
+.git-dest-identity strong {
+  color: var(--ink, #1c140d);
+}
+
+/* Inline connect block. */
+.git-sync-connect {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.git-sync-connect-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.git-sync-connect-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.git-sync-connect-scope {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--ink-faint, #6b675f);
+}
+
+.git-sync-connect-scope code,
+.git-sync-connect-lead code,
+.git-sync-disclosure code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--accent-deep);
+}
+
+/* Per-project push target — owner / name @ branch. */
+.git-sync-github-repo {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.git-sync-github-repo input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.git-sync-github-sep {
+  flex: none;
+  color: var(--ink-faint, #6b675f);
+  font-size: 0.9rem;
+}
+
+/* The sub-flow action rows put Back on the left, primary on the right. */
+.git-dest-form .authoring-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-top: 0.2rem;
+}
+
+.git-dest-form .authoring-actions [data-testid="git-dest-back"] {
+  margin-right: auto;
+}
+
+/* --- Configured destination card ------------------------------------------- */
+
+.git-dest-configured {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.git-dest-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.85rem;
+  background: color-mix(in srgb, var(--ink, #1c140d) 3%, transparent);
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: 12px;
+}
+
+.git-dest-summary-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 8px;
+  color: var(--accent-deep);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* GitHub's brand mark is near-black; render it on a solid dark chip with a white
+   glyph so it reads crisply and unmistakably in BOTH themes (the tinted chip +
+   theme accent left the filled Octocat near-invisible). Placed AFTER both base
+   icon rules so it wins on the single-class specificity tie. */
+.git-dest-card-icon--github,
+.git-dest-summary-icon--github {
+  color: #fff;
+  background: #1c1a18;
+}
+
+/* Dark theme: a near-black chip would vanish into the dark panel — invert to a
+   light chip with the dark mark so GitHub stays crisp and unmistakable. */
+[data-theme="dark"] .git-dest-card-icon--github,
+[data-theme="dark"] .git-dest-summary-icon--github {
+  color: #1c1a18;
+  background: #ece8e3;
+}
+
+.git-dest-summary-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.git-dest-summary-kind {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint, #6b675f);
+}
+
+.git-dest-summary-repo {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink, #1c140d);
+  overflow-wrap: anywhere;
+}
+
+.git-dest-summary-meta {
+  font-size: 0.78rem;
+  color: var(--ink-soft, #55504a);
+}
+
+.git-sync-sync-actions {
+  margin-top: 0;
+}

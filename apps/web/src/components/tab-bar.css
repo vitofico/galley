@@ -1,0 +1,76 @@
+/*
+ * Pane tab bar (roadmap #11.9). Scoped `tab-bar` prefix — never collides with
+ * global rules in styles.css. Colors/typography come from the design tokens
+ * (var(--…)) only; no hardcoded hex. Tokens referenced: --paper-raised,
+ * --paper-sunk, --ink, --ink-soft, --ink-faint, --line, --accent-soft,
+ * --accent-deep, --radius-sm, --font-ui.
+ */
+
+.tab-bar {
+  display: flex;
+  gap: 0.2rem;
+  padding: 0.3rem;
+  background: var(--paper-raised);
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-ui);
+}
+
+.tab-bar-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-bar-tab:hover {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.tab-bar-tab:focus-visible {
+  outline: 2px solid var(--accent-deep);
+  outline-offset: -1px;
+}
+
+.tab-bar-tab[aria-selected="true"] {
+  background: var(--paper-sunk);
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+/*
+ * The collapsed (narrow) layout: the tab bar on top, the active pane filling the
+ * rest. Replaces the SplitPanes grid below the breakpoint (App renders one or the
+ * other). The single active pane stretches so the editor/preview/agent each get
+ * the full width when shown.
+ */
+.tabbed {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.tab-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  overflow: auto;
+}
+
+.tab-panel > * {
+  flex: 1 1 auto;
+  min-width: 0;
+}

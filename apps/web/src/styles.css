@@ -1,0 +1,1571 @@
+/*
+ * Galley — visual design system.
+ * The default skin is STUDIO (tangerine on white) — the palette of the Galley
+ * logo (#f0510e), so the bare app already wears the brand. The Press skin
+ * (warm parchment editorial) lives in theme.css under [data-skin="press"].
+ * Orthogonal to skin: [data-theme="dark"] applies Studio-dark; the Press
+ * variants are [data-skin="press"] and [data-skin="press"][data-theme="dark"].
+ * The rendered document alone stays warm paper (--doc-paper, invariant R1).
+ */
+:root {
+  /* Native form controls (checkboxes, scrollbars) follow the active theme. */
+  color-scheme: light;
+  /* Surfaces — clean white "studio" ground. */
+  --paper: #ffffff;
+  --paper-raised: #ffffff;
+  --paper-sunk: #f4f5f7;
+  --paper-hi: #f7f8fa;
+  --doc-paper: #fdfcf9; /* the rendered document is ALWAYS paper — never themed (R1) */
+  --preview-gutter: #e7e3da; /* the "desk" between separated preview sheets (page seams) */
+
+  /* Ink — near-black, faintly warm to sit on the white studio ground. */
+  --ink: #1c140d;
+  --ink-soft: #55504a;
+  --ink-faint: #6b675f;
+  --line: #ececef;
+  --line-strong: #dcdde2;
+
+  /* Studio tangerine signature — the Galley logo color. White label on the fill. */
+  --brand: #f0510e;
+  --accent: #f0510e;
+  --accent-deep: #ad4b00;   /* AA-legible burnt-orange for small text */
+  --accent-soft: #fdeae0;
+  --on-accent: #ffffff;     /* white label on the vivid tangerine fill */
+
+  /* The AI peer — teal, same two-shade split. */
+  --agent: #0c6a63;        /* deep fill, white-label safe */
+  --agent-bright: #0f8f86; /* bright decorative teal (agent notice accent border) */
+  --agent-soft: #e7f3f1;
+  --on-agent: #ffffff;
+
+  /*
+   * Typst syntax-highlight palette (LIGHT). The editor's HighlightStyle emits
+   * `color: var(--syn-*)`, so these are the cool-white token colours; the dark
+   * overrides live in theme.css.
+   */
+  --syn-heading: #b35900;
+  --syn-keyword: #bd4f00;
+  --syn-function: #0c6a63;
+  --syn-variable: #2f5a57;
+  --syn-string: #5f6e2e;
+  --syn-math: #0c6a63;
+  --syn-raw: #7a5a2a;
+  --syn-number: #8a5a1a;
+  --syn-comment: #8a8a86;
+  --syn-escape: #0c6a63;
+  --syn-label: #6f4a9e;
+  --syn-list: #bd4f00;
+  --ok: #1f7a4d;
+  --warn: #8a5a0a;
+  /* --err is a TRUE red, deliberately OUTSIDE the brand family, so "red"
+     reads as error/destructive only and never collides with the brand accent. */
+  --err: #c0392b;
+
+  /* Shadows tuned for the white studio ground. */
+  --shadow-1: 0 1px 2px rgba(45, 34, 22, 0.04), 0 1px 3px rgba(45, 34, 22, 0.05);
+  --shadow-2: 0 2px 5px rgba(45, 34, 22, 0.05), 0 10px 26px rgba(45, 34, 22, 0.07);
+  --shadow-doc: 0 1px 3px rgba(45, 34, 22, 0.12), 0 16px 36px rgba(45, 34, 22, 0.13);
+
+  --radius: 8px;
+  --radius-sm: 5px;
+
+  /*
+   * Rail & Islands chrome tokens (#19.5, spec §4). ALL floating chrome (pills,
+   * rail, dock cards, popovers, zoom pill, palette, notices, join card) paints
+   * on `--chrome` with a `--chrome-border` hairline and `--radius-pill` corners
+   * where the surface is a pill.
+   *
+   * `--chrome` starts OPAQUE (`--chrome-opaque` is the same value — the
+   * readable fallback the contrast guard in theme.test.ts pins); only under
+   * `@supports (backdrop-filter…)` (end of this file / theme.css) does it turn
+   * translucent, paired with `blur(var(--blur-chrome))`. The blur is a
+   * progressive enhancement and NEVER carries legibility: the guard also
+   * checks text on the translucent value composited over the worst-case
+   * backdrop with no blur at all.
+   */
+  --chrome: #ffffff;
+  --chrome-opaque: #ffffff;
+  --chrome-border: rgba(20, 22, 28, 0.10);
+  --radius-pill: 999px;
+  --blur-chrome: 14px;
+
+  --font-display: "Charter", "Georgia", "Times New Roman", serif;
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo,
+    Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/*
+ * Form-control defaults (R5/R6): every text input's placeholder uses the warm
+ * faint-ink token rather than the browser's cold grey (~#757575, which fails the
+ * contrast floor in both themes), and checkboxes/radios take the accent fill so
+ * they read as themed controls, not stark native boxes. Components may still
+ * override per-surface; this is the shared floor so no input is left un-themed.
+ */
+input::placeholder,
+textarea::placeholder {
+  color: var(--ink-faint);
+  opacity: 1;
+}
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-ui);
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--paper);
+  position: relative;
+}
+
+/* ---------- Accessibility (#11.7 a11y pass) --------------------------------- */
+/* A keyboard skip-link: the first focusable control, hidden until focused, that
+   jumps focus straight into the editor (past the topbar chrome). */
+.skip-link {
+  position: absolute;
+  top: 0.4rem;
+  left: 0.4rem;
+  z-index: 100;
+  padding: 0.4rem 0.8rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--on-accent);
+  background: var(--accent);
+  border: 1px solid var(--accent-deep);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transform: translateY(-220%);
+  transition: transform 0.15s ease;
+}
+.skip-link:focus {
+  transform: translateY(0);
+  outline: 2px solid var(--accent-deep);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .skip-link {
+    transition: none;
+  }
+}
+/* A consistent keyboard focus ring for interactive chrome that lacks its own. */
+.app button:focus-visible,
+.app a:focus-visible,
+.app input:focus-visible,
+.app textarea:focus-visible,
+.app select:focus-visible,
+.app summary:focus-visible {
+  outline: 2px solid var(--accent-deep);
+  outline-offset: 1px;
+}
+
+/* ---------- Top bar ---------------------------------------------------------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.55rem 1.1rem;
+  border-bottom: 1px solid var(--line-strong);
+  background:
+    linear-gradient(180deg, var(--paper-raised), var(--paper));
+  box-shadow: var(--shadow-1);
+  position: relative;
+  z-index: 5;
+}
+.topbar::after {
+  /* a thin vermilion proof-rule under the chrome */
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent), transparent 38%);
+  opacity: 0.5;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  font-family: var(--font-display);
+  font-size: 1.32rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+}
+.brand::before {
+  content: "";
+  width: 1.15em;
+  height: 1.15em;
+  align-self: center;
+  background: url(/mark.svg) center / contain no-repeat;
+  /* nudge optical balance against the serif wordmark */
+  transform: translateY(0.5px);
+}
+
+.status {
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  padding: 0.18rem 0.55rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--paper-raised);
+  white-space: nowrap;
+}
+
+/* Compile-routing notices (Lane A, #2/E2): an HONEST egress badge when a doc's
+   @preview packages are compiled on the configured server, and a fail-closed
+   blocked-compile notice when packages can't be resolved here. Sits beside the
+   compile status in the topbar. */
+.compile-notice {
+  font-size: 0.78rem;
+  line-height: 1.2;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  max-width: 30rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.compile-notice--egress {
+  color: var(--ink);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.compile-notice--blocked {
+  color: var(--warn);
+  background: var(--accent-soft);
+  border-color: var(--warn);
+}
+
+/* Buttons (shared) — #19.5: pill radii + hairline borders everywhere the
+   chrome family appears (the legacy single-file topbar simply inherits). */
+.topbar button,
+.diff-actions button,
+.settings-actions button,
+.agent-input button,
+.model-bar button {
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.38rem 0.85rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    transform 80ms ease,
+    box-shadow 120ms ease;
+}
+.topbar button:hover,
+.diff-actions button:hover,
+.settings-actions button:hover,
+.agent-input button:hover,
+.model-bar button:hover {
+  border-color: var(--ink-faint);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  box-shadow: none;
+}
+.topbar button:active,
+.diff-actions button:active,
+.settings-actions button:active,
+.agent-input button:active {
+  transform: translateY(1px);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* Square icon buttons in the topbar (theme toggle, shortcuts). */
+.topbar button.icon-btn {
+  padding: 0.38rem 0.5rem;
+  min-width: 2rem;
+  line-height: 1;
+}
+
+.open-btn {
+  margin-left: auto;
+  padding: 0.38rem 0.85rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  font-size: 0.82rem;
+  background: transparent;
+  color: var(--ink);
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.open-btn:hover {
+  border-color: var(--ink-faint);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+/* The example picker leads the right-aligned trailing group (it is present in
+   both single-user and collab modes), so it carries the auto margin. */
+.example-picker {
+  margin-left: auto;
+}
+
+[data-testid="export-pdf"] {
+  border-color: var(--accent);
+  color: var(--accent-deep);
+  background: var(--accent-soft);
+}
+[data-testid="export-pdf"]:hover:not(:disabled) {
+  background: #fbeae4;
+  border-color: var(--accent);
+}
+
+/* Examples picker */
+.example-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.example-picker-label {
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.example-picker-select {
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.34rem 0.7rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+.example-picker-select:hover {
+  border-color: var(--ink-faint);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.example-picker-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Collaboration chips */
+.collab-chip,
+.presence {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--accent-deep);
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent-soft);
+}
+/* The clickable library chip. `.topbar button` (0,1,1) would otherwise override
+   the `.collab-chip` pill (0,1,0) and render this as a plain grey topbar button,
+   so re-assert the pill at higher specificity and add the click affordance. The
+   values mirror `.collab-chip` so it is visually identical to the static chips,
+   minus the pointer + hover (R5). */
+.topbar button.collab-chip-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--accent-deep);
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  cursor: pointer;
+}
+.topbar button.collab-chip-btn:hover {
+  color: var(--accent-deep);
+  background: var(--paper-hi);
+  border-color: var(--accent-deep);
+}
+.presence {
+  color: var(--ink-soft);
+  border-color: var(--line-strong);
+  background: var(--paper-raised);
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.presence-dots {
+  display: inline-flex;
+}
+.presence-dot {
+  width: 0.62rem;
+  height: 0.62rem;
+  border-radius: 50%;
+  border: 1.5px solid var(--paper-raised);
+  margin-left: -0.28rem;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+.presence-dot:first-child {
+  margin-left: 0;
+}
+
+/* ---------- Share bar (#14-C) ------------------------------------------------ */
+.share-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--accent);
+}
+.share-bar-label {
+  font-weight: 600;
+  color: var(--accent-deep);
+  white-space: nowrap;
+}
+.share-bar-link {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  padding: 0.3rem 0.55rem;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill, 6px);
+}
+/* The Copy affordance (#19.5): the bar lives inside the Share popover now, out
+   of the old `.topbar button` reach — give it the ghost-pill treatment so it
+   doesn't fall back to the UA default button. */
+.share-bar button {
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.26rem 0.7rem;
+  color: var(--accent-deep);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.share-bar button:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: var(--accent);
+}
+
+/* ---------- Panes ------------------------------------------------------------ */
+/*
+ * Roadmap #11.1: the shell is a resizable/collapsible grid. The flexible tracks
+ * are driven by `--col-*` custom properties (set inline by `usePanes` via
+ * `SplitPanes`); the defaults below equal the pre-#11.1 templates so a no-drag,
+ * nothing-collapsed layout is byte-for-byte identical (and the app still lays out
+ * correctly with JS disabled). `SplitPanes` also sets `grid-template-columns`
+ * inline to interleave the splitter tracks.
+ */
+.panes {
+  --col-editor: 1fr;
+  --col-center: 1.12fr;
+  --col-sidebar: 0.92fr;
+  display: grid;
+  grid-template-columns: var(--col-editor) var(--col-center) var(--col-sidebar);
+  flex: 1;
+  min-height: 0;
+}
+/* The staggered entrance targets the panes by class (splitters are skipped), so
+   inserting splitter grid children doesn't shift the :nth-child rhythm. */
+.panes > .editor,
+.panes > .center,
+.panes > .sidebar,
+.panes > .project-files-pane {
+  animation: rise 380ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.panes > .center {
+  animation-delay: 60ms;
+}
+.panes > .sidebar {
+  animation-delay: 120ms;
+}
+/* Let flexible tracks shrink below content width so drags/collapses are honoured
+   (grid items default to `min-width: auto`). */
+.panes > .editor,
+.panes > .center,
+.panes > .sidebar,
+.panes > .project-files-pane {
+  min-width: 0;
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------- Splitters (hand-rolled, dependency-free) ------------------------- */
+.pane-splitter {
+  position: relative;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 4;
+  /* The 6px track is the hit area; a hairline grip sits centered within it. */
+  touch-action: none;
+  user-select: none;
+}
+.pane-splitter-grip {
+  position: absolute;
+  inset: 0 auto 0 50%;
+  width: 1px;
+  transform: translateX(-0.5px);
+  background: var(--line-strong);
+  transition: background 120ms ease, width 120ms ease, box-shadow 120ms ease;
+}
+.pane-splitter:hover .pane-splitter-grip,
+.pane-splitter:focus-visible .pane-splitter-grip,
+.panes-dragging .pane-splitter .pane-splitter-grip {
+  width: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand) 18%, transparent);
+}
+/* L9: a clear keyboard-focus ring for the separator (it's a role="separator"
+   div, not covered by the button/input focus-ring rule above). */
+.pane-splitter:focus-visible {
+  outline: 2px solid var(--accent-deep);
+  outline-offset: -2px;
+}
+/* While dragging, suppress text selection / iframe interference globally. */
+body.panes-dragging {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* ---------- Collapse / expand controls --------------------------------------- */
+.pane-collapse {
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.pane-collapse:hover {
+  color: var(--accent-deep);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.model-bar-actions {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+.project-files-head {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.35rem 0.4rem 0;
+}
+/* A collapsed pane is driven to 0fr; clip its content so nothing bleeds out.
+   `min-width: 0` overrides the grid item's default `auto` min so the 0fr track
+   truly collapses to zero rather than being floored at min-content. */
+.panes.is-sidebar-collapsed > .sidebar,
+.panes.is-files-collapsed > .project-files-pane {
+  overflow: hidden;
+  border: none;
+  padding: 0;
+  min-width: 0;
+}
+/* Floating affordances to bring a collapsed pane back. */
+.pane-expand {
+  position: absolute;
+  bottom: 1rem;
+  z-index: 6;
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  cursor: pointer;
+  box-shadow: var(--shadow-1);
+}
+.pane-expand:hover {
+  background: #fbeae4;
+}
+.pane-expand-sidebar {
+  right: 1rem;
+}
+.pane-expand-files {
+  left: 1rem;
+}
+
+/* ---------- Focus / Zen mode (#18.5) ----------------------------------------
+   A distraction-free editor+preview view: hide the agent panel (and, in the
+   project shell, the file pane) and reclaim their columns. Default OFF — the
+   `data-focus` attribute is ABSENT, so none of these rules apply and the layout
+   is byte-for-byte the current one.
+
+   The wide layout uses SplitPanes, which sets `grid-template-columns` INLINE
+   (higher precedence than a stylesheet rule), so the column overrides below use
+   `!important` to win and reclaim the hidden tracks. The hidden panes and their
+   splitters are removed from flow with `display: none`; the floating
+   expand-pane affordances are hidden too (their panes are intentionally gone).
+   The narrow tabbed layout shows one pane at a time, so it is left untouched. */
+.app[data-focus="true"] .panes > .sidebar,
+.app[data-focus="true"] .panes-project > .project-files-pane {
+  display: none;
+}
+.app[data-focus="true"] .panes .pane-splitter {
+  display: none;
+}
+.app[data-focus="true"] .panes:not(.panes-project) {
+  grid-template-columns: var(--col-editor) var(--col-center) !important;
+}
+.app[data-focus="true"] .panes-project {
+  grid-template-columns: var(--col-editor) var(--col-center) !important;
+}
+.app[data-focus="true"] .pane-expand {
+  display: none;
+}
+/* Rail & Islands (#19.2): focus mode also clears the rail's docked card (the
+   file list or any tool panel), keeping only editor + preview tiles. The rail
+   itself stays — it carries the focus toggle (auto-hide chrome is 19.4). */
+.app[data-focus="true"] .shell-dock {
+  display: none;
+}
+
+/* ---------- Agent mode (#14) -----------------------------------------------
+   The MIRROR of focus mode: an agent+preview view that hides the EDITOR (and,
+   in the project shell, the file pane) and reclaims their columns — you drive
+   the doc through the agent panel while watching the rendered preview. Mutually
+   exclusive with focus mode (the toggle handlers clear the other), so the
+   editor and agent panel are never hidden at once. Default OFF — the
+   `data-agent` attribute is ABSENT, so none of these rules apply and the layout
+   is byte-for-byte the current one.
+
+   Same precedence story as focus mode: the wide layout sets
+   `grid-template-columns` INLINE via SplitPanes, so the column overrides use
+   `!important` to win and reclaim the hidden editor track; the hidden pane and
+   the splitters are removed from flow, and the floating expand affordances and
+   the rail's docked card are cleared too. The narrow tabbed layout shows one
+   pane at a time, so it is left untouched. Only the HIDDEN pane differs from
+   the focus block: editor instead of sidebar. */
+.app[data-agent="true"] .panes > .editor,
+.app[data-agent="true"] .panes-project > .project-files-pane {
+  display: none;
+}
+.app[data-agent="true"] .panes .pane-splitter {
+  display: none;
+}
+/* Side-by-side layout — preview LEFT, agent RIGHT in TWO COLUMNS. The editor
+   (and, in the project shell, the file pane) and every splitter are already
+   removed from flow above. The `grid-template-columns` override beats
+   SplitPanes' inline track list; no `grid-template-rows` override is needed
+   because both columns fill the full height naturally. The `.center` right
+   border is NOT overridden here so the default preview|agent vertical seam
+   (`.center { border-right: 1px solid var(--line-strong) }`) returns. */
+.app[data-agent="true"] .panes:not(.panes-project),
+.app[data-agent="true"] .panes-project {
+  grid-template-columns:
+    minmax(0, var(--agent-preview-col, 1.4fr))
+    minmax(0, var(--agent-panel-col, 1fr)) !important;
+}
+.app[data-agent="true"] .pane-expand {
+  display: none;
+}
+.app[data-agent="true"] .shell-dock {
+  display: none;
+}
+
+.editor {
+  border-right: 1px solid var(--line-strong);
+  height: 100%;
+  overflow: hidden;
+  background: var(--paper-raised);
+}
+
+.center {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--line-strong);
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  background: var(--paper-sunk);
+}
+
+/* ---------- CodeMirror (CM6 renders light DOM, so CSS reaches it) ------------ */
+.cm-editor {
+  height: 100%;
+  background: var(--paper-raised);
+  font-size: 13.5px;
+}
+.cm-editor .cm-gutters {
+  background: var(--paper-raised);
+  /* --ink-soft (~5.5:1 on paper-raised) clears the 4.5:1 floor for gutter
+     digits in both themes while staying visually subordinate to source text. */
+  color: var(--ink-soft);
+  border-right: 1px solid var(--line);
+}
+.cm-editor .cm-activeLineGutter,
+.cm-editor .cm-activeLine {
+  /* Neutral, faint wash — kept off the brand hue so it never tints the syntax
+     ground and erodes the AA contrast of the colored tokens on the active line. */
+  background: rgba(20, 22, 28, 0.045);
+}
+.cm-editor .cm-cursor {
+  border-left-color: var(--accent);
+}
+.cm-editor.cm-focused {
+  outline: none;
+}
+.cm-editor ::selection {
+  background: color-mix(in srgb, var(--brand) 16%, transparent);
+}
+/* Author attribution: a faint per-author tint under each span (--attr-color set
+   inline per author), plus a thin colored baseline so authorship reads clearly. */
+.cm-attribution {
+  background-color: color-mix(in srgb, var(--attr-color) 10%, transparent);
+  box-shadow: inset 0 -1px 0 0 color-mix(in srgb, var(--attr-color) 55%, transparent);
+}
+
+/* ---------- Preview (the proof on the desk) --------------------------------- */
+.preview {
+  flex: 1;
+  overflow: auto;
+  padding: 1.6rem;
+  background:
+    radial-gradient(120% 60% at 50% 0%, var(--paper-raised), var(--paper-sunk)) fixed;
+  /* A COLUMN, not a row: the zoom toolbar (#11.2) is an in-flow sibling of the
+     page, so a row laid the bar out BESIDE the page — pushing the document
+     right, clipping it at the pane edge, and dropping the bar (align-self:
+     flex-end = cross axis = bottom) to the bottom-left. In a column the bar's
+     flex-end lands top-RIGHT, position: sticky works, and the page keeps the
+     full pane width, so at 100% the document fits again (svg max-width: 100%). */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.preview-page {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+.preview-page :where(svg) {
+  max-width: 100%;
+  height: auto;
+  background: var(--doc-paper);
+  border-radius: 2px;
+  box-shadow: var(--shadow-doc);
+}
+/* typst.ts wraps each text run's SELECTABLE text in a <foreignObject> meant to be
+   invisible (the visible text is the vector <use> glyph layer beneath it). typst
+   ships that as a namespaced <h5:div class="tsel"> with `.tsel { color: transparent }`,
+   but our XSS sanitizer strips that namespaced wrapper (keeping its bare text), so
+   the orphaned text loses the class, inherits the ink color, and paints OPAQUE — in
+   the browser's fallback sans-serif, with browser line-breaking — on top of the real
+   glyphs (tiny, mis-spaced body text the correct PDF export never shows). Re-assert
+   the intended transparency on the foreignObject itself; selection still works. */
+.preview-page foreignObject {
+  color: transparent;
+}
+.preview-empty {
+  color: var(--ink-faint);
+  font-style: italic;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  margin-top: 3rem;
+}
+
+.diagnostics {
+  margin: 0;
+  padding: 0.5rem 0.9rem;
+  list-style: none;
+  border-top: 1px solid var(--line-strong);
+  background: var(--paper-raised);
+  max-height: 32%;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.diag {
+  padding: 0.12rem 0;
+  border-left: 2px solid transparent;
+  padding-left: 0.5rem;
+}
+.diag-error {
+  color: var(--err);
+  border-left-color: var(--err);
+}
+.diag-warning {
+  color: var(--warn);
+  border-left-color: var(--warn);
+}
+/* The diagnostic row is a button (click → jump to location in the editor), but
+   reads as the plain mono text it replaced: no chrome, inherits color/size. */
+.diag-jump {
+  all: unset;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.diag-jump:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.diag-jump:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+.diag-jump:disabled {
+  cursor: default;
+}
+/* #19.3 (rubric R8): the per-diagnostic actions (💡 Fix / 🎓 Explain) reveal on
+   row hover OR focus-within — never hover-only (the buttons stay tabbable, and
+   tabbing onto one reveals the row's actions). Opacity keeps them in layout
+   and reachable for keyboard/automation. Scoped to the project shell. */
+.shell-rail .diag .diag-quickfix {
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+.shell-rail .diag:hover .diag-quickfix,
+.shell-rail .diag:focus-within .diag-quickfix {
+  opacity: 1;
+}
+@media (hover: none) {
+  .shell-rail .diag .diag-quickfix {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shell-rail .diag .diag-quickfix {
+    transition: none;
+  }
+}
+
+/* ---------- Model bar + settings -------------------------------------------- */
+.model-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.6rem 0.85rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+}
+.model-bar strong {
+  color: var(--ink);
+}
+
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.85rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper-raised);
+  font-size: 0.83rem;
+}
+.settings-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.settings-row label,
+.settings-row > span:first-child {
+  color: var(--ink-soft);
+  font-size: 0.76rem;
+}
+.settings-row input,
+.settings-row select {
+  font: inherit;
+  padding: 0.32rem 0.45rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--paper-hi);
+  color: var(--ink);
+}
+.settings-row input:focus,
+.settings-row select:focus,
+.agent-input textarea:focus {
+  outline: 2px solid color-mix(in srgb, var(--brand) 45%, transparent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+.settings-privacy {
+  margin: 0.2rem 0;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  padding: 0.4rem 0.55rem;
+  background: var(--paper-sunk);
+  border-radius: var(--radius-sm);
+  border-left: 2px solid var(--line-strong);
+}
+.settings-actions {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+[data-testid="provider-save"] {
+  border-color: var(--accent);
+  color: var(--on-accent);
+  background: var(--accent);
+}
+[data-testid="provider-save"]:hover:not(:disabled) {
+  background: var(--accent-deep);
+}
+.settings-probe {
+  font-size: 0.8rem;
+}
+.settings-probe.ok {
+  color: var(--ok);
+}
+.settings-probe.err {
+  color: var(--err);
+}
+
+/* ---------- Agent panel ------------------------------------------------------ */
+.agent {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0.85rem;
+  gap: 0.65rem;
+}
+.agent-input {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.agent-input textarea {
+  width: 100%;
+  font-family: inherit;
+  font-size: 0.86rem;
+  resize: vertical;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--paper-raised);
+  color: var(--ink);
+}
+.agent-input button {
+  align-self: flex-start;
+  border-color: var(--agent);
+  color: var(--on-agent); /* R6: white-on-teal was 2.4:1 in dark; the on-agent ink token clears AA in both themes */
+  background: var(--agent);
+  padding-inline: 1.1rem;
+}
+.agent-input button:hover:not(:disabled) {
+  /* A slightly deeper teal in both themes; keeps the --on-agent label legible. */
+  background: color-mix(in srgb, var(--agent) 86%, #000);
+}
+
+.agent-trace {
+  margin: 0;
+  padding: 0.5rem 0.6rem;
+  list-style: none;
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  /* B13(7): scale the trace cap with the viewport (was a fixed 14rem) so tall
+     screens get more readable context, capped at 20rem on short ones. */
+  max-height: min(50vh, 20rem);
+  overflow: auto;
+}
+.agent-trace .trace {
+  padding: 0.12rem 0;
+  color: var(--ink-soft);
+}
+.agent-trace .trace-assistant_text {
+  color: var(--ink);
+}
+.agent-trace .trace-error {
+  color: var(--err);
+}
+.agent-trace .trace-run_finished {
+  color: var(--agent);
+  font-weight: 600;
+}
+
+.agent-error {
+  color: var(--err);
+  font-size: 0.83rem;
+  padding: 0.45rem 0.55rem;
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+  border-left: 2px solid var(--accent);
+}
+
+/* ---------- Diff review ------------------------------------------------------ */
+.diff-review {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--paper-raised);
+  overflow: hidden;
+  box-shadow: var(--shadow-1);
+}
+.diff-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.82rem;
+  background: var(--paper-sunk);
+}
+.diff-actions {
+  display: inline-flex;
+  gap: 0.4rem;
+}
+[data-testid="accept"] {
+  border-color: var(--ok);
+  color: #fff;
+  background: var(--ok);
+}
+[data-testid="accept"]:hover {
+  background: #266a42;
+}
+[data-testid="reject"] {
+  color: var(--ink-soft);
+}
+.diff-body {
+  margin: 0;
+  padding: 0.6rem 0.7rem;
+  overflow: auto;
+  max-height: 16rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  white-space: pre;
+  background: var(--paper-raised);
+}
+.diff-add {
+  display: block;
+  background: rgba(47, 125, 79, 0.12);
+  color: #1f6440;
+}
+.diff-del {
+  display: block;
+  /* A removed line is destructive → true red (--err), not the brand tangerine. */
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+  color: var(--err);
+}
+.diff-ctx {
+  display: block;
+  color: var(--ink-soft);
+}
+
+/* 11.8c — refine the pending proposal: an inline instruction row revealed under
+   the head when "Refine…" is toggled. The chained run replaces this proposal. */
+.diff-refine {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper-sunk);
+}
+.diff-refine-input {
+  flex: 1 1 auto;
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--paper);
+  color: var(--ink);
+}
+.diff-refine-input:focus {
+  outline: none;
+  border-color: var(--ink-faint);
+}
+.diff-refine button {
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.35rem 0.85rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+.diff-refine button:hover:not(:disabled) {
+  border-color: var(--ink-faint);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+/* ---------- MCP agent proposals (#16.1, ADR-0020) --------------------------- */
+/* A calm review card in the sidebar: the agent (teal) proposed; the human decides.
+   Rendered only when the project is shared AND a pending proposal exists. */
+.mcp-proposals {
+  margin: 0.5rem 0.75rem 0;
+  display: grid;
+  gap: 0.5rem;
+}
+.mcp-proposals-head {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--agent);
+  font-weight: 600;
+}
+.mcp-proposals-overflow {
+  color: var(--ink-soft);
+  font-weight: 400;
+}
+.mcp-proposal {
+  border-left: 2px solid var(--agent);
+  padding-left: 0.5rem;
+  display: grid;
+  gap: 0.35rem;
+}
+.mcp-proposal-meta {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--ink);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.mcp-proposal-file {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+}
+
+/* Multi-file proposal cards (`propose_files`): one read-only diff per file op
+   under a single card-level Accept/Reject — the change set is atomic. */
+.mcp-file-proposal-op {
+  display: grid;
+  gap: 0.25rem;
+}
+.mcp-file-proposal-op-head {
+  margin: 0.15rem 0 0;
+  font-size: 0.76rem;
+  color: var(--ink);
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+.mcp-file-proposal-op-kind {
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--agent);
+}
+/* A delete removes a whole file — flag it with the destructive token so the
+   human Accept can't mistake it for a benign create/edit. */
+.mcp-file-proposal-op--delete .mcp-file-proposal-op-kind {
+  color: var(--err);
+}
+.mcp-file-proposal-op--delete .mcp-proposal-file {
+  text-decoration: line-through;
+  text-decoration-color: var(--err);
+}
+/* A `create-binary` op carries no text diff — instead a compact pointer summary
+   ("image/png · 47.1 KB"). Style it like the other op metadata (mono, muted) so it
+   sits consistently with the create/edit diff bodies rather than as a bare line. */
+.mcp-file-proposal-binary {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+}
+.mcp-file-proposal-actions {
+  margin-top: 0.15rem;
+}
+
+/* ---------- Scrollbars (subtle) --------------------------------------------- */
+.sidebar ::-webkit-scrollbar,
+.preview::-webkit-scrollbar,
+.agent-trace::-webkit-scrollbar,
+.diff-body::-webkit-scrollbar,
+.diagnostics::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.sidebar ::-webkit-scrollbar-thumb,
+.preview::-webkit-scrollbar-thumb,
+.agent-trace::-webkit-scrollbar-thumb,
+.diff-body::-webkit-scrollbar-thumb,
+.diagnostics::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panes > * {
+    animation: none;
+  }
+}
+
+/* Multi-file project shell (roadmap #2, ?project=1): a narrow file list, the
+   active-file editor, then the preview. */
+.panes-project {
+  --col-files: 0.5fr;
+  --col-editor: 1fr;
+  --col-center: 1.12fr;
+  --col-sidebar: 0.92fr;
+  grid-template-columns: var(--col-files) var(--col-editor) var(--col-center) var(--col-sidebar);
+}
+.agent-target {
+  margin: 0.5rem 0.75rem 0;
+  font-size: 0.8rem;
+  color: var(--ink-soft, #6b6358);
+}
+/* #19.4 onboarding: one calm sentence when no AI provider is configured. */
+.agent-provider-hint {
+  margin: 0.5rem 0.75rem 0;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  /* --ink-soft (not faint): this sits on the near-black agent ground, where the
+     faint token dips under the contrast floor (R6). */
+  color: var(--ink-soft, #6b6358);
+}
+/* The in-hint deep-link to /settings#ai — a button reset styled as an inline
+   text link so "connect a provider" is an affordance, not dead prose. */
+.agent-provider-hint-link {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: var(--accent, #f0510e);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.agent-provider-hint-link:hover {
+  text-decoration-thickness: 2px;
+}
+.project-files-pane {
+  border-right: 1px solid var(--line-strong);
+  background: var(--paper-raised);
+  overflow: auto;
+  min-height: 0;
+}
+.project-files {
+  list-style: none;
+  margin: 0;
+  padding: 0.5rem 0;
+}
+.project-files li {
+  margin: 0;
+}
+.project-file {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 0.4rem 0.9rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  color: var(--ink);
+  cursor: pointer;
+}
+.project-file:hover {
+  /* An ink wash, not opaque paper — the row also lives inside the glass dock
+     card (#19.5), where an opaque slab would punch a hole in the surface. */
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+.project-file.is-active {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+  font-weight: 600;
+}
+.project-file-main {
+  color: var(--accent-deep);
+}
+/* #7 7D: a binary asset row — a clickable button (opens the preview) that reads
+   as an ASSET, not editable text: slightly muted ink + an icon + a small
+   size/mime hint. It inherits `.project-file`'s pointer + hover wash; only the
+   colour is toned down so it's visibly distinct from text files. */
+.project-binary-file {
+  color: color-mix(in srgb, var(--ink) 82%, transparent);
+}
+.project-binary-icon {
+  opacity: 0.8;
+}
+.project-binary-hint {
+  font-size: 0.7rem;
+  color: color-mix(in srgb, var(--ink) 45%, transparent);
+}
+.project-file-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.project-file-row .project-file {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-file-ops {
+  display: inline-flex;
+  gap: 0.15rem;
+  padding-right: 0.4rem;
+  /* #19.3 (rubric R8): per-row ops reveal on row hover OR focus-within — they
+     are NEVER hover-only (every button stays tabbable; focusing one reveals
+     the group). Hidden via opacity, not display/visibility, so they keep
+     their layout box and stay keyboard- and automation-reachable. */
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+.project-file-row:hover .project-file-ops,
+.project-file-row:focus-within .project-file-ops {
+  opacity: 1;
+}
+/* No hover on touch devices — keep the ops always visible there. */
+@media (hover: none) {
+  .project-file-ops {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .project-file-ops {
+    transition: none;
+  }
+}
+.project-file-ops button {
+  border: none;
+  background: none;
+  /* --ink-soft meets ≥4.5:1 vs both the light and dark file-pane surfaces,
+     keeping these controls clearly legible while staying subordinate to the
+     filename text. */
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0.1rem 0.25rem;
+  border-radius: 3px;
+}
+.project-file-ops button:hover {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--accent-deep);
+}
+.project-file-rename {
+  flex: 1;
+  margin: 0.2rem 0.6rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  padding: 0.25rem 0.4rem;
+}
+
+/* ---------- #12 folders: nested file tree ----------
+   Folders are DERIVED from `/`-delimited paths (ADR-0013), not a stored entity.
+   The render nests file rows under folder rows; `--tree-depth` (set inline per
+   row) drives the left indent so every level reads as a clear hierarchy. The
+   nested <ul>s reset list styling — they exist only to group a folder's subtree.
+   Works in both themes (colors come from the shared --ink/--accent tokens). */
+.project-tree-children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.project-tree-group {
+  margin: 0;
+}
+/* Indent each row by its depth. The base row padding (0.9rem on .project-file)
+   stays; the indent is additive so depth-0 rows match the old flat list. */
+.project-file-row {
+  padding-left: calc(var(--tree-depth, 0) * 0.85rem);
+}
+.project-folder {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.project-folder-caret {
+  display: inline-flex;
+  width: 0.8rem;
+  justify-content: center;
+  color: var(--ink-soft);
+  font-size: 0.7rem;
+  transition: transform 120ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .project-folder-caret {
+    transition: none;
+  }
+}
+.project-folder-row .project-file-ops button {
+  font-weight: 400;
+}
+/* The files pane hosts the shared Notice (#19.4) for main-file-deleted; give
+   it the pane's gutter (the Notice itself is styled in notice.css). */
+.project-files-pane .notice {
+  margin: 0.4rem 0.6rem;
+}
+.project-new-file,
+.project-new-folder {
+  display: flex;
+  gap: 0.3rem;
+  padding: 0.5rem 0.6rem;
+  border-top: 1px solid var(--line-strong);
+}
+/* The folder form sits directly under the file form — share one divider. */
+.project-new-folder {
+  border-top: none;
+  padding-top: 0;
+}
+.project-new-file input,
+.project-new-folder input {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  padding: 0.3rem 0.4rem;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+}
+.project-new-file input::placeholder,
+.project-new-folder input::placeholder {
+  color: var(--ink-faint);
+}
+.project-new-file input:focus,
+.project-new-folder input:focus {
+  outline: 2px solid color-mix(in srgb, var(--brand) 45%, transparent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+.project-new-file button,
+.project-new-folder button {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.3rem 0.65rem;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.project-new-file button:hover:not(:disabled),
+.project-new-folder button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  border-color: var(--ink-faint);
+}
+
+/* #7 7D: the "Upload asset…" affordance under the create forms — a full-width
+   dashed dropzone-style button that also signals the pane accepts drops. */
+.project-upload {
+  padding: 0.1rem 0.6rem 0.6rem;
+}
+.project-upload-button {
+  display: block;
+  width: 100%;
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.4rem 0.65rem;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.project-upload-button:hover {
+  color: var(--accent-deep);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  border-color: var(--accent);
+}
+.project-upload-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--brand) 45%, transparent);
+  outline-offset: 1px;
+}
+
+/* #7 7D: drop-highlight while dragging FILES over the pane or a folder row. A
+   ring + tinted wash that reads as "drop here" without disturbing the
+   `--tree-depth` left-padding (an inset box-shadow, never a layout-shifting
+   border). Honors the shared accent so it matches in both skins/themes. */
+.project-files-pane.is-drop-target {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 7%, var(--paper-raised));
+}
+.project-folder-row.is-drop-target {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: var(--radius-sm);
+}
+
+/* ---------- Chrome translucency (#19.5, progressive enhancement ONLY) --------
+   Where backdrop blur exists, the floating-chrome surface may go translucent —
+   the paired blur(var(--blur-chrome)) on the chrome elements keeps whatever
+   passes behind it soft. Browsers without backdrop-filter keep the opaque
+   `--chrome` above and simply ignore the blur declarations: a fully readable
+   fallback with zero layout difference. The alpha is chosen so that even
+   UNblurred, text on the raw composite over the worst-case backdrop (the white
+   document page) clears WCAG AA — see the guard in theme.test.ts. */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --chrome: rgba(255, 255, 255, 0.88);
+  }
+  :root[data-skin="press"] { --chrome: rgba(251, 248, 242, 0.86); }
+}

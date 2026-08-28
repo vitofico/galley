@@ -1,0 +1,39 @@
+/* The file-tree context menu — a `.ui-popover` (chrome surface, shadow, rise
+   animation from rail-and-pills.css) re-anchored to the right-click point:
+   fixed viewport coordinates set inline, clamped by the component. Items
+   mirror the export-menu item treatment (same tokens, same hover/focus). */
+.ui-popover.file-tree-menu {
+  position: fixed;
+  top: auto; /* the inline style carries the clamped coordinates */
+  min-width: 11rem;
+  padding: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.file-tree-menu-item {
+  appearance: none;
+  display: block;
+  width: 100%;
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+  padding: 0.42rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.file-tree-menu-item:hover,
+.file-tree-menu-item:focus-visible,
+.file-tree-menu-item:focus {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.file-tree-menu-item:focus-visible,
+.file-tree-menu-item:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}

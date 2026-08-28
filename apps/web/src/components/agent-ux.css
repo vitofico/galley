@@ -1,0 +1,505 @@
+/*
+ * Agent UX polish (roadmap #11.8): scoped styles for token-level streaming,
+ * the Stop control, and transient toasts. NEW class names only — these never
+ * override the existing global `.agent-*` rules in styles.css.
+ */
+
+/* The currently-streaming assistant block: a growing line with a soft caret. */
+.galley-stream {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* B13(6): a firmer caret (0.6 → 0.85) so the live streaming position reads
+   clearly against the mono trace text. */
+.galley-stream[data-streaming="true"]::after {
+  content: "▋";
+  display: inline-block;
+  margin-left: 1px;
+  opacity: 0.85;
+  animation: galley-caret-blink 1s steps(1, end) infinite;
+}
+
+@keyframes galley-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Stop button: a quiet destructive affordance, distinct from Send. */
+.galley-stop {
+  margin-left: 0.5rem;
+}
+
+/* B13(2): when Send is inert (empty request or a run in flight) make the
+   pointer match — a clearer "not now" cue than the existing 0.45 opacity alone.
+   Scoped to the agent input so no other disabled button is affected. */
+.agent-input button:disabled {
+  cursor: not-allowed;
+}
+
+/* #15 @-mention: a compact file picker floating just above the composer while the
+   author is typing an `@<path>` token. Anchors the input so it can overlay. */
+.agent-input {
+  position: relative;
+}
+
+.agent-mention-list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 4px);
+  max-height: 11rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+  background: var(--surface, #ffffff);
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  z-index: 20;
+}
+
+.agent-mention-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.3rem 0.5rem;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--ink, #1c140d);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.agent-mention-option:hover {
+  background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);
+}
+
+/* Slash quick-actions: the same floating picker as @-mentions (identical frame,
+   so the composer reads as one control) with a richer row — the token you typed,
+   what it does, and a quiet hint. */
+.agent-slash-list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 4px);
+  max-height: 13rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+  background: var(--surface, #ffffff);
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  z-index: 20;
+}
+
+.agent-slash-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 0.5rem;
+  align-items: baseline;
+  width: 100%;
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--ink, #1c140d);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.agent-slash-option:hover {
+  background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);
+}
+
+.agent-slash-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* The literal token — monospace so it reads as something you type. */
+.agent-slash-token {
+  grid-row: 1 / span 2;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--accent-deep);
+}
+
+.agent-slash-label {
+  font-weight: 500;
+}
+
+.agent-slash-hint {
+  grid-column: 2;
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+}
+
+/* #15 model picker: a compact "Model: …" control in the agent header with a
+   dropdown of the provider's available models. */
+.agent-model-picker {
+  position: relative;
+  margin-left: auto;
+}
+
+.agent-model-btn {
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--ink-soft, #555);
+  background: transparent;
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: var(--radius-pill, 999px);
+  padding: 0.2rem 0.6rem;
+  cursor: pointer;
+  max-width: 16rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-model-current {
+  font-weight: 600;
+  color: var(--ink, #1c140d);
+}
+
+.agent-model-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 12rem;
+  max-width: 20rem;
+  max-height: 14rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+  background: var(--surface, #ffffff);
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  z-index: 30;
+}
+
+.agent-model-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--ink, #1c140d);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 0.3rem 0.5rem;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-model-option:hover,
+.agent-model-option[aria-selected="true"] {
+  background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);
+}
+
+.agent-model-status {
+  padding: 0.3rem 0.5rem;
+  font-size: 0.78rem;
+  color: var(--ink-soft, #555);
+}
+
+/* B13(6): the "● Live" pulse in the trace header while a run streams. A calm
+   teal dot (the agent colour) + label, no layout shift when it drops out. */
+.agent-trace-live {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  color: var(--agent);
+  padding-bottom: 0.15rem;
+  letter-spacing: 0.02em;
+}
+.agent-live-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--agent);
+  flex: none;
+  animation: galley-live-pulse 1.4s ease-in-out infinite;
+}
+@keyframes galley-live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* #15 deep agent pane — collapsible step trace.
+   ----------------------------------------------------------------------------
+   The toggle row sits above the trace; the step rows get stable, role-styled
+   chrome so a tool call vs a result vs a diagnostics/error reads at a glance,
+   and a long tool_result summary clamps to two lines with a title tooltip. */
+.agent-trace-controls {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.4rem;
+}
+.agent-trace-toggle {
+  appearance: none;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.55rem;
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  border: 1px solid var(--chrome-border);
+  border-radius: 999px;
+  cursor: pointer;
+  letter-spacing: 0.01em;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.agent-trace-toggle:hover {
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
+  color: var(--ink);
+}
+.agent-trace-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Each step row: a quiet rail with a role-coloured left edge. The text rows
+   (assistant message) keep their existing look — these rules are scoped to
+   `.trace-step` so the streamed message is untouched. */
+.trace-step {
+  position: relative;
+  padding-left: 0.55rem;
+  border-left: 2px solid var(--chrome-border);
+  color: var(--ink-soft);
+}
+.trace-step + .trace-step {
+  margin-top: 0.1rem;
+}
+.trace-step-line {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+/* #15: a tool_call's arguments, rendered SECONDARY to the tool name — a quieter
+   tint + monospace so the call signature reads as data, not prose. The text is
+   already capped/control-stripped (describeArgs) and the line clamps above. */
+.trace-step-args {
+  color: var(--ink-faint);
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.92em;
+}
+/* Role accents — left edge + subtle tint, design tokens only. */
+.trace-role-tool_call {
+  border-left-color: color-mix(in srgb, var(--agent, #2f7d7d) 60%, var(--chrome-border));
+}
+.trace-role-tool_result {
+  border-left-color: color-mix(in srgb, var(--ink-faint, #8a8a92) 55%, var(--chrome-border));
+}
+.trace-role-diagnostics,
+.trace-role-error {
+  border-left-color: color-mix(in srgb, var(--err, #c0392b) 60%, var(--chrome-border));
+  color: var(--ink);
+}
+.trace-role-lifecycle {
+  border-left-color: var(--chrome-border);
+  color: var(--ink-faint);
+}
+/* The step currently executing while a run is in flight: a soft pulse so the
+   interleaved view clearly shows where the agent is. */
+.trace-inflight {
+  border-left-color: var(--agent, #2f7d7d);
+  animation: galley-step-pulse 1.4s ease-in-out infinite;
+}
+@keyframes galley-step-pulse {
+  0%,
+  100% {
+    background: transparent;
+  }
+  50% {
+    background: color-mix(in srgb, var(--agent, #2f7d7d) 8%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .trace-inflight {
+    animation: none;
+  }
+}
+
+/* B13(9): the iterate-then-accept discovery hint under the diff head. Quiet,
+   token-driven, never competes with the diff itself. */
+.diff-refine-hint {
+  margin: 0;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: var(--ink-faint);
+  border-bottom: 1px solid var(--line);
+  background: var(--paper-sunk);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-live-dot {
+    animation: none;
+  }
+}
+
+/* Toast stack: stacked INSIDE the agent section (not a global overlay). */
+.galley-toasts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+/* #19.5: re-pointed at the REAL design tokens (the old --border/--surface-
+   raised/--text/--muted/--danger names never existed, so the toasts rendered
+   their hardcoded fallbacks in both themes) and onto the chrome language —
+   hairline border, severity tint, soft radius. "Finished" is the OK green,
+   not the vermilion accent the old fallback implied. */
+.galley-toast {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid var(--chrome-border, #d0d0d8);
+  background: color-mix(in srgb, var(--ink, #1c140d) 4%, transparent);
+  color: var(--ink, #1c1c22);
+  font-size: 0.85rem;
+  line-height: 1.3;
+  animation: galley-toast-in 140ms ease-out;
+}
+
+.galley-toast-finished {
+  border-color: color-mix(in srgb, var(--ok, #2f7d4f) 55%, transparent);
+  background: color-mix(in srgb, var(--ok, #2f7d4f) 10%, transparent);
+}
+
+.galley-toast-stopped {
+  border-color: var(--chrome-border, #8a8a92);
+  background: color-mix(in srgb, var(--ink-faint, #8a8a92) 10%, transparent);
+}
+
+.galley-toast-error {
+  border-color: color-mix(in srgb, var(--err, #c0392b) 55%, transparent);
+  background: color-mix(in srgb, var(--err, #c0392b) 10%, transparent);
+}
+
+.galley-toast-dismiss {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  color: inherit;
+  opacity: 0.7;
+}
+
+.galley-toast-dismiss:hover {
+  opacity: 1;
+}
+
+@keyframes galley-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/*
+ * Cost meter (roadmap #11.8d): an ESTIMATED token/cost readout, OPT-IN via the
+ * AgentPanel `showCostMeter` prop (default off). Design tokens only — no hex.
+ */
+.galley-cost-meter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--paper-sunk);
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+
+.galley-cost-figure {
+  color: var(--ink);
+}
+
+.galley-cost-tag {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.68rem;
+  color: var(--ink-faint);
+}
+
+.galley-cost-meter-over {
+  border-color: var(--warn);
+  background: var(--accent-soft);
+}
+
+.galley-cost-warn {
+  margin-left: auto;
+  color: var(--warn);
+  font-weight: 600;
+}
+
+/* 14-D: the project-instructions affordance in the AgentPanel header. */
+.agent-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.4rem;
+}
+
+.agent-instructions-btn {
+  appearance: none;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 0.25rem 0.65rem;
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  border: 1px solid var(--chrome-border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.agent-instructions-btn:hover {
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  color: var(--ink);
+}
+.agent-instructions-btn.is-active {
+  color: var(--accent-deep);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--chrome-border));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.agent-instructions-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.agent-instructions-dot {
+  font-weight: 600;
+}

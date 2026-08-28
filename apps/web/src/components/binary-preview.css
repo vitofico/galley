@@ -1,0 +1,175 @@
+/*
+ * `BinaryPreview` (#7 slice 7D) — the blocking preview modal for a binary asset.
+ * Token-driven, matching the ContributionStatementModal / InsertReferencePicker
+ * modals it sits beside (same backdrop, chrome, radii, accent buttons) so it
+ * reads as the same surface in both light and dark themes.
+ */
+
+.binary-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: color-mix(in srgb, var(--ink) 38%, transparent);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.binary-preview-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  width: min(34rem, 100%);
+  max-height: min(40rem, 88vh);
+  padding: 1.1rem 1.3rem 1.1rem;
+  background: var(--chrome);
+  border: 1px solid var(--chrome-border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-2);
+  -webkit-backdrop-filter: blur(var(--blur-chrome));
+  backdrop-filter: blur(var(--blur-chrome));
+}
+
+.binary-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.binary-preview-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.binary-preview-close {
+  appearance: none;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.binary-preview-close:hover {
+  color: var(--accent-deep);
+  background: color-mix(in srgb, var(--ink) 11%, transparent);
+}
+.binary-preview-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.binary-preview-stage {
+  display: grid;
+  /* `safe` centering so a portrait/oversized image scrolls from its TOP-LEFT
+     instead of being clipped by centered overflow. */
+  align-items: safe center;
+  justify-items: safe center;
+  min-height: 9rem;
+  max-height: 22rem;
+  padding: 0.8rem;
+  overflow: auto;
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+}
+
+.binary-preview-image {
+  max-width: 100%;
+  max-height: 21rem;
+  object-fit: contain;
+  /* A subtle checker so a transparent PNG reads as an image, not a blank card. */
+  background-image:
+    linear-gradient(45deg, color-mix(in srgb, var(--ink) 8%, transparent) 25%, transparent 25%),
+    linear-gradient(-45deg, color-mix(in srgb, var(--ink) 8%, transparent) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--ink) 8%, transparent) 75%),
+    linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--ink) 8%, transparent) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+.binary-preview-note {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--ink-soft);
+}
+
+.binary-preview-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.3rem 1rem;
+  margin: 0;
+}
+.binary-preview-meta > div {
+  min-width: 0;
+}
+.binary-preview-meta dt {
+  margin: 0;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.binary-preview-meta dd {
+  margin: 0.05rem 0 0;
+  overflow: hidden;
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.binary-preview-hash {
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.binary-preview-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.binary-preview-download {
+  appearance: none;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.45rem 1.1rem;
+  color: var(--on-accent);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+.binary-preview-download:hover:not(:disabled) {
+  background: var(--accent-deep);
+}
+.binary-preview-download:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.binary-preview-download:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

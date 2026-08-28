@@ -1,0 +1,142 @@
+/*
+ * Document status strip + outline navigator (roadmap #12.7, restyled). The old
+ * four-card metric grid was demoted to a slim status strip (`doc-statusbar`)
+ * pinned at the foot of the preview column, and the outline (`doc-outline`) moved
+ * behind a toggle — it docks in the rail on the project shell, or pops inline
+ * (`doc-outline-pop`) on the single-file shell. Scoped class names; colors and
+ * typography come from the design tokens only (no hardcoded hex). Tokens used:
+ * --paper, --paper-raised, --paper-sunk, --ink, --ink-soft, --ink-faint, --line,
+ * --accent-soft, --accent-deep, --radius-sm, --font-ui, --shadow-1.
+ */
+
+/* --- Status strip: one quiet line of metrics, pinned at the pane foot. --- */
+.doc-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.4rem 0.75rem;
+  border-top: 1px solid var(--line);
+  background: var(--paper-raised);
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+
+/* Metrics fill the strip and wrap among themselves; the outline toggle stays
+   pinned at the right edge rather than dropping to its own ragged row. */
+.doc-statusbar-metrics {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.85rem;
+  margin: 0;
+}
+
+/* value · label, value first (bold). */
+.doc-statusbar-metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  margin: 0;
+}
+
+.doc-statusbar-metric dt {
+  order: 2;
+  color: var(--ink-faint);
+  letter-spacing: 0.02em;
+}
+
+.doc-statusbar-metric dd {
+  order: 1;
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.doc-statusbar-outline {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid var(--line);
+  background: var(--paper-sunk);
+  color: var(--ink-soft);
+  font: inherit;
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.doc-statusbar-outline:hover,
+.doc-statusbar-outline[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--ink);
+  border-color: var(--accent-deep);
+}
+
+.doc-statusbar-outline:focus-visible {
+  outline: 2px solid var(--accent-deep);
+  outline-offset: 1px;
+}
+
+/* --- Inline outline pop (single-file shell, no rail to dock into). --- */
+.doc-outline-pop {
+  margin: 0 0.75rem 0.6rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--paper-raised);
+  box-shadow: var(--shadow-1);
+}
+
+/* --- Outline list (shared by the rail dock and the inline pop). --- */
+.doc-outline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+}
+
+.doc-outline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.doc-outline-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  padding: 0.3rem 0.45rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+
+.doc-outline-item:hover {
+  background: var(--accent-soft);
+  color: var(--ink);
+  border-left-color: var(--accent-deep);
+}
+
+.doc-outline-item:focus-visible {
+  outline: 2px solid var(--accent-deep);
+  outline-offset: -1px;
+}
+
+.doc-outline-empty {
+  color: var(--ink-faint);
+  font-style: italic;
+  padding: 0.3rem 0.45rem;
+}

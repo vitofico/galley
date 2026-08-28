@@ -1,0 +1,193 @@
+/*
+ * TemplatePicker (#2) — a centered modal listing the bundled project templates.
+ * Scoped `template-` prefix; all colors/type from the design tokens only
+ * (var(--…, fallback)). Mirrors authoring-panels.css (backdrop + card + Escape).
+ */
+
+.template-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 4rem 1rem 1rem;
+  background: rgba(0, 0, 0, 0.32);
+  overflow-y: auto;
+}
+
+/* #19.5: same floating-chrome card language as the other overlays. */
+.template-panel {
+  width: min(46rem, 100%);
+  display: flex;
+  flex-direction: column;
+  background: var(--chrome, #ffffff);
+  color: var(--ink, #1c140d);
+  border: 1px solid var(--chrome-border, rgba(20, 22, 28, 0.10));
+  border-radius: 14px;
+  box-shadow: var(--shadow-2, 0 8px 30px rgba(0, 0, 0, 0.18));
+  font-family: var(--font-ui, system-ui, sans-serif);
+  -webkit-backdrop-filter: blur(var(--blur-chrome, 14px));
+  backdrop-filter: blur(var(--blur-chrome, 14px));
+}
+
+.template-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.9rem 1.1rem;
+  border-bottom: 1px solid var(--line, #ececef);
+}
+
+.template-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.template-close {
+  padding: 0.2rem 0.5rem;
+  font: inherit;
+  color: var(--ink-faint, #6b675f);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+}
+
+.template-close:hover {
+  color: var(--ink, #1c140d);
+  background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);
+}
+
+/* UX-1: a calm one-liner explaining the bundled vs. Universe distinction and
+   where to enable a server compiler. Token-based; legible in light + dark. */
+.template-intro {
+  margin: 0;
+  padding: 0.85rem 1.1rem 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--ink-soft, #55504a);
+}
+
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: 0.8rem;
+  padding: 1.1rem;
+}
+
+.template-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.85rem 0.9rem;
+  text-align: left;
+  font: inherit;
+  color: var(--ink, #1c140d);
+  background: color-mix(in srgb, var(--ink, #1c140d) 4%, transparent);
+  border: 1px solid var(--chrome-border, rgba(20, 22, 28, 0.10));
+  border-radius: 10px;
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.template-card:hover {
+  border-color: var(--accent);
+}
+
+.template-card[data-selected="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  background: var(--accent-soft);
+}
+
+.template-card-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.template-card-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+/* UX-1: package-backed badge — informational + actionable (tooltip points to
+   Settings → Compile). Derived from the themed `--warn` token via color-mix so
+   the chip stays legible in both light and dark; no hardcoded brand colors. */
+.template-card-badge {
+  flex: none;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--warn, #8a5a0a);
+  background: color-mix(in srgb, var(--warn, #8a5a0a) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn, #8a5a0a) 45%, transparent);
+  border-radius: 999px;
+  cursor: help;
+}
+
+.template-card-desc {
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--ink-soft, #55504a);
+}
+
+.template-card-meta {
+  margin-top: auto;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint, #6b675f);
+}
+
+.template-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.9rem 1.1rem;
+  border-top: 1px solid var(--line, #ececef);
+}
+
+.template-primary {
+  padding: 0.45rem 1.05rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--on-accent);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-pill, 999px);
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+
+.template-primary:hover:not(:disabled) {
+  background: var(--accent-deep);
+}
+
+.template-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.template-secondary {
+  padding: 0.45rem 0.9rem;
+  font: inherit;
+  color: var(--ink-soft, #55504a);
+  background: transparent;
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: var(--radius-pill, 999px);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.template-secondary:hover {
+  background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);
+  color: var(--ink, #1c140d);
+}

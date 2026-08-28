@@ -1,0 +1,1199 @@
+/*
+ * "Rail & Islands" shell chrome (#19.2, spec §1) — the floating brand/actions
+ * pills, the left icon rail, and the docked-panel host. Scoped `shell-`,
+ * `pill`, `rail-`, `docked-` and `insert-` prefixes; every colour/radius/shadow
+ * comes from the design tokens in styles.css / theme.css so both themes are
+ * covered. Motion stays calm (≤200ms) and is disabled under reduced-motion.
+ *
+ * Layout discipline (rubric R7): the pills are IN-FLOW islands over the press
+ * bed and the main row reserves the rail's gutter, so floating chrome can never
+ * occlude the rendered page at any width.
+ */
+
+.shell-rail {
+  --rail-w: 2.75rem;
+  --shell-gap: 0.7rem;
+  --shell-pad: 0.85rem;
+  background: var(--paper);
+}
+
+/* ---------- Top islands: brand/status pill + actions pill ------------------- */
+.shell-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem var(--shell-gap);
+  padding: 0.6rem var(--shell-pad) 0.45rem;
+}
+
+/* #19.5: the pills paint on the shared chrome surface — hairline border, pill
+   radius, whisper shadow. NOTE deliberately NO backdrop-filter here: a filter
+   turns the pill into the containing block for fixed-position descendants,
+   which would break the narrow-morph popovers (position: fixed). Over the flat
+   press bed the translucent fill alone reads identically to glass. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.35rem;
+  padding: 0.28rem 0.6rem;
+  background: var(--chrome);
+  border: 1px solid var(--chrome-border);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-1);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* The actions cluster (#19.4): the actions pill plus, on first run, the
+   one-time ⌘K nudge pill right beneath it. A plain column so the nudge stays
+   IN-FLOW (the header grows; floating chrome never occludes content — R7). */
+.actions-cluster {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+  min-width: 0;
+}
+.nudge-pill {
+  appearance: none;
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.74rem;
+  padding: 0.28rem 0.7rem;
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--accent) 8%, var(--chrome-opaque));
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--chrome-border));
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-1);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.nudge-pill:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 14%, var(--chrome-opaque));
+}
+.nudge-pill kbd {
+  font: inherit;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* H5 first-run cue: the same pill chrome as the ⌘K nudge, with two inline
+   actions + a dismiss. The hover-darken is keyed off the nudge-pill rules above
+   on the shared class, so this only adds the action affordances. Lives in the
+   header — it never compresses the editor/agent panes. */
+.first-run-pill {
+  gap: 0.45rem;
+  cursor: default;
+  white-space: nowrap;
+}
+.first-run-action {
+  appearance: none;
+  font: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  border: none;
+  background: transparent;
+  color: var(--accent-deep, var(--accent));
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.first-run-action:hover {
+  color: var(--ink);
+}
+.first-run-dismiss {
+  appearance: none;
+  font: inherit;
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 0.1rem;
+  border-radius: 0.3rem;
+}
+.first-run-dismiss:hover {
+  color: var(--ink);
+}
+
+/* The brand pill carries a thin vermilion proof-rule accent (the old topbar's
+   signature), reduced to a quiet inner keyline along its bottom edge. */
+.brand-pill {
+  box-shadow:
+    inset 0 -2px 0 -1px color-mix(in srgb, var(--brand) 55%, transparent),
+    var(--shadow-1);
+}
+
+/* The wordmark is now a button (click → project library). `.brand` from
+   styles.css supplies the serif face + the press mark; this strips the button
+   chrome and tunes the scale down to pill size. */
+button.brand {
+  appearance: none;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 1.08rem;
+  padding: 0.12rem 0.45rem 0.12rem 0.2rem;
+  border-radius: var(--radius-pill);
+  transition: background 140ms ease;
+}
+button.brand:hover {
+  /* The ghost hover wash — a faint ink tint that works on glass in BOTH themes
+     (opaque paper-hi punched a hole in the translucent chrome). */
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.brand-caret {
+  font-size: 0.62em;
+  color: var(--ink-faint);
+  align-self: center;
+}
+
+.pill-project-name {
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  max-width: 11rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Click-to-rename header (project-model redesign §5): the name reads as the
+   same quiet text until hover/focus, when a faint ink wash hints it is
+   editable. The input variant keeps the same metrics so committing/cancelling
+   never shifts the layout. */
+.pill-project-name--btn {
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill, 999px);
+  background: transparent;
+  padding: 0.1rem 0.35rem;
+  cursor: text;
+}
+
+.pill-project-name--btn:hover,
+.pill-project-name--btn:focus-visible {
+  color: var(--ink);
+  background: var(--chrome-hover, rgba(0, 0, 0, 0.05));
+  outline: none;
+  /* L10: an IMMEDIATE "this is editable — click to rename" cue on hover/focus
+     (the rest state stays deliberately quiet, per the design above). Replaces
+     reliance on the `title` tooltip alone, which needs a hover dwell to appear. */
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+/* The pencil only joins on hover/focus, so the rest state is unchanged; it sits
+   after the name (a no-op for very long, ellipsis-truncated names). */
+.pill-project-name--btn:hover::after,
+.pill-project-name--btn:focus-visible::after {
+  content: " ✎";
+  font-size: 0.9em;
+  opacity: 0.7;
+}
+
+.pill-project-name--edit {
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--ink);
+  max-width: 11rem;
+  border: 1px solid var(--chrome-border, rgba(0, 0, 0, 0.18));
+  border-radius: var(--radius-pill, 999px);
+  background: var(--paper, #fff);
+  padding: 0.1rem 0.35rem;
+}
+
+.pill-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 0.35rem 0;
+  background: var(--chrome-border);
+  flex: none;
+}
+
+/* Text/action buttons living inside a pill (Share, Export) — #19.5 GHOST
+   buttons: the pill is the container; the buttons are text until hover/focus,
+   when a faint ink wash appears. One border per island, not three. */
+.pill-btn {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.32rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    transform 80ms ease;
+}
+.pill-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.pill-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* Compact square-ish icon buttons in a pill (new-from-template, ⌘K) — ghost. */
+.pill-icon-btn {
+  font: inherit;
+  font-size: 0.82rem;
+  line-height: 1;
+  min-width: 1.95rem;
+  padding: 0.34rem 0.45rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.pill-icon-btn:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+/* The ⌘K affordance reads as a keycap. */
+.pill-kbd {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+}
+
+/* CX-1: on narrow the palette trigger is a hamburger "Menu" glyph, not the ⌘
+   keycap. A touch target reads best a touch larger and centered. */
+.pill-menu {
+  font-size: 1.05rem;
+}
+
+/* Status content squeezed into the brand pill stays calm and truncates rather
+   than growing the island. */
+.pill .compile-notice {
+  max-width: 15rem;
+}
+
+/* ---------- The icon rail ---------------------------------------------------- */
+.icon-rail {
+  position: absolute;
+  left: var(--shell-pad);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  width: var(--rail-w);
+  padding: 0.5rem 0;
+  background: var(--chrome);
+  border: 1px solid var(--chrome-border);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-2);
+  -webkit-backdrop-filter: blur(var(--blur-chrome));
+  backdrop-filter: blur(var(--blur-chrome));
+}
+
+.rail-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.rail-divider {
+  width: 1.1rem;
+  height: 1px;
+  margin: 0.3rem 0;
+  background: var(--chrome-border);
+}
+
+.rail-btn {
+  position: relative;
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  width: 2.05rem;
+  height: 2.05rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  line-height: 1;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+/* The shared stroke-frame icon (rail-icons.tsx). One size for every icon so the
+   whole rail is optically even; stroke inherits the button's themed `color`
+   (ink → hover-ink → active-accent) via `currentColor`. */
+.rail-btn .rail-icon {
+  width: 1.2rem;
+  height: 1.2rem;
+  display: block;
+  flex: none;
+}
+/* B10: a firmer hover wash (8% → 12%) plus a full-ink glyph lifts the muted
+   --ink-soft default to a clear, discoverable affordance on the chrome bed. */
+.rail-btn:hover {
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
+  color: var(--ink);
+}
+/* B10: an unmistakable keyboard affordance — a 2px accent ring that clears the
+   round button on both themes (the hover wash alone is too quiet for Tab). */
+.rail-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
+}
+.rail-btn.is-active {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--accent-deep);
+}
+
+/* B10 — rail label flyout: a small chrome card to the RIGHT of the icon (the
+   convention for left sidebars), revealed on hover/focus so the rail's meaning
+   is discoverable without a native title tooltip (which never shows on touch).
+   Hidden from pointer events so it can never intercept clicks, and announced by
+   nothing (aria-hidden on the element) — the button keeps the accessible name. */
+.rail-tip {
+  position: absolute;
+  left: calc(100% + 0.55rem);
+  top: 50%;
+  transform: translateY(-50%) translateX(-2px);
+  z-index: 50;
+  pointer-events: none;
+  white-space: nowrap;
+  font-size: 0.74rem;
+  line-height: 1;
+  font-weight: 500;
+  padding: 0.3rem 0.55rem;
+  color: var(--ink);
+  background: var(--chrome-opaque, var(--chrome));
+  border: 1px solid var(--chrome-border);
+  border-radius: var(--radius-sm, 7px);
+  box-shadow: var(--shadow-2);
+  opacity: 0;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+.rail-btn:hover .rail-tip,
+.rail-btn:focus-visible .rail-tip {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-tip {
+    transition: opacity 120ms ease;
+    transform: translateY(-50%);
+  }
+  .rail-btn:hover .rail-tip,
+  .rail-btn:focus-visible .rail-tip {
+    transform: translateY(-50%);
+  }
+}
+
+/* B17 — focus / zen mode hides the lateral chrome too: the file pane and dock
+   are already gone (styles.css), so the rail's tool buttons and the divider are
+   noise. Hide everything in the rail EXCEPT the focus toggle, leaving a single
+   one-click affordance to LEAVE focus mode (spec: "leaving only a button to
+   exit focus mode"). The rail card itself shrinks to just that control. */
+.app[data-focus="true"] .icon-rail .rail-divider,
+.app[data-focus="true"] .icon-rail .rail-btn:not([data-testid="focus-mode-toggle"]) {
+  display: none;
+}
+
+/* ---------- Main row: dock + tiled panes ------------------------------------ */
+.shell-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  gap: var(--shell-gap);
+  padding: 0.15rem var(--shell-pad) var(--shell-pad)
+    calc(var(--shell-pad) + var(--rail-w) + var(--shell-gap));
+}
+
+/* #23.1 durability nudge: a slim banner under the topbar, aligned with the
+   shell content. The inner Notice carries the calm token-driven warning style;
+   this row just positions it and hosts the dismiss affordance. */
+.durability-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.15rem var(--shell-pad) 0
+    calc(var(--shell-pad) + var(--rail-w) + var(--shell-gap));
+}
+
+.durability-bar > .notice {
+  flex: 1;
+  min-width: 0;
+}
+
+.durability-dismiss {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--text-muted, inherit);
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+
+.durability-dismiss:hover {
+  background: var(--surface-hover, rgba(0, 0, 0, 0.06));
+}
+
+/* The editor/preview/agent tiles read as one raised surface over the bed. */
+.shell-main > .panes,
+.shell-main > .tabbed {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--chrome-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--paper-raised);
+  box-shadow: var(--shadow-1);
+}
+
+/* ---------- The dock (one floating card beside the rail) -------------------- */
+.shell-dock {
+  flex: none;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  width: 19rem;
+}
+.shell-dock[hidden] {
+  display: none;
+}
+.shell-dock[data-dock="history"] {
+  width: 24rem;
+}
+.shell-dock[data-dock="git"],
+.shell-dock[data-dock="insert"] {
+  width: 26.5rem;
+}
+
+@keyframes dock-rise {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Card chrome for panels hosted by DockedPanel (Files, History) — the dock is
+   floating chrome: glass surface, hairline border, soft lift. */
+.docked-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 100%;
+  min-height: 0;
+  background: var(--chrome);
+  border: 1px solid var(--chrome-border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+  animation: dock-rise 180ms ease both;
+  -webkit-backdrop-filter: blur(var(--blur-chrome));
+  backdrop-filter: blur(var(--blur-chrome));
+}
+.docked-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.85rem;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.docked-panel-title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+}
+.docked-panel-close {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0.2rem 0.35rem;
+  border-radius: var(--radius-sm);
+  transition: color 140ms ease, background 140ms ease;
+}
+.docked-panel-close:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.docked-panel-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+/* Panels that carry their own authoring-panel card chrome dock as the card —
+   re-skinned to the shared chrome surface so every dock reads as one family. */
+.shell-dock > .authoring-panel--docked {
+  width: 100%;
+  max-height: 100%;
+  min-height: 0;
+  overflow: auto;
+  background: var(--chrome);
+  border-color: var(--chrome-border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-2);
+  animation: dock-rise 180ms ease both;
+  -webkit-backdrop-filter: blur(var(--blur-chrome));
+  backdrop-filter: blur(var(--blur-chrome));
+}
+.shell-dock .editor-prefs--docked {
+  width: 100%;
+  max-height: 100%;
+  background: var(--chrome);
+  border-color: var(--chrome-border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-2);
+  animation: dock-rise 180ms ease both;
+  -webkit-backdrop-filter: blur(var(--blur-chrome));
+  backdrop-filter: blur(var(--blur-chrome));
+}
+
+/* Files docked: the pane fills the card; the list scrolls, the add-file form
+   stays pinned at the foot. The old pane border belongs to the card now. */
+.docked-panel .project-files-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: none;
+  background: transparent;
+  overflow: hidden;
+}
+.docked-panel .project-files {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 0;
+}
+.docked-panel .project-new-file {
+  flex: none;
+}
+
+/* ---------- The Insert dock: one card, three tabs ---------------------------- */
+/* `display: flex` would defeat the host's `hidden` attribute (the UA's
+   display:none loses to an author class rule), so re-assert it explicitly. */
+.insert-dock[hidden] {
+  display: none;
+}
+.insert-dock {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 100%;
+  min-height: 0;
+  background: var(--chrome);
+  border: 1px solid var(--chrome-border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+  animation: dock-rise 180ms ease both;
+  -webkit-backdrop-filter: blur(var(--blur-chrome));
+  backdrop-filter: blur(var(--blur-chrome));
+}
+.insert-tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.45rem 0.5rem;
+  border-bottom: 1px solid var(--line);
+  /* A faint ink wash, not an opaque slab — keeps the glass card one surface. */
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  flex: none;
+}
+.insert-tab {
+  flex: 1 1 0;
+  appearance: none;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 0.34rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.insert-tab:hover {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
+}
+.insert-tab[aria-selected="true"] {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--accent-deep);
+}
+.insert-tab-glyph {
+  margin-right: 0.3rem;
+  opacity: 0.75;
+}
+/* Inside the insert card the active panel is chromeless — the card owns it
+   (transparent, so the glass card stays ONE surface). */
+/* #H7: the tabpanel host transparently replaces the panel as the dock's
+   grow-child, so the active panel (flex:1, below) still fills the column. */
+.insert-panel-host {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.insert-dock .authoring-panel--docked {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: auto;
+  animation: none;
+}
+
+/* ---------- Floating popovers (#19.3: status chip / share / export menu) ----
+   One shared card language for the small anchored surfaces: a raised card
+   under its trigger, calm rise-in, both themes via tokens. Each popover's
+   wrapper (`*-wrap`) is the positioning context. */
+.status-chip-wrap,
+.share-popover-wrap,
+.export-menu-wrap {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+
+@keyframes popover-rise {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.ui-popover {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  z-index: 60;
+  min-width: 14rem;
+  padding: 0.55rem;
+  background: var(--chrome);
+  border: 1px solid var(--chrome-border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-2);
+  animation: popover-rise 160ms ease both;
+  -webkit-backdrop-filter: blur(var(--blur-chrome));
+  backdrop-filter: blur(var(--blur-chrome));
+}
+
+/* ---------- The unified status chip (#19.3; #19.5 ghost) --------------------- */
+.status-chip {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.18rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  white-space: nowrap;
+  min-width: 0;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.status-chip:hover {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.status-chip-glyph {
+  font-size: 0.78rem;
+  line-height: 1;
+  flex: none;
+}
+.status-chip--ok .status-chip-glyph {
+  color: var(--ok);
+}
+.status-chip--error .status-chip-glyph {
+  color: var(--err);
+}
+.status-chip--warn .status-chip-glyph {
+  color: var(--warn);
+}
+.status-chip--info .status-chip-glyph {
+  color: var(--accent-deep);
+}
+.status-chip--busy .status-chip-glyph {
+  color: var(--ink-faint);
+}
+.status-chip-dot,
+.status-chip-caret {
+  color: var(--ink-faint);
+  flex: none;
+}
+.status-chip-caret {
+  font-size: 0.58em;
+}
+/* Inside the chip the status/save readouts are flat text, not nested pills —
+   the chip carries the one border. The save-state dot (::before) survives as
+   the state-color cue. Both keep their testids/text contracts. */
+.status-chip .status,
+.status-chip .save-state {
+  border: none;
+  background: transparent;
+  padding: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The chip's detail popover. */
+.status-popover {
+  left: 0;
+  min-width: 19rem;
+  max-width: 26rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.status-popover-rows {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.status-popover-row {
+  display: flex;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+.status-popover-row dt {
+  flex: none;
+  width: 3.6rem;
+  font-weight: 600;
+  color: var(--ink-faint);
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding-top: 0.1rem;
+}
+.status-popover-row dd {
+  margin: 0;
+  color: var(--ink);
+  min-width: 0;
+}
+/* Notices wrap inside the popover instead of truncating in the pill. */
+.status-popover .compile-notice {
+  max-width: none;
+  white-space: normal;
+  line-height: 1.4;
+}
+.status-popover-compiler {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+}
+.status-popover-compiler-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.status-popover .compiler-mode-toggle {
+  align-self: flex-start;
+  flex-wrap: wrap;
+}
+/* #19.7: the popover keeps the LIVE toggle and gains a quiet deep link to the
+   full Compile section on /settings. */
+.status-popover-link {
+  appearance: none;
+  align-self: flex-start;
+  font: inherit;
+  font-size: 0.76rem;
+  padding: 0.1rem 0;
+  border: none;
+  background: transparent;
+  color: var(--accent-deep);
+  cursor: pointer;
+}
+.status-popover-link:hover {
+  text-decoration: underline;
+}
+/* The calm resting backup cue inside the Save row — a quiet reminder, not a
+   banner. The inline "Export a copy" link reuses .status-popover-link. */
+.status-popover-backup {
+  color: var(--ink-faint);
+}
+.status-popover-backup .status-popover-link {
+  font-size: inherit;
+}
+
+/* ---------- The Share popover (#19.3, was the share island) ------------------ */
+.share-popover {
+  right: 0;
+  width: min(34rem, calc(100vw - 2 * var(--shell-pad)));
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+/* The host identity row: "You appear to collaborators as…" — sits above the
+   link, divided from it, so naming yourself reads as the first step of sharing. */
+.share-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+}
+.share-identity-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.share-identity-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.share-identity-row button {
+  white-space: nowrap;
+}
+
+.share-popover .share-bar {
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: var(--radius-pill);
+  padding: 0.3rem 0.45rem 0.3rem 0.9rem;
+  min-width: 0;
+  /* B19-sharing-roles: with the role chooser present the bar gains a second row;
+     let it wrap so the chooser sits above the link + Copy (same wrap pattern as
+     `.share-popover-room`). The editor-only bar has no `.share-role` and stays a
+     single centered row, byte-for-byte as before. */
+  flex-wrap: wrap;
+}
+/* B19-sharing-roles: the "Anyone with this link can: Edit / View only" chooser.
+   Breaks onto its own full-width row above the link (the `.share-peer-list`
+   flex-basis trick), radios laid out inline. The legend reuses `.share-bar-label`
+   (styled in styles.css); reset the fieldset's UA chrome. */
+.share-role {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.85rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.share-role-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  color: var(--ink);
+  cursor: pointer;
+}
+.share-role-option input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.share-popover-pending {
+  margin: 0;
+  padding: 0.25rem 0.35rem;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+}
+.share-popover-room {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
+  padding: 0 0.35rem;
+}
+/* C2: while reconnecting the roster is stale — dim it (don't rip rows out
+   mid-reconnect). Calm, token-free opacity shift; reduced-motion safe (no
+   transition needed, but kept gentle for the live toggle). */
+.share-popover-room--stale {
+  opacity: 0.5;
+  transition: opacity 200ms ease;
+}
+.share-popover-room-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+/* Who's in the room, BY NAME (#19.4, spec §7) — dot + display name per peer. */
+.share-peer-list {
+  flex-basis: 100%;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.share-peer {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  color: var(--ink);
+}
+.share-peer .presence-dot {
+  flex: none;
+  display: inline-block;
+  margin-left: 0;
+}
+/* The peer's display name fills the row; a long name truncates rather than
+   pushing the access badge off the edge. */
+.share-peer-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* L7: the quiet "(you)" marker on the local client's roster row, so the user can
+   tell which row (of two identical "Editor" rows, or self + a peer) is them. */
+.share-peer-you {
+  flex: none;
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+}
+/* B19-sharing-roles: the quiet "Viewer" access badge beside a read-only peer
+   (only rendered for a viewer — an editor shows no badge). */
+.share-peer-role {
+  flex: none;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 0.05rem 0.4rem;
+  border-radius: var(--radius-pill);
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+/* B18 stop-sharing: a quiet ghost button under the roster, in the same ghost-pill
+   language as the share-bar Copy affordance but in neutral ink tones (no
+   `--danger` token exists in this theme). */
+.share-unshare {
+  align-self: flex-start;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 0.24rem 0.7rem;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--ink) 25%, transparent);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.share-unshare:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  border-color: color-mix(in srgb, var(--ink) 40%, transparent);
+}
+.share-unshare:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- The Export menu (#19.3, was three pill buttons) ------------------ */
+.pill-btn-caret {
+  margin-left: 0.4rem;
+  font-size: 0.85em;
+  line-height: 1;
+  color: var(--ink-soft);
+}
+.export-menu {
+  right: 0;
+  min-width: 16.5rem;
+  padding: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.export-menu-item {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+  padding: 0.42rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.export-menu-item:hover:not(:disabled),
+.export-menu-item:focus-visible {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.export-menu-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.export-menu-item:disabled {
+  color: var(--ink-faint);
+  cursor: default;
+}
+.export-menu-item-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.08rem;
+  min-width: 0;
+}
+.export-menu-item-hint {
+  font-size: 0.72rem;
+  color: var(--ink-faint);
+}
+.export-menu-keys {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--ink-soft);
+  border: 1px solid var(--chrome-border);
+  border-radius: 5px;
+  padding: 0.08rem 0.32rem;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+/* ---------- Narrow morph: rail → floating bottom tab pill -------------------- */
+@media (max-width: 819.98px) {
+  .shell-rail .icon-rail {
+    display: none;
+  }
+  .shell-main {
+    padding-left: var(--shell-pad);
+    position: relative;
+  }
+  /* The dock becomes an overlay sheet over the tabbed stack (reachable from the
+     palette while the rail is away). */
+  .shell-dock {
+    position: absolute;
+    inset: 0.6rem;
+    width: auto !important;
+    z-index: 40;
+  }
+  /* Top pills shrink to their essentials (#19.3: the export trio and the
+     compiler toggle live in popovers now, so only the labels thin out). */
+  .shell-rail .brand-word,
+  .shell-rail .brand-caret,
+  .shell-rail .pill-project-name,
+  .shell-rail .status-chip .save-state {
+    display: none;
+  }
+  .shell-rail .status-chip-dot {
+    display: none;
+  }
+  .pill {
+    gap: 0.35rem;
+    min-height: 2.1rem;
+  }
+  /* Anchored popovers hug the viewport instead of their (cramped) trigger. */
+  .shell-rail .share-popover,
+  .shell-rail .status-popover {
+    position: fixed;
+    left: var(--shell-pad);
+    right: var(--shell-pad);
+    top: 3.4rem;
+    width: auto;
+    max-width: none;
+  }
+}
+
+/* The narrow tab bar floats as a bottom pill (both shells share .tabbed). The
+   panel content takes the row above it, so the pill never occludes the page. */
+.tabbed {
+  background: var(--paper-raised);
+}
+.tabbed .tab-panel {
+  order: 1;
+}
+.tabbed .tab-bar {
+  order: 2;
+  align-self: center;
+  width: auto;
+  margin: 0.45rem auto 0.6rem;
+  padding: 0.28rem;
+  border: 1px solid var(--chrome-border);
+  border-bottom: 1px solid var(--chrome-border);
+  border-radius: var(--radius-pill);
+  background: var(--chrome);
+  box-shadow: var(--shadow-2);
+  -webkit-backdrop-filter: blur(var(--blur-chrome));
+  backdrop-filter: blur(var(--blur-chrome));
+}
+.tabbed .tab-bar .tab-bar-tab:hover {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.tabbed .tab-bar .tab-bar-tab {
+  flex: 0 1 auto;
+  padding: 0.38rem 0.95rem;
+  border-radius: 999px;
+}
+.tabbed .tab-bar .tab-bar-tab[aria-selected="true"] {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent-deep);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .docked-panel,
+  .insert-dock,
+  .shell-dock > .authoring-panel--docked,
+  .shell-dock .editor-prefs--docked,
+  .ui-popover {
+    animation: none;
+  }
+}

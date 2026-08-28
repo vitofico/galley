@@ -1,0 +1,63 @@
+/*
+ * Compile-mode toggle (Enabler E2). A small segmented control for the topbar
+ * (Local / Server / Auto) plus an "on the server" indicator. Scoped
+ * `compiler-mode-…` class names that never collide with global rules in
+ * styles.css. All colours, typography and radii come from the design tokens
+ * (var(--…) with fallbacks) so it inherits the theme. Tokens referenced:
+ * --paper-raised, --paper-sunk, --ink, --ink-soft, --line, --line-strong,
+ * --accent-deep, --radius-sm, --font-ui.
+ */
+
+/* #19.5: a pill segmented control — a faint ink well, never an opaque slab
+   (it sits inside the glass status popover). */
+.compiler-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.15rem;
+  border: 1px solid var(--chrome-border, rgba(20, 22, 28, 0.10));
+  border-radius: var(--radius-pill, 999px);
+  background: color-mix(in srgb, var(--ink, #1c140d) 4%, transparent);
+  font-family: var(--font-ui, system-ui, sans-serif);
+}
+
+.compiler-mode-option {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--ink-soft, #55504a);
+  cursor: pointer;
+  font-size: 0.72rem;
+  line-height: 1;
+  padding: 0.25rem 0.55rem;
+  border-radius: var(--radius-pill, 999px);
+}
+
+.compiler-mode-option:hover {
+  color: var(--ink, #1c140d);
+}
+
+.compiler-mode-option[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.compiler-mode-indicator {
+  margin-left: 0.35rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--accent-deep);
+  color: var(--on-accent);
+  font-size: 0.66rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Server selected but no trusted URL → silent local downgrade made visible. */
+.compiler-mode-indicator--unavailable {
+  background: transparent;
+  color: var(--ink-soft, #55504a);
+  border: 1px solid var(--chrome-border, rgba(20, 22, 28, 0.10));
+}

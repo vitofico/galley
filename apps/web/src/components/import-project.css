@@ -1,0 +1,95 @@
+/*
+ * Project (.zip) import mode (roadmap #17.3) — lane-owned styles, kept off the
+ * shared authoring-panels.css. Reuses the same design tokens (var(--…, fallback))
+ * so it sits inside the import panel without a visual seam.
+ */
+
+.import-mode-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--line, #ececef);
+}
+
+.import-mode-tab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--ink-faint, #6b675f);
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: 13px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.import-mode-tab:hover {
+  color: var(--ink, #1c140d);
+}
+
+.import-mode-tab--active {
+  color: var(--ink, #1c140d);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.import-project {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.import-project-hint {
+  margin: 0;
+  color: var(--ink-soft, #55504a);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.import-project-hint code,
+.import-project-summary code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  background: color-mix(in srgb, var(--ink, #1c140d) 5%, transparent);
+  border-radius: var(--radius-sm, 6px);
+  padding: 1px 4px;
+}
+
+/* The hidden <input type=file> sits inside this label so the label IS the button. */
+.import-project-pick {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.import-project-report {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.import-project-summary {
+  font-size: 13px;
+  color: var(--ink, #1c140d);
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--ink, #1c140d) 4%, transparent);
+  border: 1px solid var(--line, #ececef);
+  border-radius: var(--radius-sm, 6px);
+}
+
+/* Dropped-path surfacing (#17.3 follow-up): grouped-by-reason "won't import" list. */
+.import-dropped-group {
+  margin: 6px 0 0;
+}
+
+.import-dropped-group ul {
+  margin: 4px 0 0;
+}
+
+.import-dropped-label {
+  margin: 0;
+  color: var(--ink-soft, #55504a);
+  font-size: 12px;
+  line-height: 1.45;
+}

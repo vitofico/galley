@@ -1,0 +1,256 @@
+/*
+ * In-document full-text search panel (Tier E #2). Scoped `search-` class names —
+ * never collide with global rules. Colors/typography come from the design
+ * tokens only (var(--…, fallback)); both light and dark themes are covered
+ * because every value resolves a token that flips under
+ * :root[data-theme="dark"]. Tokens referenced: --paper, --ink, --ink-soft,
+ * --ink-faint, --line, --line-strong, --radius-sm, --font-ui, --accent-soft.
+ */
+
+.search-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.9rem;
+  font-family: var(--font-ui, system-ui, sans-serif);
+  color: var(--ink, #1a1a1a);
+  /* Hosted by the glass dock card — transparent, the card owns the surface. */
+  background: transparent;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.search-header {
+  display: flex;
+  align-items: baseline;
+}
+
+.search-title {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint, #999);
+}
+
+.search-input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in srgb, var(--ink, #1c140d) 5%, transparent);
+  color: var(--ink, #1a1a1a);
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--ink-faint, #6f665a);
+}
+
+/* ── Replace row (feature #4): the replacement input + Replace-all button ── */
+
+.search-replace-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: stretch;
+}
+
+.search-replace-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.search-replace-input:disabled {
+  color: var(--ink-faint, #999);
+  cursor: not-allowed;
+}
+
+.search-replace-all,
+.search-replace-undo {
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in srgb, var(--ink, #1c140d) 5%, transparent);
+  color: var(--ink, #1a1a1a);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.search-replace-all:hover:not(:disabled),
+.search-replace-undo:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink, #1c140d) 10%, transparent);
+}
+
+.search-replace-all:disabled,
+.search-replace-undo:disabled {
+  color: var(--ink-faint, #999);
+  cursor: not-allowed;
+  background: transparent;
+}
+
+.search-replace-undo-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.search-replace-undo {
+  align-self: flex-start;
+}
+
+.search-replace-hint {
+  font-size: 0.68rem;
+  color: var(--ink-faint, #999);
+}
+
+/* Honest-truncation note: visible (not hover-only) when the caps bite. */
+.search-replace-note {
+  font-size: 0.68rem;
+  color: var(--ink-soft, #555);
+}
+
+/* Aborted-replace notice: a concurrent edit won; nothing was changed. */
+.search-replace-conflict {
+  font-size: 0.72rem;
+  color: var(--ink, #1a1a1a);
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in srgb, var(--ink, #1c140d) 6%, transparent);
+}
+
+.search-count {
+  font-size: 0.72rem;
+  color: var(--ink-faint, #999);
+}
+
+.search-empty {
+  font-size: 0.8rem;
+  color: var(--ink-faint, #999);
+  padding: 0.5rem 0;
+}
+
+.search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  overflow: auto;
+  min-height: 0;
+}
+
+.search-file-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.search-file-path {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ink-soft, #555);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-file-more {
+  font-weight: 400;
+  color: var(--ink-faint, #999);
+}
+
+.search-match-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.search-match-item {
+  display: flex;
+  gap: 0.25rem;
+  align-items: stretch;
+}
+
+.search-result-replace {
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 0.68rem;
+  align-self: center;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--ink-faint, #999);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.search-result-replace:hover,
+.search-result-replace:focus-visible {
+  outline: none;
+  color: var(--ink, #1a1a1a);
+  background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);
+  border-color: var(--line, #e2e2e2);
+}
+
+.search-result {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 0.55rem;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--ink, #1a1a1a);
+  transition: background 120ms ease;
+}
+
+.search-result:hover,
+.search-result:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);
+  border-color: var(--line, #e2e2e2);
+}
+
+.search-result-line {
+  flex: 0 0 auto;
+  min-width: 1.6em;
+  text-align: right;
+  color: var(--ink-faint, #999);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+}
+
+.search-result-snippet {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8rem;
+}
+
+.search-result-hit {
+  background: var(--accent-soft, #ffe9a8);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+:root[data-theme="dark"] .search-result-hit {
+  /* The accent-soft token already flips in dark mode; keep the text legible on it. */
+  color: var(--ink-strong, #f4efe6);
+}

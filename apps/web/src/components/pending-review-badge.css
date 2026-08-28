@@ -1,0 +1,141 @@
+/* ADR-0024 §4 — the global, always-visible pending-review surface. Positioned
+   like the durability bar (slim row under the topbar, aligned with the shell
+   content); the chip borrows the Agent access panel's accent weight so a pending
+   agent change reads as actionable but calm. The inline review pane hosts the
+   existing .mcp-proposals cards verbatim. */
+
+.pending-review-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0.15rem var(--shell-pad) 0
+    calc(var(--shell-pad) + var(--rail-w) + var(--shell-gap));
+}
+
+.pending-review-chip {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.2;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+button.pending-review-chip:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.pending-review-chip--viewer {
+  cursor: default;
+  font-weight: 500;
+}
+
+.pending-review-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.3em;
+  height: 1.3em;
+  padding: 0 0.35em;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 0.8em;
+  font-weight: 700;
+}
+
+.pending-review-caret {
+  font-size: 0.7em;
+  opacity: 0.8;
+}
+
+/* The inline review pane: a contained surface that hosts the existing proposal
+   cards. It scrolls if the change set is large so the shell never grows
+   unbounded. */
+.pending-review-pane {
+  max-height: min(60vh, 32rem);
+  overflow: auto;
+  border: 1px solid var(--chrome-border);
+  border-radius: 10px;
+  background: var(--paper-raised);
+  padding: 0.6rem;
+}
+
+/* ADR-0025 §5 — one run card per agent run. Header carries the run request, the
+   change count, and a provenance chip; Accept-all/Reject-all sit on the right.
+   Each card stacks; the expandable detail hosts the existing .mcp-proposals
+   bodies verbatim. */
+.run-review-card {
+  border: 1px solid var(--chrome-border);
+  border-radius: 8px;
+  background: var(--paper);
+  padding: 0.55rem 0.65rem;
+}
+
+.run-review-card + .run-review-card {
+  margin-top: 0.55rem;
+}
+
+.run-review-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.run-review-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.run-review-count {
+  font-size: 0.8rem;
+  color: var(--ink-faint);
+}
+
+.run-review-prov {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.run-review-prov--verified {
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+  color: var(--ok);
+}
+
+.run-review-prov--unverified {
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  color: var(--warn);
+}
+
+.run-review-streaming {
+  font-size: 0.72rem;
+  font-style: italic;
+  color: var(--ink-faint);
+}
+
+.run-review-note {
+  margin: 0.4rem 0 0;
+  font-size: 0.76rem;
+  color: var(--ink-soft);
+}
+
+.run-review-detail {
+  margin-top: 0.5rem;
+}

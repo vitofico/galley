@@ -1,0 +1,154 @@
+/**
+ * Preview zoom pill (#19.3 — evolved from the sticky top-right toolbar). A
+ * floating bottom-center pill over the preview pane that auto-fades when idle
+ * (see ZoomPill.tsx for the wake/sleep contract). Scoped class names only,
+ * design tokens only (no hardcoded colors). At 100% the page wrapper carries
+ * no transform, so the rendered preview is byte-for-byte unchanged.
+ */
+
+/* The non-scrolling positioning context the pill floats in; the scrolling
+ * `.preview` fills it (see styles.css for the pane-level flex sizing). */
+.preview-host {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.preview-host > .preview {
+  flex: 1;
+  min-height: 0;
+}
+
+.preview-zoom-bar {
+  position: absolute;
+  bottom: 0.85rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.22rem 0.4rem;
+  border: 1px solid var(--chrome-border);
+  border-radius: var(--radius-pill);
+  background: var(--chrome);
+  box-shadow: var(--shadow-2);
+  font-family: var(--font-ui);
+  opacity: 1;
+  transition: opacity 180ms ease;
+  /* #19.5 Ink & Glass: this pill genuinely floats over the rendered page, so
+     the blur earns its keep here. Legibility never rides on it — the --chrome
+     alpha alone keeps text AA over the white page (theme.test.ts pins it). */
+  -webkit-backdrop-filter: blur(var(--blur-chrome));
+  backdrop-filter: blur(var(--blur-chrome));
+}
+
+/* Idle: fade out AND stop intercepting clicks meant for the page beneath
+ * (rubric R7 — floating chrome must never occlude content). Pointer/scroll
+ * activity over the preview removes the attribute synchronously. */
+.preview-zoom-bar[data-idle="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .preview-zoom-bar {
+    transition: none;
+  }
+}
+
+/* L4 — stale-render edge banner. When a previously-good doc is edited into a
+   compile error, the preview keeps the last GOOD page on screen; this calm
+   warn-toned pill floats at the TOP edge (mirroring the zoom pill at the bottom)
+   so the reader sees the render is stale without a layout shift. Glass + token
+   colors only, like the zoom pill — legibility rides on --warn, not the blur. */
+.preview-stale-notice {
+  position: absolute;
+  top: 0.85rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  max-width: calc(100% - 1.6rem);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.22rem 0.6rem;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-pill);
+  background: var(--chrome);
+  box-shadow: var(--shadow-2);
+  color: var(--warn);
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  -webkit-backdrop-filter: blur(var(--blur-chrome));
+  backdrop-filter: blur(var(--blur-chrome));
+}
+.preview-stale-notice::before {
+  content: "⚠";
+  font-size: 0.85em;
+}
+
+.preview-zoom-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  height: 1.75rem;
+  padding: 0 0.4rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: inherit;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.preview-zoom-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
+}
+
+.preview-zoom-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.preview-zoom-btn:disabled {
+  /* The % readout doubles as the "actual size" reset and as a status readout
+     when already at 100%; keep opacity:1 so it stays legible (overrides the
+     global 0.45 rule), and use --ink-soft for ≥4.5:1 text contrast. */
+  color: var(--ink-soft);
+  opacity: 1;
+  cursor: default;
+}
+
+.preview-zoom-level {
+  min-width: 3.2rem;
+  padding: 0 0.3rem;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.preview-zoom-sep {
+  width: 1px;
+  height: 1.1rem;
+  margin: 0 0.15rem;
+  background: var(--line);
+}
+
+/* The page wrapper scales around its top-center; the .preview container's
+ * overflow:auto provides pan when the scaled page exceeds the viewport. */
+.preview-page[data-zoomed="true"] {
+  transform: scale(var(--preview-zoom, 1));
+  transform-origin: top center;
+}

@@ -1,0 +1,222 @@
+/*
+ * Shared styles for the authoring overlays — Import (#15) and Figure (#8). Scoped
+ * `authoring-` prefix; colors/type from the design tokens only (var(--…, fallback)).
+ * Modeled on editor-prefs-panel.css (backdrop + centered card + Escape/close).
+ */
+
+.authoring-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 4rem 1rem 1rem;
+  background: rgba(0, 0, 0, 0.32);
+  overflow-y: auto;
+}
+
+/* #19.5: the overlay card is floating chrome — glass + hairline (opaque
+   --chrome fallback where backdrop-filter is unsupported). */
+.authoring-panel {
+  width: min(40rem, 100%);
+  display: flex;
+  flex-direction: column;
+  background: var(--chrome, #ffffff);
+  color: var(--ink, #1c140d);
+  border: 1px solid var(--chrome-border, rgba(20, 22, 28, 0.10));
+  border-radius: 14px;
+  box-shadow: var(--shadow-2, 0 8px 30px rgba(0, 0, 0, 0.18));
+  font-family: var(--font-ui, system-ui, sans-serif);
+  -webkit-backdrop-filter: blur(var(--blur-chrome, 14px));
+  backdrop-filter: blur(var(--blur-chrome, 14px));
+}
+
+.authoring-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.9rem 1.1rem;
+  border-bottom: 1px solid var(--line, #ececef);
+}
+
+.authoring-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.authoring-close {
+  padding: 0.2rem 0.5rem;
+  font: inherit;
+  color: var(--ink-faint, #6b675f);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+}
+
+.authoring-close:hover {
+  color: var(--ink, #1c140d);
+  background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);
+}
+
+.authoring-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  padding: 1.1rem;
+}
+
+.authoring-format {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft, #55504a);
+}
+
+.authoring-format label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+}
+
+.authoring-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.6rem 0.7rem;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.85rem;
+  color: var(--ink, #1c140d);
+  background: color-mix(in srgb, var(--ink, #1c140d) 5%, transparent);
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: var(--radius-sm, 6px);
+  resize: vertical;
+}
+
+.authoring-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.authoring-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.authoring-primary {
+  padding: 0.45rem 1.05rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--on-accent);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-pill, 999px);
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+
+.authoring-primary:hover:not(:disabled) {
+  background: var(--accent-deep);
+}
+
+.authoring-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.authoring-secondary {
+  padding: 0.45rem 0.9rem;
+  font: inherit;
+  color: var(--ink-soft, #55504a);
+  background: transparent;
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: var(--radius-pill, 999px);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.authoring-secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);
+  color: var(--ink, #1c140d);
+}
+
+.authoring-secondary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* A low-emphasis text action (e.g. "Review") that sits beside the primary/secondary. */
+.authoring-tertiary {
+  padding: 0.45rem 0.7rem;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--ink-soft, #55504a);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-pill, 999px);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.authoring-tertiary:hover {
+  background: color-mix(in srgb, var(--ink, #1c140d) 6%, transparent);
+  color: var(--ink, #1c140d);
+}
+
+.authoring-status {
+  font-size: 0.8rem;
+  color: var(--ink-soft, #55504a);
+}
+
+.authoring-status[data-ok="false"] {
+  color: var(--err, #c0392b);
+}
+
+/* (ad-hoc .authoring-error replaced by the shared `Notice` component) */
+
+.authoring-report {
+  font-size: 0.8rem;
+  color: var(--ink-soft, #55504a);
+  background: color-mix(in srgb, var(--ink, #1c140d) 4%, transparent);
+  border: 1px solid var(--chrome-border, rgba(20, 22, 28, 0.10));
+  border-radius: var(--radius-sm, 6px);
+  padding: 0.5rem 0.7rem;
+}
+
+.authoring-report summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.authoring-report ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.authoring-report code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--accent-deep);
+}
+
+/* Quick-fix lightbulb on a diagnostic row (#11.4b) */
+.diag-quickfix {
+  margin-left: 0.4rem;
+  padding: 0 0.3rem;
+  font: inherit;
+  font-size: 0.85em;
+  line-height: 1;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+}
+
+.diag-quickfix:hover {
+  border-color: var(--accent);
+}

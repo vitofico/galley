@@ -1,0 +1,305 @@
+/* Comments Phase A — the thread card, the create composer, and the cross-file
+   overview. One shared card language with the other anchored surfaces
+   (`.ui-popover`): a raised card under its anchor, accent tokens from theme.css,
+   both themes. Never the destructive `--err` (reserved for diagnostics). */
+
+/* A point-anchored floating card (thread card + create composer) positioned by
+   the host via inline left/top (clamped into the viewport). */
+.comment-card {
+  position: fixed;
+  z-index: 70;
+  width: 19rem;
+  max-width: calc(100vw - 1rem);
+  padding: 0.7rem;
+  background: var(--chrome);
+  border: 1px solid var(--chrome-border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-2);
+  -webkit-backdrop-filter: blur(var(--blur-chrome));
+  backdrop-filter: blur(var(--blur-chrome));
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  font-size: 0.82rem;
+  color: var(--ink);
+}
+
+/* The quoted anchored text — what the thread is about. Truncates so a long
+   selection never blows out the card; an orphaned thread keeps this text. */
+.comment-quote {
+  margin: 0;
+  padding: 0.35rem 0.5rem;
+  border-left: 3px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-radius: 0 6px 6px 0;
+  color: var(--ink-soft);
+  font-style: italic;
+  max-height: 4.5em;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.comment-quote--orphaned {
+  border-left-color: var(--ink-faint);
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.comment-orphan-note {
+  font-size: 0.72rem;
+  color: var(--ink-faint);
+}
+
+/* L6 "N viewing" presence cue — a quiet live-roster line above the messages. */
+.comment-viewers {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+}
+
+.comment-viewers-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* The message list. */
+.comment-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.comment-message {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.comment-message-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.comment-author {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.comment-author--agent {
+  color: var(--accent-deep);
+}
+
+.comment-time {
+  font-size: 0.7rem;
+  color: var(--ink-faint);
+}
+
+.comment-body {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink);
+}
+
+/* The reply / first-message composer. */
+.comment-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.comment-input {
+  font: inherit;
+  font-size: 0.82rem;
+  resize: vertical;
+  min-height: 2.4rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--chrome-border);
+  border-radius: 8px;
+  background: var(--paper, #fff);
+  color: var(--ink);
+}
+.comment-input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+}
+
+.comment-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.comment-actions-spacer {
+  flex: 1;
+}
+
+.comment-btn {
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.32rem 0.66rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.comment-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.comment-btn--primary {
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+}
+.comment-btn--primary:not(:disabled):hover {
+  background: color-mix(in srgb, var(--accent) 88%, #000);
+}
+
+.comment-btn--ghost {
+  background: transparent;
+  color: var(--ink-soft);
+  border-color: var(--chrome-border);
+}
+.comment-btn--ghost:not(:disabled):hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+/* ---------- The cross-file overview popover (Layer 5) ---------------------- */
+
+.comments-overview {
+  width: 22rem;
+  max-width: calc(100vw - 1rem);
+  right: 0;
+  max-height: min(70vh, 32rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.comments-overview-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.comments-overview-title {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--ink);
+  flex: 1;
+}
+
+/* The open/resolved filter — a segmented control. */
+.comments-filter {
+  display: inline-flex;
+  border: 1px solid var(--chrome-border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.comments-filter-btn {
+  font: inherit;
+  font-size: 0.74rem;
+  padding: 0.22rem 0.55rem;
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.comments-filter-btn[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+}
+
+.comments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  overflow-y: auto;
+}
+
+.comment-overview-section-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-faint);
+  margin: 0.3rem 0 0.1rem;
+}
+
+.comment-overview-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  text-align: left;
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+.comment-overview-item:hover,
+.comment-overview-item:focus-visible {
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  outline: none;
+}
+
+.comment-overview-quote {
+  font-style: italic;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.comment-overview-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.7rem;
+  color: var(--ink-faint);
+}
+
+.comment-overview-file {
+  font-family: var(--font-mono);
+}
+
+.comments-empty {
+  font-size: 0.78rem;
+  color: var(--ink-faint);
+  padding: 0.5rem 0.2rem;
+}
+
+/* The toolbar toggle's count pip — a child of the trigger (quiet at 0). */
+.comments-count {
+  position: absolute;
+  top: -0.35rem;
+  right: -0.35rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.comments-toggle-wrap {
+  position: relative;
+  display: inline-flex;
+}

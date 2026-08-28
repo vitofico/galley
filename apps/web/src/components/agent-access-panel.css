@@ -1,0 +1,172 @@
+/* Unified Agent access panel (ADR-0025 §1/§5, Task 8) — the per-project Ask/Auto
+   control + instant kill-switch + merged apply-then-review audit trail. Replaces
+   the retired auto-accept.css. All rules are scoped under `.agent-access-panel`
+   and use the existing design tokens (theme.css / styles.css). `--err` true-red
+   is reserved for destructive controls and is NOT used here; Auto is
+   consequential but recoverable, so it leans on the accent tokens. */
+
+.agent-access-panel {
+  margin: 0.5rem 0.75rem 0;
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--paper-raised);
+  font-family: var(--font-ui);
+}
+
+/* --- Ask / Auto segmented control ------------------------------------- */
+
+.agent-access-mode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.agent-access-mode-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.agent-access-mode-choice {
+  display: inline-flex;
+  gap: 0;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.agent-access-mode-btn {
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.28rem 0.7rem;
+  border: none;
+  background: transparent;
+  color: var(--accent-deep);
+}
+
+.agent-access-mode-btn + .agent-access-mode-btn {
+  border-left: 1px solid var(--accent);
+}
+
+.agent-access-mode-btn:hover {
+  background: var(--accent-soft);
+}
+
+.agent-access-mode-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.agent-access-mode-btn--active {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.agent-access-mode-btn--active:hover {
+  background: var(--accent-deep);
+}
+
+/* --- Caption ----------------------------------------------------------- */
+
+.agent-access-caption {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--ink-soft);
+}
+
+.agent-access-bolt {
+  font-size: 0.82rem;
+}
+
+/* --- Instant kill-switch ----------------------------------------------- */
+
+.agent-auto-killswitch {
+  justify-self: start;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.28rem 0.65rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.agent-auto-killswitch:hover {
+  background: var(--accent-deep);
+  border-color: var(--accent-deep);
+}
+
+.agent-auto-killswitch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --- Merged audit trail ------------------------------------------------ */
+
+.agent-access-audit {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.agent-access-audit-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.72rem;
+  color: var(--ink);
+  padding: 0.2rem 0.1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.agent-access-audit-request {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-access-audit-files,
+.agent-access-audit-at {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--ink-soft);
+}
+
+.agent-access-audit-state {
+  flex: none;
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent-deep);
+}
+
+/* A failed auto-apply is a muted warning, never destructive-red — the change
+   simply degraded to manual review (fail-closed). */
+.agent-access-audit-row--failed .agent-access-audit-state {
+  color: var(--warn);
+}
+
+.agent-access-audit-row--failed .agent-access-audit-request {
+  color: var(--ink-soft);
+}
+
+.agent-access-audit-more {
+  font-size: 0.68rem;
+  color: var(--ink-faint);
+  padding: 0.15rem 0.1rem;
+}

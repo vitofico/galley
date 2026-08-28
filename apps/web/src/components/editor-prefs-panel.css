@@ -1,0 +1,148 @@
+/*
+ * Editor preferences panel (roadmap #11.5-UI). Scoped `editor-prefs…` class
+ * names that never collide with global rules in styles.css. All colors,
+ * typography and radii come from the design tokens (var(--…), with fallbacks)
+ * so the panel inherits the theme. Tokens referenced: --paper-raised,
+ * --paper-sunk, --ink, --ink-soft, --ink-faint, --line, --line-strong,
+ * --accent-deep, --radius, --radius-sm, --font-ui, --font-mono, --shadow-2.
+ */
+
+.editor-prefs-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 8vh 1rem 1rem;
+  background: rgba(33, 28, 23, 0.18);
+  font-family: var(--font-ui, system-ui, sans-serif);
+}
+
+/* #19.5: floating chrome — glass + hairline (opaque fallback in --chrome). */
+.editor-prefs {
+  width: min(320px, 100%);
+  display: flex;
+  flex-direction: column;
+  background: var(--chrome, #ffffff);
+  color: var(--ink, #1c140d);
+  border: 1px solid var(--chrome-border, #dcdde2);
+  border-radius: 14px;
+  box-shadow: var(--shadow-2, 0 8px 22px rgba(45, 34, 22, 0.18));
+  overflow: hidden;
+  -webkit-backdrop-filter: blur(var(--blur-chrome, 14px));
+  backdrop-filter: blur(var(--blur-chrome, 14px));
+}
+
+.editor-prefs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--line, #ececef);
+}
+
+.editor-prefs-title {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink, #1c140d);
+}
+
+.editor-prefs-close {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--ink-soft, #5b5247);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0.2rem 0.35rem;
+  border-radius: var(--radius-sm, 4px);
+}
+
+.editor-prefs-close:hover {
+  background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);
+  color: var(--ink, #1c140d);
+}
+
+.editor-prefs-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 0.9rem;
+}
+
+.editor-prefs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.editor-prefs-label {
+  font-size: 0.8rem;
+  color: var(--ink-soft, #5b5247);
+}
+
+.editor-prefs-stepper {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.editor-prefs-step {
+  appearance: none;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: var(--radius-pill, 999px);
+  background: transparent;
+  color: var(--ink, #1c140d);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.editor-prefs-step:hover {
+  background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);
+  border-color: var(--ink-faint, #6f665a);
+}
+
+.editor-prefs-font-size {
+  /* Wide enough for "13.5" plus Chromium's intrinsic number-input padding —
+     3.4rem clipped the default value's last digit (#19.7 polish). */
+  width: 4.4rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--ink, #1c140d) 5%, transparent);
+  color: var(--ink, #1c140d);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.8rem;
+  text-align: right;
+}
+
+.editor-prefs-unit {
+  font-size: 0.72rem;
+  color: var(--ink-faint, #8c8275);
+}
+
+/* #19.7: the EMBEDDED variant — the rows inline on the /settings Editor card.
+   The host card carries the surface, border and title, so the panel sheds its
+   own chrome; controls and spacing are unchanged. */
+.editor-prefs--embedded {
+  width: auto;
+  max-width: 24rem;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.editor-prefs--embedded .editor-prefs-body {
+  padding: 0;
+}

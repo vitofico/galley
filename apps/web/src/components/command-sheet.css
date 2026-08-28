@@ -1,0 +1,139 @@
+/*
+ * Command sheet overlay (roadmap #11.7). Scoped `cmd-sheet…` class names that
+ * never collide with global rules in styles.css. All colors/typography/radii
+ * come from the design tokens (var(--…), with fallbacks) so the sheet inherits
+ * the theme. Tokens referenced: --paper-raised, --paper-sunk, --ink, --ink-soft,
+ * --ink-faint, --line, --line-strong, --accent-deep, --radius, --radius-sm,
+ * --font-ui, --font-mono, --shadow-2.
+ */
+
+.cmd-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 8vh 1rem 1rem;
+  background: rgba(33, 28, 23, 0.38);
+  font-family: var(--font-ui, system-ui, sans-serif);
+}
+
+/* #19.5: same floating-chrome language as the palette (glass + hairline). */
+.cmd-sheet {
+  width: min(640px, 100%);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--chrome, #ffffff);
+  color: var(--ink, #1c140d);
+  border: 1px solid var(--chrome-border, rgba(20, 22, 28, 0.10));
+  border-radius: 14px;
+  box-shadow: var(--shadow-2, 0 8px 22px rgba(45, 34, 22, 0.18));
+  overflow: hidden;
+  -webkit-backdrop-filter: blur(var(--blur-chrome, 14px));
+  backdrop-filter: blur(var(--blur-chrome, 14px));
+}
+
+.cmd-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--line, #ececef);
+}
+
+.cmd-sheet-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink, #1c140d);
+}
+
+.cmd-sheet-close {
+  border: none;
+  background: transparent;
+  color: var(--ink-faint, #6b675f);
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0.25rem 0.45rem;
+  border-radius: var(--radius-sm, 5px);
+  cursor: pointer;
+}
+
+.cmd-sheet-close:hover {
+  background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);
+  color: var(--ink, #1c140d);
+}
+
+.cmd-sheet-close:focus-visible {
+  outline: 2px solid var(--accent-deep);
+  outline-offset: -1px;
+}
+
+.cmd-sheet-body {
+  padding: 0.5rem 1rem 1rem;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.cmd-sheet-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.cmd-sheet-group-title {
+  margin: 0.6rem 0 0.15rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-faint, #6b675f);
+}
+
+.cmd-sheet-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cmd-sheet-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.4rem 0.15rem;
+  border-bottom: 1px solid var(--line, #ececef);
+}
+
+.cmd-sheet-row:last-child {
+  border-bottom: none;
+}
+
+.cmd-sheet-label {
+  font-size: 0.85rem;
+  color: var(--ink-soft, #55504a);
+}
+
+.cmd-sheet-keys {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.78rem;
+  color: var(--ink, #1c140d);
+  background: color-mix(in srgb, var(--ink, #1c140d) 5%, transparent);
+  border: 1px solid var(--chrome-border, rgba(20, 22, 28, 0.10));
+  border-radius: var(--radius-sm, 5px);
+  padding: 0.12rem 0.4rem;
+  white-space: nowrap;
+}
+
+.cmd-sheet-empty {
+  color: var(--ink-faint, #6b675f);
+  font-style: italic;
+  font-size: 0.85rem;
+  padding: 0.5rem 0;
+}

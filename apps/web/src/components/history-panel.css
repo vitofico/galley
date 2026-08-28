@@ -1,0 +1,284 @@
+/*
+ * Version-history timeline (roadmap #12.6). Scoped class names with a
+ * `history-` prefix — these never collide with global rules in styles.css.
+ * Colors/typography come from the design tokens (var(--…, fallback)) only; no
+ * hardcoded palette. Tokens referenced: --paper-raised, --paper-sunk, --ink,
+ * --ink-soft, --ink-faint, --line, --accent-soft, --accent-deep, --radius-sm,
+ * --font-ui.
+ */
+
+.history-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.9rem;
+  font-family: var(--font-ui, system-ui, sans-serif);
+  color: var(--ink, #1c140d);
+  /* #19.5: hosted by the glass dock card — transparent, the card owns the
+     surface (an opaque slab here would punch a hole in the glass). */
+  background: transparent;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  overflow: auto;
+}
+
+.history-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.history-title {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint, #6b675f);
+}
+
+.history-save {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem 0.55rem;
+  border: 1px solid var(--chrome-border, rgba(20, 22, 28, 0.1));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ink, #1c140d) 4%, transparent);
+}
+
+.history-auto-snapshot {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.15rem 0.1rem;
+  font-size: 0.82rem;
+  color: var(--ink-soft, #55504a);
+  cursor: pointer;
+}
+
+.history-auto-snapshot input {
+  cursor: pointer;
+}
+
+.history-save-name,
+.history-save-message {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--ink, #1c140d) 5%, transparent);
+  color: var(--ink, #1c140d);
+}
+
+.history-save-submit,
+.history-compare,
+.history-version-restore {
+  font: inherit;
+  cursor: pointer;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--line-strong, #dcdde2);
+  border-radius: var(--radius-pill, 999px);
+  background: transparent;
+  color: var(--ink, #1c140d);
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.history-save-submit:hover:not(:disabled),
+.history-compare:hover:not(:disabled),
+.history-version-restore:hover {
+  background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);
+  border-color: var(--ink-faint, #6b675f);
+  color: var(--ink, #1c140d);
+}
+
+.history-save-submit:disabled,
+.history-compare:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.history-save-submit:focus-visible,
+.history-compare:focus-visible,
+.history-version-restore:focus-visible {
+  outline: 2px solid var(--accent-deep);
+  outline-offset: -1px;
+}
+
+.history-compare-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.history-compare-hint {
+  font-size: 0.72rem;
+  color: var(--ink-faint, #6b675f);
+}
+
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.history-version {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--chrome-border, rgba(20, 22, 28, 0.1));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ink, #1c140d) 4%, transparent);
+  border-left: 2px solid transparent;
+}
+
+.history-version[data-selected="true"] {
+  border-left-color: var(--accent-deep);
+  background: var(--accent-soft);
+}
+
+.history-version-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.history-version-name {
+  font-weight: 600;
+  color: var(--ink, #1c140d);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-version-message {
+  font-size: 0.72rem;
+  color: var(--ink-soft, #55504a);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-version-contributors {
+  font-size: 0.68rem;
+  color: var(--ink-faint, #6b675f);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-version-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.history-version-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  color: var(--ink-soft, #55504a);
+  cursor: pointer;
+}
+
+.history-loading,
+.history-empty {
+  color: var(--ink-faint, #6b675f);
+  font-style: italic;
+  padding: 0.4rem 0.5rem;
+}
+
+/* Version compare (#12.6) — a read-only per-file diff of two saved versions. */
+.vcompare {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-width: 0;
+}
+.vcompare-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.vcompare-title {
+  font-size: 0.9rem;
+}
+.vcompare-summary {
+  font-size: 0.72rem;
+  color: var(--ink-soft, #55504a);
+}
+.vcompare-empty {
+  color: var(--ink-faint, #6b675f);
+  font-style: italic;
+  padding: 0.4rem 0.5rem;
+}
+.vcompare-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.vcompare-file-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  background: color-mix(in srgb, var(--ink, #1c140d) 4%, transparent);
+  border: 1px solid var(--chrome-border, rgba(20, 22, 28, 0.1));
+  border-radius: 8px;
+  padding: 0.3rem 0.5rem;
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.78rem;
+}
+.vcompare-badge {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.05rem 0.35rem;
+  border-radius: 3px;
+  color: #fff;
+  flex-shrink: 0;
+}
+.vcompare-badge-added { background: var(--ok, #1f7a4d); }
+.vcompare-badge-removed { background: var(--accent-deep); }
+.vcompare-badge-modified { background: var(--warn, #8a5a0a); }
+.vcompare-badge-unchanged { background: var(--ink-faint, #6b675f); }
+.vcompare-path {
+  font-family: var(--font-mono, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vcompare-diff {
+  margin: 0.2rem 0 0;
+  padding: 0.4rem 0.5rem;
+  background: color-mix(in srgb, var(--ink, #1c140d) 3%, transparent);
+  border: 1px solid var(--chrome-border, rgba(20, 22, 28, 0.1));
+  border-radius: 8px;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.72rem;
+  overflow-x: auto;
+  max-height: 18rem;
+  white-space: pre;
+}
+.vcompare-line { display: block; }
+.vcompare-gutter {
+  display: inline-block;
+  width: 1ch;
+  margin-right: 0.5ch;
+  color: var(--ink-faint, #6b675f);
+}
+.vcompare-line-add { background: color-mix(in srgb, var(--ok, #1f7a4d) 16%, transparent); }
+.vcompare-line-del { background: color-mix(in srgb, var(--accent) 14%, transparent); }

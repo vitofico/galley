@@ -1,0 +1,358 @@
+/*
+ * /settings (#19.7) — the unified settings surface, in the Rail & Islands
+ * chrome language (#19.5): the press bed (--paper) underneath, hairline
+ * raised cards for the sections, ghost/primary pills, serif display titles.
+ * Scoped `settings-page` / `settings-` prefixes; every colour/radius/shadow
+ * comes from the design tokens in styles.css / theme.css so both themes are
+ * covered. (The legacy `.settings` provider-form classes from styles.css are
+ * re-skinned here ONLY under `.settings-page` — the `?single=1` shell's inline
+ * form is untouched.)
+ */
+
+.settings-page {
+  min-height: 100%;
+  box-sizing: border-box;
+  padding: 1.1rem clamp(1rem, 4vw, 2.5rem) 3.5rem;
+  font-family: var(--font-ui);
+  color: var(--ink);
+  background: var(--paper);
+}
+
+.settings-page-inner {
+  max-width: 56rem;
+  margin: 0 auto;
+}
+
+/* Top bar: the way back on the left, the account chip on the right — the same
+   chip + popover as the editor / Projects header, so the signed-in identity is
+   reachable from every surface. */
+.settings-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+/* The way back — a quiet chrome pill, same language as the shell's islands. */
+.settings-back {
+  appearance: none;
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.34rem 0.85rem;
+  color: var(--ink-soft);
+  background: var(--chrome);
+  border: 1px solid var(--chrome-border);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-1);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.settings-back:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 8%, var(--chrome-opaque));
+}
+
+.settings-header {
+  margin: 1.2rem 0 1.4rem;
+}
+.settings-title {
+  margin: 0 0 0.3rem;
+  font-family: var(--font-display);
+  font-size: 1.55rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.settings-subtitle {
+  margin: 0;
+  max-width: 38rem;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: var(--ink-faint);
+}
+/* M4: a calm "everything here is optional" reassurance above the credential
+   cards — a quiet note (neutral surface, a single accent keyline), never an
+   alarm. Token-only so it survives a skin swap and both themes. */
+.settings-optional-lead {
+  margin: 0.75rem 0 0;
+  max-width: 38rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  padding: 0.55rem 0.8rem;
+  background: var(--paper-sunk);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+}
+
+/* Two columns on a wide desk: a sticky section nav + the cards. */
+.settings-layout {
+  display: grid;
+  grid-template-columns: 10.5rem minmax(0, 1fr);
+  gap: 1.6rem;
+  align-items: start;
+}
+
+.settings-nav {
+  position: sticky;
+  top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.settings-nav a {
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  text-decoration: none;
+  padding: 0.32rem 0.7rem;
+  border-radius: var(--radius-pill);
+  transition: background 140ms ease, color 140ms ease;
+}
+.settings-nav a:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.settings-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
+
+/* A section card: raised paper, hairline border, whisper shadow (#19.5). */
+.settings-card {
+  background: var(--paper-raised);
+  border: 1px solid var(--chrome-border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-1);
+  padding: 1.05rem 1.25rem 1.2rem;
+  scroll-margin-top: 0.9rem;
+}
+.settings-card-title {
+  margin: 0 0 0.25rem;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+.settings-card-lead {
+  margin: 0 0 0.9rem;
+  max-width: 36rem;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+.settings-note {
+  margin: 0.7rem 0 0;
+  max-width: 36rem;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--ink-faint);
+}
+.settings-note kbd {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 0.05rem 0.3rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--paper-sunk);
+  color: var(--ink);
+}
+.settings-saved-note {
+  margin: 0.6rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--ok);
+}
+
+/* ---------- Appearance: subheads within the section ------------------------- */
+.settings-subhead {
+  margin: 0.8rem 0 0.4rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.settings-subhead:first-of-type {
+  margin-top: 0;
+}
+
+/* ---------- Appearance: the theme / skin option cards ----------------------- */
+.settings-theme-choice {
+  display: flex;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+.settings-theme-option {
+  flex: 1 1 14rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.18rem;
+  text-align: left;
+  font: inherit;
+  padding: 0.7rem 0.9rem;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.settings-theme-option:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+.settings-theme-option[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--accent-soft);
+}
+.settings-theme-name {
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+.settings-theme-desc {
+  font-size: 0.76rem;
+  color: var(--ink-soft);
+}
+
+/* ---------- Compile: the read-only resolved server URL ---------------------- */
+.settings-kv {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin: 0.85rem 0 0;
+}
+.settings-kv dt {
+  flex: none;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.settings-kv dd {
+  margin: 0;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--ink);
+  word-break: break-all;
+}
+
+/* ---------- AI provider: re-skin the relocated form to the card ------------- */
+/* ProviderSettings ships the agent-sidebar skin (`.settings` in styles.css:
+   raised strip + bottom hairline). On the settings card it sits flush. */
+.settings-page .settings {
+  padding: 0;
+  border-bottom: none;
+  background: transparent;
+}
+
+/* ---------- Identity --------------------------------------------------------- */
+.settings-identity-row {
+  display: flex;
+  gap: 0.5rem;
+  max-width: 28rem;
+}
+.settings-identity-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.84rem;
+  padding: 0.42rem 0.85rem;
+  color: var(--ink);
+  background: var(--paper-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+}
+.settings-identity-row input::placeholder {
+  color: var(--ink-faint);
+}
+.settings-identity-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.settings-primary {
+  flex: none;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  padding: 0.42rem 1.1rem;
+  color: var(--on-accent);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+.settings-primary:hover {
+  background: var(--accent-deep);
+}
+
+/* ---------- Narrow desks ----------------------------------------------------- */
+@media (max-width: 860px) {
+  .settings-layout {
+    grid-template-columns: 1fr;
+    gap: 0.9rem;
+  }
+  .settings-nav {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+  }
+  .settings-nav a {
+    border: 1px solid var(--chrome-border);
+    background: var(--chrome);
+  }
+}
+
+/* ---------- Connect GitHub --------------------------------------------------- */
+.settings-github-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  max-width: 28rem;
+  margin-top: 0.25rem;
+}
+.settings-github-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.84rem;
+  padding: 0.42rem 0.85rem;
+  color: var(--ink);
+  background: var(--paper-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+}
+.settings-github-row input::placeholder {
+  color: var(--ink-faint);
+}
+.settings-github-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.settings-github-connected {
+  margin: 0.25rem 0 0.6rem;
+  font-size: 0.86rem;
+  color: var(--ink-soft);
+}
+.settings-secondary {
+  flex: none;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.38rem 0.95rem;
+  color: var(--ink-soft);
+  background: var(--paper-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease;
+}
+.settings-secondary:hover {
+  color: var(--ink);
+  border-color: var(--accent);
+}

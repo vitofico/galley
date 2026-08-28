@@ -1,0 +1,84 @@
+/* Save-state badge (#18.2) — surfaces the otherwise-silent local-draft
+   persistence as a tiny, calm status beside the compile-status pill. Shape is a
+   byte-for-byte match of `.status` (same padding, radius, border, type scale)
+   so the topbar reads as one consistent family; only the accent shifts per
+   state, and only gently. All colors are design tokens (light + dark themes). */
+.save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  padding: 0.18rem 0.55rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--paper-raised);
+  color: var(--ink-soft);
+  white-space: nowrap;
+  /* Calm cross-fade between states; no motion that draws the eye. */
+  transition:
+    color 200ms ease,
+    border-color 200ms ease,
+    background 200ms ease;
+}
+
+/* A small dot carries the state color so the text stays calm and legible. */
+.save-state::before {
+  content: "";
+  width: 0.46rem;
+  height: 0.46rem;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.85;
+  flex: none;
+}
+
+/* Saved — the quiet resting state: a soft "ok" green, low-key. */
+.save-state--saved {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 34%, var(--line-strong));
+}
+
+/* Saving — neutral ink while a write is briefly in flight; a gentle pulse on the
+   dot only (respects reduced-motion). Intentionally undramatic. */
+.save-state--saving {
+  color: var(--ink-soft);
+}
+.save-state--saving::before {
+  animation: save-state-pulse 1.1s ease-in-out infinite;
+}
+
+/* Offline — the most salient state, but still calm: the "warn" amber. */
+.save-state--offline {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 40%, var(--line-strong));
+}
+
+/* At-risk (C1) — persistence is broken, the work is in-memory only. The one
+   genuinely alarming state, so it carries the "err" tone (stronger than the
+   offline amber); still token-driven and borderless inside the chip. */
+.save-state--at-risk {
+  color: var(--err);
+  border-color: color-mix(in srgb, var(--err) 45%, var(--line-strong));
+}
+
+@keyframes save-state-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .save-state {
+    transition: none;
+  }
+  .save-state--saving::before {
+    animation: none;
+    opacity: 0.6;
+  }
+}

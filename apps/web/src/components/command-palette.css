@@ -1,0 +1,126 @@
+/*
+ * Command palette overlay (#19.1, Rail & Islands stage 1). Scoped
+ * `cmd-palette…` class names that never collide with global rules in
+ * styles.css. All colors/typography/radii come from the design tokens
+ * (var(--…), with fallbacks) so the palette inherits BOTH themes. Tokens
+ * referenced: --paper-raised, --paper-sunk, --paper-hi, --ink, --ink-soft,
+ * --ink-faint, --line, --line-strong, --accent, --accent-deep, --accent-soft,
+ * --radius, --radius-sm, --font-ui, --font-mono, --shadow-2.
+ */
+
+.cmd-palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100; /* above the command sheet (1000) — the newer surface wins */
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12vh 1rem 1rem;
+  background: rgba(33, 28, 23, 0.38);
+  font-family: var(--font-ui, system-ui, sans-serif);
+}
+
+/* #19.5: the palette is floating chrome — glass surface, hairline border,
+   rounder corners. Opaque --chrome fallback keeps it readable without
+   backdrop-filter support. */
+.cmd-palette {
+  width: min(560px, 100%);
+  max-height: 64vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--chrome, #ffffff);
+  color: var(--ink, #1c140d);
+  border: 1px solid var(--chrome-border, #dcdde2);
+  border-radius: 14px;
+  box-shadow: var(--shadow-2, 0 8px 22px rgba(45, 34, 22, 0.18));
+  overflow: hidden;
+  -webkit-backdrop-filter: blur(var(--blur-chrome, 14px));
+  backdrop-filter: blur(var(--blur-chrome, 14px));
+}
+
+.cmd-palette-input {
+  border: none;
+  border-bottom: 1px solid var(--line, #ececef);
+  background: transparent;
+  color: var(--ink, #1c140d);
+  font: inherit;
+  font-size: 0.95rem;
+  padding: 0.8rem 1rem;
+  outline: none;
+}
+
+.cmd-palette-input::placeholder {
+  color: var(--ink-faint, #9a9082);
+}
+
+.cmd-palette-body {
+  padding: 0.35rem 0.45rem 0.6rem;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.cmd-palette-group-title {
+  margin: 0.5rem 0.55rem 0.15rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-faint, #9a9082);
+}
+
+.cmd-palette-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cmd-palette-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--ink, #1c140d);
+  padding: 0.45rem 0.55rem;
+  border-radius: var(--radius-sm, 5px);
+  cursor: pointer;
+}
+
+.cmd-palette-item.is-selected {
+  background: var(--accent-soft, #f6e3dc);
+  color: var(--ink, #1c140d);
+  box-shadow: inset 2px 0 0 var(--accent, #b8442c);
+}
+
+.cmd-palette-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmd-palette-keys {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.74rem;
+  color: var(--ink-soft, #55504a);
+  background: color-mix(in srgb, var(--ink, #1c140d) 5%, transparent);
+  border: 1px solid var(--chrome-border, #dcdde2);
+  border-radius: var(--radius-sm, 5px);
+  padding: 0.1rem 0.38rem;
+  white-space: nowrap;
+  flex: none;
+}
+
+.cmd-palette-empty {
+  color: var(--ink-faint, #9a9082);
+  font-style: italic;
+  font-size: 0.85rem;
+  padding: 0.75rem 0.55rem;
+}
