@@ -1,0 +1,26 @@
+# +compile +Universe-packages overlay — the conservative base PLUS the
+# registry-enabled server-side compile service (ADR-0016). Apply with:
+#
+#   kubectl apply -k deploy/k8s/overlays/compile-registry
+#
+# This enables Universe package resolution. Before relying on it you MUST:
+#   1. Replace the EXAMPLE integrity ConfigMap with a real, reviewed manifest
+#      (components/compile-registry/integrity-configmap.example.yaml).
+#   2. Tighten the registry-egress NetworkPolicy to the registry/mirror CIDR
+#      (components/compile-registry/registry-egress-networkpolicy.yaml).
+#   3. Expose compile through your ingress and set GALLEY_COMPILE_URL to that
+#      external URL (components/compile, exposure requirement).
+#
+# NOTE: this overlay sets isolation to `inline` — worker isolation (the default)
+# is incompatible with the registry today. See the compile-registry component
+# header for the rationale.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: galley
+
+resources:
+  - ../../base
+
+components:
+  - ../../components/compile-registry

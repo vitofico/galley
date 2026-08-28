@@ -1,0 +1,44 @@
+# Galley — Kubernetes base (roadmap #5 slice 6, ADR-0017).
+#
+# This base IS the default, conservative deployment: web + proxy + sync, with
+# ONLY web exposed (proxy/sync stay ClusterIP behind the default-deny
+# NetworkPolicy, auth OFF). It is a complete Galley — the web app is standalone
+# (in-browser compile + local CRDT).
+#
+# Apply the default set via the convenience wrapper one level up:
+#   kubectl apply -k deploy/k8s
+# (which is just `resources: [base]`). Opt-in overlays layer on top:
+#   deploy/k8s/overlays/compile           (+compile, sandbox-only)
+#   deploy/k8s/overlays/compile-registry  (+compile +Universe packages)
+#   deploy/k8s/overlays/auth              (+auth, OIDC + closed sync rooms)
+# See deploy/k8s/README.md for the full flow and the security posture.
+#
+# NOTE: 50-compile.optional.yaml and 90-expose-proxy-sync.opt-in.yaml live here
+# but are intentionally NOT in `resources` — they are pulled in only by the
+# overlays / by an explicit opt-in apply.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Every rendered object lands in the PodSecurity-restricted galley namespace.
+namespace: galley
+
+resources:
+  - 00-namespace.yaml
+  - 10-networkpolicy.yaml
+  - 20-web.yaml
+  - 30-proxy.yaml
+  - 40-sync.yaml
+
+# Pin the runtime image ONCE here (overrides the `galley-runtime:latest`
+# placeholder baked into every Deployment). Set newName to your registry and
+# newTag to an IMMUTABLE tag or digest in production — `latest` +
+# imagePullPolicy: IfNotPresent is a stale-image footgun. Override per-deploy:
+#
+#   cd deploy/k8s/base && kustomize edit set image \
+#     galley-runtime=registry.example.com/galley-runtime:2026.06.10
+#
+# or, for a digest:  ...galley-runtime@sha256:<digest>
+images:
+  - name: galley-runtime
+    newName: galley-runtime
+    newTag: latest

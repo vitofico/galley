@@ -1,0 +1,119 @@
+# web — the static SPA server (the ONLY publicly-exposed service by default).
+# Standalone: in-browser worker compile + local CRDT, no backend needed.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: galley-web
+  namespace: galley
+  labels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: web }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: web }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: web }
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: web
+          image: galley-runtime:latest # build from the Dockerfile `runtime` target; push to your registry
+          imagePullPolicy: IfNotPresent
+          command: ["apps/web-server/node_modules/.bin/tsx", "apps/web-server/src/server.ts"]
+          env:
+            - { name: PORT, value: "8080" }
+            # tsx/esbuild scratch under the writable /tmp (root FS is read-only).
+            - { name: TMPDIR, value: "/tmp" }
+            - { name: HOME, value: "/tmp" }
+            - { name: XDG_CACHE_HOME, value: "/tmp/.cache" }
+            # --- Serve-time compile-URL runtime config (roadmap #5 slice 5).
+            # EXPOSURE REQUIREMENT: this must be a BROWSER-reachable URL — the
+            # SPA's Server/Auto compile toggle fetches it from the user's
+            # browser, NOT from inside the cluster. The compile Service
+            # (50-compile.optional.yaml) is ClusterIP-only by design, so its
+            # internal DNS name (http://galley-compile.galley.svc…) will NOT
+            # work here. To use it, the operator must expose compile through
+            # their ingress (e.g. https://galley.example.com/compile via an
+            # Ingress path, or a dedicated host) and put THAT external URL
+            # here. Empty (the default) = OFF: no /config.js, no injection,
+            # the toggle stays fail-closed — never a dead server.
+            - { name: GALLEY_COMPILE_URL, value: "" }
+            # --- OIDC auth (default OFF). Uncomment with the volume + mount below
+            # and the matching sync block in 40-sync.yaml. GALLEY_SESSION_DIR is
+            # REQUIRED under OIDC and MUST equal sync's path (the shared RWX PVC);
+            # missing it → the web-server fails closed at startup (in-memory
+            # sessions can't reach the sync pod). Put OIDC client config in a Secret.
+            # - { name: GALLEY_AUTH_MODE, value: "oidc" }
+            # - { name: GALLEY_PUBLIC_BASE_URL, value: "https://galley.example.com" }
+            # - { name: GALLEY_SESSION_DIR, value: "/var/lib/galley/sessions" }
+            # - secretRef: { name: galley-oidc }   # GALLEY_OIDC_ISSUER / _CLIENT_ID / _CLIENT_SECRET
+          ports:
+            - { name: http, containerPort: 8080 }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: "50m", memory: "96Mi" }
+            limits: { cpu: "500m", memory: "256Mi", ephemeral-storage: "256Mi" }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            # Shared session volume (OIDC only). The SAME PVC is mounted in the sync
+            # pod so a web-minted session validates there. Uncomment with the env above.
+            # - { name: sessions, mountPath: /var/lib/galley/sessions }
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: "64Mi" }
+        # - name: sessions
+        #   persistentVolumeClaim: { claimName: galley-sessions }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: galley-web
+  namespace: galley
+  labels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: web }
+spec:
+  type: ClusterIP
+  selector: { app.kubernetes.io/name: galley, app.kubernetes.io/component: web }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: galley-web
+  namespace: galley
+  annotations:
+    # Adjust for your ingress controller / cert-manager setup.
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: ["galley.example.com"]
+      secretName: galley-web-tls
+  rules:
+    - host: galley.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: galley-web
+                port: { name: http }

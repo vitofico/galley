@@ -1,0 +1,94 @@
+# proxy — the optional model-API proxy (ADR-0004). Holds cloud provider keys
+# server-side, so it is ClusterIP-only with NO Ingress by default (Security-Analyst
+# review): a public proxy lets anyone spend your key — CORS is not auth. Configure
+# upstreams via a Secret (UPSTREAM_<ID>_* env). Expose only behind auth / an IP
+# allowlist (see 90-expose-proxy-sync.opt-in.yaml) once roadmap #4 auth lands.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: galley-proxy
+  namespace: galley
+  labels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: proxy }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: proxy }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: proxy }
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: proxy
+          image: galley-runtime:latest
+          imagePullPolicy: IfNotPresent
+          command: ["apps/proxy/node_modules/.bin/tsx", "apps/proxy/src/server.ts"]
+          env:
+            - { name: PORT, value: "8787" }
+            - { name: ALLOWED_ORIGINS, value: "https://galley.example.com" }
+            - { name: TMPDIR, value: "/tmp" }
+            - { name: HOME, value: "/tmp" }
+            # Provider keys come from a Secret you create, e.g.:
+            #   kubectl -n galley create secret generic galley-proxy-upstreams \
+            #     --from-literal=UPSTREAM_OPENAI_URL=https://api.openai.com/v1 \
+            #     --from-literal=UPSTREAM_OPENAI_KEY=sk-...
+            # then uncomment:
+            # envFrom:
+            #   - secretRef: { name: galley-proxy-upstreams }
+          ports:
+            - { name: http, containerPort: 8787 }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: "25m", memory: "64Mi" }
+            limits: { cpu: "500m", memory: "192Mi", ephemeral-storage: "64Mi" }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: "32Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: galley-proxy
+  namespace: galley
+  labels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: proxy }
+spec:
+  type: ClusterIP
+  selector: { app.kubernetes.io/name: galley, app.kubernetes.io/component: proxy }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+# The default-deny egress (10-networkpolicy.yaml) allows only DNS, which would
+# make every upstream model call fail (while /healthz still passes). The proxy's
+# whole job is to reach cloud provider APIs, so allow HTTPS egress from it.
+# Tighten to your providers' CIDRs (or a CNI FQDN rule) for least privilege.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-proxy-egress-https
+  namespace: galley
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: proxy }
+  policyTypes: ["Egress"]
+  egress:
+    - ports:
+        - { protocol: TCP, port: 443 }

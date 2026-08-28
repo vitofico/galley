@@ -1,0 +1,52 @@
+# Default-deny, then allow only what each service needs (Security-Analyst review,
+# ADR-0017). The unauthenticated sync relay and the key-holding proxy must NOT be
+# reachable from outside the namespace by default — only `web` is fronted by the
+# Ingress controller. Adjust the ingress-controller selector for your environment.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: galley
+spec:
+  podSelector: {} # all pods
+  policyTypes: ["Ingress", "Egress"]
+  # No ingress/egress rules => deny all in both directions by default.
+---
+# DNS egress for every pod (needed to resolve Services / external providers).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: galley
+spec:
+  podSelector: {}
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+# Only the ingress controller may reach `web` (the static SPA server). Replace the
+# namespaceSelector label with your ingress controller's namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-web
+  namespace: galley
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: web }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
+      ports:
+        - { protocol: TCP, port: 8080 }
+# NB: proxy (8787), sync (1234), and compile (3001) get NO ingress allow-rule here,
+# so they are unreachable from outside the namespace. Exposing them is an explicit
+# opt-in overlay (see 90-expose-proxy-sync.opt-in.yaml) and must be paired with auth
+# / an IP allowlist — they have no authentication of their own yet (roadmap #4).

@@ -1,0 +1,20 @@
+# +auth +compile +Universe-packages overlay — base PLUS OIDC login/closed rooms
+# AND the registry-enabled server-side compile service. Apply with:
+#
+#   kubectl apply -k deploy/k8s/overlays/auth-compile-registry
+#
+# The auth and compile-registry components composed together. See those
+# components for the per-feature prerequisites and caveats: real OIDC Secret +
+# RWX PVCs (auth); real integrity manifest + tightened registry-egress CIDR +
+# worker-isolation OFF + exposed compile URL (compile-registry).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: galley
+
+resources:
+  - ../../base
+
+components:
+  - ../../components/auth
+  - ../../components/compile-registry

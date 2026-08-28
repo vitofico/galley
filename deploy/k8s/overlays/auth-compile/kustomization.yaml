@@ -1,0 +1,24 @@
+# +auth +compile overlay — base PLUS OIDC login/closed rooms AND the sandbox-only
+# server-side compile service. Apply with:
+#
+#   kubectl apply -k deploy/k8s/overlays/auth-compile
+#
+# This is just the auth and compile components composed together (they touch
+# disjoint things: auth patches web+sync env/volumes; compile adds the compile
+# pod + the web GALLEY_COMPILE_URL env). See those components and the auth /
+# compile overlays for the per-feature prerequisites (real OIDC Secret, RWX PVCs,
+# exposing compile + setting GALLEY_COMPILE_URL).
+#
+# For Universe packages too, swap components/compile for components/compile-registry
+# (see overlays/auth-compile-registry).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: galley
+
+resources:
+  - ../../base
+
+components:
+  - ../../components/auth
+  - ../../components/compile

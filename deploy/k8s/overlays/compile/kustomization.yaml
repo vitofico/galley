@@ -1,0 +1,21 @@
+# +compile overlay — the conservative base PLUS the sandbox-only server-side
+# Typst compile service (ADR-0015). Apply with:
+#
+#   kubectl apply -k deploy/k8s/overlays/compile
+#
+# Packages stay FAIL-CLOSED here (no Universe fetch); each compile runs in a
+# terminable worker_thread. For Universe packages use overlays/compile-registry.
+#
+# Before this does anything useful you must EXPOSE compile through your ingress
+# and set GALLEY_COMPILE_URL to that external URL — see the compile component
+# (components/compile) for the exposure requirement and how to set it.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: galley
+
+resources:
+  - ../../base
+
+components:
+  - ../../components/compile

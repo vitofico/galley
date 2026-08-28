@@ -1,0 +1,30 @@
+# Web → IdP egress for OIDC.
+#
+# The base ships default-deny egress with ONLY DNS allowed (10-networkpolicy.yaml)
+# — which is correct for the no-auth default, where web serves static files and
+# talks to nothing. Under OIDC the web-server itself dials the IdP over HTTPS:
+# issuer discovery at startup (fails CLOSED — the pod crashloops on a connect
+# timeout) and the token exchange on every login callback. Without this policy
+# the +auth overlays deploy a web that can never start.
+#
+# Port-scoped to 443, any destination — a vanilla NetworkPolicy cannot match a
+# hostname. Tighten to your IdP's CIDR via `to: [ipBlock: ...]` if it has a
+# stable address.
+#
+# Reachability note: if the IdP lives behind the SAME router/NAT as the cluster
+# (e.g. an IdP self-hosted on the same cluster), pods resolve its PUBLIC IP
+# and the connection must hairpin through the router. If your router does
+# not support hairpin NAT, add a split-horizon DNS rewrite (CoreDNS) pointing
+# the IdP hostname at the ingress controller's internal IP instead.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-web-egress-https
+  namespace: galley
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: web }
+  policyTypes: ["Egress"]
+  egress:
+    - ports:
+        - { protocol: TCP, port: 443 }

@@ -1,0 +1,82 @@
+# ⚠️ OPT-IN EXPOSURE — DO NOT APPLY UNLESS YOU UNDERSTAND THE RISK ⚠️
+#
+# proxy and sync have NO authentication yet (roadmap #4). Exposing them publicly
+# means: anyone can spend your model-API key (proxy) and join/tamper/scrape any
+# collab room and memory-DoS the relay (sync). Apply this file ONLY when you have
+# put an external auth layer in front — e.g. ingress-nginx external-auth / oauth2-
+# proxy, mTLS, or a strict source-IP allowlist — AND you accept the residual risk.
+#
+# DEFENSE-IN-DEPTH for the proxy: set `PROXY_ACCESS_TOKEN` on the galley-proxy
+# Deployment and have your edge inject `Authorization: Bearer <that token>`. The
+# proxy then refuses any /forward request lacking it BEFORE injecting the model
+# key — so a forgotten/misconfigured auth annotation fails CLOSED instead of
+# leaking your key. (Unset = no gate; the in-cluster default posture is ClusterIP.)
+#
+# This file also adds the NetworkPolicy ingress allow-rules those services need
+# (the default-deny in 10-networkpolicy.yaml blocks them otherwise). Replace the
+# host, the ingress-controller namespace label, and wire your auth annotations.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-proxy-sync
+  namespace: galley
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app.kubernetes.io/component, operator: In, values: ["proxy", "sync"] }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
+      ports:
+        - { protocol: TCP, port: 8787 }
+        - { protocol: TCP, port: 1234 }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: galley-proxy
+  namespace: galley
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    # REQUIRED: front this with auth, e.g. oauth2-proxy via ingress-nginx:
+    # nginx.ingress.kubernetes.io/auth-url: "https://auth.example.com/oauth2/auth"
+    # nginx.ingress.kubernetes.io/auth-signin: "https://auth.example.com/oauth2/start"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: ["proxy.galley.example.com"]
+      secretName: galley-proxy-tls
+  rules:
+    - host: proxy.galley.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: galley-proxy, port: { name: http } } }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: galley-sync
+  namespace: galley
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    # WebSocket-friendly timeouts (ingress-nginx upgrades automatically).
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # REQUIRED: front this with auth (see proxy above). The relay trusts every peer.
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: ["sync.galley.example.com"]
+      secretName: galley-sync-tls
+  rules:
+    - host: sync.galley.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: galley-sync, port: { name: ws } } }

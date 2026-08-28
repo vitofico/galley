@@ -1,0 +1,46 @@
+# compile component — the OPTIONAL server-side Typst compile service (ADR-0015),
+# SANDBOX-ONLY: packages stay FAIL-CLOSED (no Universe fetch) and each compile
+# runs in a terminable worker_thread (GALLEY_COMPILE_ISOLATION=worker — the
+# default since 2026-07, set explicitly in compile.yaml). It adds NO egress beyond
+# DNS, so the compile pod has nothing to reach out to — the right posture for
+# untrusted input.
+#
+# This is a kustomize *Component*: it layers a Deployment+Service plus a web env
+# patch onto whatever overlay references it (see overlays/compile). Want Universe
+# packages? Use the compile-registry component instead — it is this plus the
+# registry-egress policy + integrity ConfigMap, and it sets isolation to `inline`
+# (the two are mutually exclusive today; the compile server throws at startup if
+# REGISTRY_BASE_URL is set while isolation resolves to worker — including unset).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - compile.yaml
+
+# Tell the SPA where to reach compile.
+#
+# EXPOSURE REQUIREMENT: the compile Service is ClusterIP-only by design. The
+# browser's Server/Auto compile toggle fetches GALLEY_COMPILE_URL *from the
+# user's browser*, so it must be an EXTERNAL, browser-reachable URL — NOT the
+# internal galley-compile.galley.svc DNS name (which is unreachable from a
+# browser and would silently fail). Expose compile through your own ingress
+# (e.g. https://galley.example.com/compile) and put THAT URL here. Empty (the
+# default below) = OFF: the served app never advertises a compile server, so the
+# toggle stays fail-closed (never a dead server).
+#
+# Strategic-merge patch — matches the env entry by NAME, robust to env ordering.
+patches:
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: galley-web
+        namespace: galley
+      spec:
+        template:
+          spec:
+            containers:
+              - name: web
+                env:
+                  - name: GALLEY_COMPILE_URL
+                    value: ""   # e.g. "https://galley.example.com/compile" once exposed

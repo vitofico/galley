@@ -1,0 +1,108 @@
+# sync — the collaboration relay (ADR-0008). Holds per-room Y.Doc + Awareness
+# state IN MEMORY and has NO authentication / room authorization / persistence yet
+# (roadmap #4). Therefore:
+#   - ClusterIP only, NO Ingress by default (Security-Analyst review): an exposed
+#     relay lets anyone join/tamper/scrape any room and memory-DoS the process.
+#   - replicas: 1 + strategy Recreate — in-memory rooms can't be split across pods
+#     and would diverge; do NOT add an HPA until a shared backend exists.
+# Expose only behind auth / an IP allowlist (see 90-expose-proxy-sync.opt-in.yaml).
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: galley-sync
+  namespace: galley
+  labels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: sync }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: sync }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: sync }
+    spec:
+      automountServiceAccountToken: false
+      # Give the relay time to drain ws connections + destroy docs on SIGTERM
+      # (the server handles SIGTERM/SIGINT and closes gracefully) before the
+      # kubelet escalates to SIGKILL.
+      terminationGracePeriodSeconds: 20
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: sync
+          image: galley-runtime:latest
+          imagePullPolicy: IfNotPresent
+          command: ["apps/sync/node_modules/.bin/tsx", "apps/sync/src/server.ts"]
+          env:
+            - { name: PORT, value: "1234" }
+            - { name: TMPDIR, value: "/tmp" }
+            - { name: HOME, value: "/tmp" }
+            # --- Room authorization (default OFF). Uncomment with the volume +
+            # mount below and the OIDC block in 20-web.yaml. GALLEY_SESSION_DIR MUST
+            # equal web's path (the shared RWX PVC); GALLEY_DATA_DIR is the shared
+            # projects volume for membership. With auth required and either dir
+            # missing, sync fails closed at startup (refuses an unenforceable relay).
+            # - { name: GALLEY_SYNC_AUTH, value: "required" }
+            # - { name: GALLEY_SESSION_DIR, value: "/var/lib/galley/sessions" }
+            # - { name: GALLEY_DATA_DIR, value: "/var/lib/galley/projects" }
+          ports:
+            - { name: ws, containerPort: 1234 }
+          readinessProbe:
+            httpGet: { path: /, port: ws } # GET / -> 200 "galley-sync ok"
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /, port: ws }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: "25m", memory: "64Mi" }
+            limits: { cpu: "500m", memory: "256Mi", ephemeral-storage: "32Mi" }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            # Shared session volume (auth only) — the SAME PVC the web pod writes to.
+            # Uncomment with the env above and the PVC at the bottom of this file.
+            # - { name: sessions, mountPath: /var/lib/galley/sessions }
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: "32Mi" }
+        # - name: sessions
+        #   persistentVolumeClaim: { claimName: galley-sessions }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: galley-sync
+  namespace: galley
+  labels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: sync }
+spec:
+  type: ClusterIP
+  selector: { app.kubernetes.io/name: galley, app.kubernetes.io/component: sync }
+  ports:
+    - { name: ws, port: 80, targetPort: ws }
+# ---
+# Shared session PVC (auth ONLY — leave commented for the default no-auth deploy).
+# REQUIRES ReadWriteMany: it is mounted by BOTH galley-web (replicas: 2, possibly
+# across nodes) and galley-sync, so multiple pods write/read concurrently. RWO
+# would bind to one node and break the second mount. Pick a storageClass that
+# supports RWX (e.g. NFS, CephFS, EFS, Azure Files); the default block storage
+# usually does NOT. The web-server writes sessions here on login; sync reads the
+# same files to validate a collaborator's ws upgrade.
+# apiVersion: v1
+# kind: PersistentVolumeClaim
+# metadata:
+#   name: galley-sessions
+#   namespace: galley
+#   labels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: sessions }
+# spec:
+#   accessModes: ["ReadWriteMany"]   # RWX is mandatory (web + sync share it)
+#   resources: { requests: { storage: 1Gi } }
+#   # storageClassName: nfs-rwx       # set to your RWX-capable class

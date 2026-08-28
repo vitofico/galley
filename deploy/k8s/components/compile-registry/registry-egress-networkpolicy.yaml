@@ -1,0 +1,40 @@
+# Registry-egress allow-rule for the compile pod (pairs with REGISTRY_BASE_URL;
+# ADR-0016 §"Egress allow-list"). The base default-deny (base/10-networkpolicy.yaml)
+# lets compile reach ONLY DNS, which makes every Universe fetch fail. This policy
+# opens the outbound HTTPS the registry fetch needs — scoped to the compile pod
+# only, port 443 only.
+#
+# ⚠️ HONEST CAVEAT — DNS vs NetworkPolicy. A vanilla k8s NetworkPolicy CANNOT match
+# a hostname (e.g. packages.typst.org); it matches CIDRs / namespace / pod
+# selectors only. As written below this allows compile → ANY host on 443, which is
+# weaker than "the registry host only." This is the real defense-in-depth backstop
+# against a hostile/compromised base URL (the app already rejects userinfo /
+# non-loopback http / redirects), so TIGHTEN it for least privilege one of these
+# ways:
+#   (a) Pin the registry's resolved IP range in `to.ipBlock.cidr` (see the
+#       commented block) — note CDN IPs rotate, so re-pin or use a stable mirror;
+#   (b) use your CNI's FQDN/hostname egress policy (Cilium CiliumNetworkPolicy
+#       `toFQDNs`, Calico `GlobalNetworkPolicy` with a DNS/domain set), which CAN
+#       match the hostname — preferred if your CNI supports it;
+#   (c) front the registry with an egress proxy / host firewall allowlisting the
+#       registry host, and point REGISTRY_BASE_URL at it.
+# Run an internal mirror and you can pin its in-cluster IP precisely.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-compile-egress-registry
+  namespace: galley
+  labels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: compile }
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: compile }
+  policyTypes: ["Egress"]
+  egress:
+    - # Pin this to the registry host's CIDR for least privilege. Example
+      # (REPLACE with your registry/mirror's actual resolved range; the value
+      # below is a non-routable placeholder that blocks everything):
+      # to:
+      #   - ipBlock:
+      #       cidr: 203.0.113.0/24   # <-- the registry/mirror IP range you trust
+      ports:
+        - { protocol: TCP, port: 443 }

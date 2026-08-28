@@ -1,0 +1,105 @@
+# auth component — turns ON OIDC login (web) + closed sync rooms (14-E, ADR-0017).
+#
+# This REPLACES the comment-uncommenting dance in base/20-web.yaml and
+# base/40-sync.yaml with kustomize patches. It injects, onto BOTH web and sync:
+#   - the OIDC env (web: GALLEY_AUTH_MODE=oidc, GALLEY_PUBLIC_BASE_URL,
+#     GALLEY_SESSION_DIR, GALLEY_DATA_DIR; sync: GALLEY_SYNC_AUTH=required,
+#     GALLEY_SESSION_DIR, GALLEY_DATA_DIR, GALLEY_SYNC_ALLOWED_ORIGINS),
+#   - the shared RWX session PVC (mounted into both — a web-minted session must
+#     validate in the sync pod), plus the shared projects PVC mounted into both
+#     (web registers Share / Agent Access capability rooms there; sync reads it
+#     for membership + capability-room authorization),
+#   - the galley-oidc Secret (via envFrom on web).
+#
+# Security posture is IDENTICAL to the commented blocks: GALLEY_SESSION_DIR MUST
+# match between web and sync (the shared RWX PVC); both processes FAIL CLOSED at
+# startup if their required dirs are missing. Auth stays default-OFF — it only
+# exists when you apply an overlay that pulls this component in.
+#
+# ⚠️ Set GALLEY_PUBLIC_BASE_URL to your real external origin, and replace the
+# EXAMPLE galley-oidc Secret with real values created out-of-band (see
+# oidc-secret.example.yaml). Use an RWX-capable storageClass for the PVCs
+# (pvcs.yaml).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - pvcs.yaml
+  - oidc-secret.example.yaml
+  - networkpolicy.yaml
+
+patches:
+  # --- web: OIDC env + Secret + shared session & projects volumes -----------
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: galley-web
+        namespace: galley
+      spec:
+        template:
+          spec:
+            containers:
+              - name: web
+                env:
+                  - name: GALLEY_AUTH_MODE
+                    value: "oidc"
+                  - name: GALLEY_PUBLIC_BASE_URL
+                    value: "https://galley.example.com"   # <-- your external origin
+                  - name: GALLEY_SESSION_DIR
+                    value: "/var/lib/galley/sessions"
+                  # Capability-room registry (#1 slice 2): web registers Share /
+                  # Agent Access rooms here; sync authorizes from the SAME shared
+                  # volume. Without it, those flows fail closed against an
+                  # auth-required relay (web logs a startup warning).
+                  - name: GALLEY_DATA_DIR
+                    value: "/var/lib/galley/projects"
+                envFrom:
+                  - secretRef: { name: galley-oidc }
+                volumeMounts:
+                  - name: sessions
+                    mountPath: /var/lib/galley/sessions
+                  - name: projects
+                    mountPath: /var/lib/galley/projects
+            volumes:
+              - name: sessions
+                persistentVolumeClaim: { claimName: galley-sessions }
+              - name: projects
+                persistentVolumeClaim: { claimName: galley-projects }
+  # --- sync: required auth + shared session volume + projects volume --------
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: galley-sync
+        namespace: galley
+      spec:
+        template:
+          spec:
+            containers:
+              - name: sync
+                env:
+                  - name: GALLEY_SYNC_AUTH
+                    value: "required"
+                  - name: GALLEY_SESSION_DIR
+                    value: "/var/lib/galley/sessions"
+                  - name: GALLEY_DATA_DIR
+                    value: "/var/lib/galley/projects"
+                  # CSWSH wall — MUST be set to your EXACT public origin(s),
+                  # comma-separated (e.g. "https://galley.example.com"). The
+                  # auth-required relay REFUSES TO START without it: capability
+                  # rooms are authorized by registration, not cookies, so the
+                  # Origin allowlist is what stops a hostile page from driving a
+                  # leaked room id. <-- set to your real origin before applying.
+                  - name: GALLEY_SYNC_ALLOWED_ORIGINS
+                    value: "https://galley.example.com"
+                volumeMounts:
+                  - name: sessions
+                    mountPath: /var/lib/galley/sessions
+                  - name: projects
+                    mountPath: /var/lib/galley/projects
+            volumes:
+              - name: sessions
+                persistentVolumeClaim: { claimName: galley-sessions }
+              - name: projects
+                persistentVolumeClaim: { claimName: galley-projects }

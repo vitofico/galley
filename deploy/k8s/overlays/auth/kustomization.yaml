@@ -1,0 +1,24 @@
+# +auth overlay — the conservative base PLUS OIDC login + closed sync rooms
+# (14-E, ADR-0017). Apply with:
+#
+#   kubectl apply -k deploy/k8s/overlays/auth
+#
+# Before applying:
+#   1. Replace the EXAMPLE galley-oidc Secret with real values created
+#      out-of-band (components/auth/oidc-secret.example.yaml), or remove it from
+#      the component's resources and create the Secret with kubectl.
+#   2. Set GALLEY_PUBLIC_BASE_URL to your external origin (components/auth).
+#   3. Set an RWX-capable storageClassName on the PVCs (components/auth/pvcs.yaml).
+#
+# Auth stays default-OFF in the base; this overlay is the only thing that turns
+# it on. Web and sync FAIL CLOSED at startup if their shared dirs are missing.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: galley
+
+resources:
+  - ../../base
+
+components:
+  - ../../components/auth

@@ -1,0 +1,39 @@
+# Shared volumes for the +auth deployment (ADR-0017, 14-E).
+#
+# ⚠️ BOTH require ReadWriteMany. The sessions PVC is mounted by galley-web
+# (replicas: 2, possibly across nodes) AND galley-sync; the projects PVC is now
+# mounted by BOTH too — galley-web writes the capability-room registry (Share /
+# Agent Access) into it and galley-sync reads it for membership + room
+# authorization. RWO would bind to one node and break the second mount.
+# Pick a storageClass that supports RWX (NFS, CephFS, EFS, Azure Files); the
+# default block storage usually does NOT. Set storageClassName to your RWX class.
+# Single-node clusters: a hostpath provisioner (e.g. microk8s-hostpath) binds
+# RWX fine — all mounts land on the same node by construction.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: galley-sessions
+  namespace: galley
+  labels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: sessions }
+spec:
+  accessModes: ["ReadWriteMany"] # RWX is mandatory (web + sync share it)
+  resources: { requests: { storage: 1Gi } }
+  # storageClassName: nfs-rwx    # set to your RWX-capable class
+---
+# Projects volume — the shared GALLEY_DATA_DIR. sync reads it (FsProjectStore) to
+# check a collaborator's membership before authorizing a room; web writes the
+# capability-room registry into it so sync can authorize Share / Agent Access
+# rooms. Mounted into BOTH containers (same path). Required by GALLEY_DATA_DIR
+# when GALLEY_SYNC_AUTH=required (sync fails closed at startup if the dir is
+# missing; web logs a startup warning and capability-room flows fail closed).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: galley-projects
+  namespace: galley
+  labels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: projects }
+spec:
+  accessModes: ["ReadWriteMany"]
+  resources: { requests: { storage: 5Gi } }
+  # storageClassName: nfs-rwx

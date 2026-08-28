@@ -1,0 +1,44 @@
+# EXAMPLE integrity manifest, mounted at REGISTRY_INTEGRITY_FILE (ADR-0016).
+#
+# ⚠️ THE HASHES BELOW ARE PLACEHOLDERS — they will NOT match real artifacts, so
+# every package resolves to a size/hash MISMATCH and fails closed (safe, but
+# useless). You MUST replace `data["universe-integrity.json"]` with a REAL
+# manifest you generated and reviewed:
+#
+#   # edit apps/compile/universe-catalog.json to pin the @preview/name:version
+#   # set you trust, then snapshot real {sha256,size} from the live registry:
+#   REGISTRY_BASE_URL=https://packages.typst.org \
+#     pnpm --filter @galley/compile build:manifest \
+#     apps/compile/universe-catalog.json ./universe-integrity.json
+#
+#   # then regenerate this ConfigMap from that reviewed, committed artifact:
+#   kubectl -n galley create configmap galley-compile-integrity \
+#     --from-file=universe-integrity.json=./universe-integrity.json \
+#     --dry-run=client -o yaml > integrity-configmap.example.yaml
+#
+# The file format is exactly: { "@ns/name:version": { "sha256": "<hex>", "size": <bytes> } }
+# Only packages listed here can EVER resolve at compile (fail-closed); a wrong or
+# missing version simply won't resolve. Treat the generated file as a reviewed
+# supply-chain artifact: commit it, diff hash changes, don't auto-refresh from
+# live responses. (See docs/server-side-compile.md.)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: galley-compile-integrity
+  namespace: galley
+  labels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: compile }
+data:
+  # Replace this entire value with your generated universe-integrity.json.
+  # The placeholder hashes below are intentionally invalid (all-zero) so nothing
+  # resolves until you swap in a real, reviewed manifest.
+  universe-integrity.json: |
+    {
+      "@preview/cetz:0.2.2": {
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "size": 0
+      },
+      "@preview/tablex:0.0.8": {
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "size": 0
+      }
+    }

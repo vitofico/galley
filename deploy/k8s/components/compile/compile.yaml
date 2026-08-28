@@ -1,0 +1,95 @@
+# compile — OPTIONAL server-side Typst compile (ADR-0015). Apply only if you want
+# the `?serverCompile=1` path / Universe packages. ClusterIP, NO Ingress.
+#
+# Sandboxing (ADR-0015 §4 / ADR-0016): a synchronous WASM compile can wedge a
+# process, so the container limits below are the isolation. Additionally:
+#   - Set a kubelet `podPidsLimit` on the nodes that run this (Pod-level PID limits
+#     aren't a standard Pod spec field) to bound fork bombs.
+#   - Packages stay FAIL-CLOSED unless REGISTRY_BASE_URL + REGISTRY_INTEGRITY_FILE
+#     are set; if you enable registry fetch, restrict egress to the registry host
+#     only (add an allow-egress NetworkPolicy).
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: galley-compile
+  namespace: galley
+  labels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: compile }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: compile }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: compile }
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: compile
+          image: galley-runtime:latest
+          imagePullPolicy: IfNotPresent
+          command: ["apps/compile/node_modules/.bin/tsx", "apps/compile/src/server.ts"]
+          env:
+            - { name: PORT, value: "3001" }
+            - { name: ALLOWED_ORIGINS, value: "https://galley.example.com" }
+            - { name: TMPDIR, value: "/tmp" }
+            - { name: HOME, value: "/tmp" }
+            # Runaway-compile kill-switch: each compile runs in a terminable
+            # worker_thread with a hard timeout (default 20s,
+            # GALLEY_COMPILE_TIMEOUT_MS to tune) — the only thing that can stop a
+            # wedged synchronous-WASM compile. This is the DEFAULT since the
+            # 2026-07 flip (unset also = worker), but it is set EXPLICITLY here so
+            # the manifest is self-describing and never depends on default-drift.
+            # NOTE: incompatible with REGISTRY_BASE_URL today (the per-request
+            # thread has no package resolver) — the service THROWS at startup if
+            # both are set, so do NOT uncomment the registry env below while this
+            # is on (the compile-registry component sets it to "inline" instead).
+            - { name: GALLEY_COMPILE_ISOLATION, value: "worker" }
+            # Universe packages are OFF unless both are set (ADR-0016 fail-closed):
+            # - { name: REGISTRY_BASE_URL, value: "https://packages.typst.org" }
+            # - { name: REGISTRY_INTEGRITY_FILE, value: "/etc/galley/integrity.json" }
+          ports:
+            - { name: http, containerPort: 3001 }
+          # Readiness reflects BACKEND compile-health (/readyz: a cached synthetic
+          # compile) so the Service stops routing here if the backend degrades;
+          # liveness stays a pure process check (/healthz) so a transient backend
+          # failure doesn't trigger a pod restart. (L7-OPS4)
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            # Tight ceilings reclaim a runaway WASM compile (a JS timeout can't
+            # preempt synchronous WASM — see ADR-0015 §4).
+            limits: { cpu: "1", memory: "512Mi", ephemeral-storage: "128Mi" }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: "64Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: galley-compile
+  namespace: galley
+  labels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: compile }
+spec:
+  type: ClusterIP
+  selector: { app.kubernetes.io/name: galley, app.kubernetes.io/component: compile }
+  ports:
+    - { name: http, port: 80, targetPort: http }

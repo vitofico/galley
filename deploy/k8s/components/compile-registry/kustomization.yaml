@@ -1,0 +1,67 @@
+# compile-registry component — the compile service WITH Universe package
+# resolution enabled (ADR-0016). This is the `compile` component PLUS:
+#   - the registry-egress NetworkPolicy (compile → registry host on 443),
+#   - an EXAMPLE integrity-manifest ConfigMap mounted at REGISTRY_INTEGRITY_FILE,
+#   - a patch on the compile pod that sets REGISTRY_BASE_URL +
+#     REGISTRY_INTEGRITY_FILE and **sets GALLEY_COMPILE_ISOLATION=inline**.
+#
+# ⚠️ WHY isolation is inline here (honest constraint). The compile server THROWS
+# at startup if GALLEY_COMPILE_ISOLATION=worker (the DEFAULT since 2026-07, incl.
+# when unset) and REGISTRY_BASE_URL are BOTH set — the per-request worker_thread
+# has no package-resolver holder (apps/compile/src/server.ts). So the registry
+# path opts OUT of the worker default with an EXPLICIT `inline` (never relying on
+# unset semantics) and relies on the container resource limits + a kubelet
+# podPidsLimit for runaway protection (ADR-0015 §4). If you need BOTH terminable
+# isolation AND Universe packages, you can't have them today — run an internal
+# mirror with the sandbox-only `compile` component, or accept this trade-off.
+#
+# ⚠️ The shipped integrity ConfigMap is an EXAMPLE with placeholder (invalid)
+# hashes — every package fails closed until you replace it with a real, reviewed
+# manifest. See integrity-configmap.example.yaml.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# Reuse the sandbox compile component for the Deployment+Service and the web
+# GALLEY_COMPILE_URL patch (same exposure requirement applies).
+components:
+  - ../compile
+
+resources:
+  - registry-egress-networkpolicy.yaml
+  - integrity-configmap.example.yaml
+
+patches:
+  # Switch compile into registry mode: force inline isolation, add the registry
+  # env, and mount the integrity ConfigMap at REGISTRY_INTEGRITY_FILE.
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: galley-compile
+        namespace: galley
+      spec:
+        template:
+          spec:
+            containers:
+              - name: compile
+                env:
+                  # Opt OUT of the worker default with an EXPLICIT inline: worker
+                  # isolation is incompatible with the registry (the server throws
+                  # if both are set), and since 2026-07 unset ALSO means worker, so
+                  # this must be set explicitly — never leave it to default-drift.
+                  - name: GALLEY_COMPILE_ISOLATION
+                    value: "inline"
+                  # Opt into Universe resolution. Packages STILL fail closed
+                  # unless the integrity manifest pins {sha256,size} for them.
+                  - name: REGISTRY_BASE_URL
+                    value: "https://packages.typst.org"
+                  - name: REGISTRY_INTEGRITY_FILE
+                    value: "/etc/galley/integrity/universe-integrity.json"
+                volumeMounts:
+                  - name: integrity
+                    mountPath: /etc/galley/integrity
+                    readOnly: true
+            volumes:
+              - name: integrity
+                configMap:
+                  name: galley-compile-integrity

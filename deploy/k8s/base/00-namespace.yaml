@@ -1,0 +1,12 @@
+# Galley namespace, labelled for Pod Security Admission "restricted" — the
+# strictest built-in profile (non-root, no privilege escalation, seccomp, dropped
+# caps). Every workload below is written to satisfy it. (roadmap #5, ADR-0017)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: galley
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
