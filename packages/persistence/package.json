@@ -1,0 +1,30 @@
+{
+  "name": "@galley/persistence",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Persistence adapters for the @galley/shared store seams (ProjectStore/CrdtStore/VersionStore). In-memory reference impls now; SQLite + filesystem bare-git adapters next (roadmap #4, ADR-0018).",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./browser": "./src/browser.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@galley/collab": "workspace:*",
+    "@galley/shared": "workspace:*",
+    "buffer": "^6.0.3",
+    "isomorphic-git": "1.38.4",
+    "pako": "^1.0.11",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.0",
+    "@types/pako": "^1.0.7",
+    "@types/pg": "^8.11.10"
+  }
+}
