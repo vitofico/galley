@@ -1,0 +1,19 @@
+{
+  "name": "@galley/auth",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Generic OIDC (Authorization Code + PKCE) auth core for Galley (roadmap #4, ADR-0018). Framework-agnostic, IdP-agnostic; the pure flow logic + session/login-state stores. HTTP wiring + jose signature verification land in sibling slices.",
+  "main": "./src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@galley/shared": "workspace:*",
+    "jose": "^5.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.0"
+  }
+}
