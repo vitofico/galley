@@ -84,7 +84,12 @@ esbuild), none of which ship in the `galley-runtime` production image (it serves
 `ghp_TOPSECRET1234567890`, `ghp_LIVEPROBE_SENTINEL_NEVER_ON_WIRE_0001`) are deliberate **dummy
 sentinels that test token-redaction logic** — never real, never on the wire. They are allowlisted
 in [`.gitleaks.toml`](../.gitleaks.toml) by exact value, so real secrets in application/config
-code still fail.
+code still fail. The pairing/control-crypto tests (ADR-0026) add three more exact-value entries:
+`Y29udHJvbC1yZXNwb25zZS1rZXktMzItYnl0ZXNfXw` — the fake bootstrap `responseKey` in
+`pairing-bootstrap.test.ts`, a base64url constant that literally decodes to
+`control-response-key-32-bytes__` — plus `attacker-mapkey-0123456789abcdef` and
+`attacker-key-0123456789abcdef00`, the deliberately hostile map keys in the claim-spoofing
+tests (`control-responder-mount-pairing.test.ts`, `control-mailbox.test.ts`).
 
 ## Secret scanning: full history + pre-commit
 

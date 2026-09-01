@@ -40,6 +40,16 @@ regexes = [
   '''ghp_secret''',
   '''ghp_keepme''',
   '''ghp_x''',
+  # Pairing/control-crypto test fixtures (ADR-0026): the fake bootstrap
+  # responseKey in packages/collab/src/pairing-bootstrap.test.ts — a base64url
+  # constant that literally decodes to "control-response-key-32-bytes__" — and
+  # the deliberately hostile map keys in the claim-spoofing tests
+  # (apps/web/src/control-responder-mount-pairing.test.ts,
+  # packages/collab/src/control-mailbox.test.ts). Constant, obviously bogus,
+  # never on the wire.
+  '''Y29udHJvbC1yZXNwb25zZS1rZXktMzItYnl0ZXNfXw''',
+  '''attacker-mapkey-0123456789abcdef''',
+  '''attacker-key-0123456789abcdef00''',
   # BibTeX cite-keys (author surname + 4-digit year, e.g. `michelson1887`) in the
   # citation test fixtures: the generic-api-key heuristic flags `key: "name1887"`.
   # These are bibliography identifiers, never secrets. Anchored to the whole secret
