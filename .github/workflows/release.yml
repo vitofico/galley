@@ -74,38 +74,12 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create and push git tag
-        if: steps.check_tag.outputs.exists == 'false'
-        run: node scripts/calver.mjs --tag --push
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Generate release notes
-        if: steps.check_tag.outputs.exists == 'false'
-        run: |
-          VERSION="${{ steps.calver.outputs.version }}"
-          PREV_TAG="$(git tag -l --sort=-v:refname | grep -E '^[0-9]{4}\.[0-9]{2}\.[0-9]+$' | sed -n '2p')"
-          {
-            echo "## Release ${VERSION}"
-            echo ""
-            if [ -z "$PREV_TAG" ]; then
-              echo "First CalVer release of Galley."
-              echo ""
-              echo "### Changes"
-              git log --pretty=format:'- %s (%h)' --no-merges
-            else
-              echo "### Changes since ${PREV_TAG}"
-              git log "${PREV_TAG}..HEAD" --pretty=format:'- %s (%h)' --no-merges
-            fi
-          } > release_notes.md
-          cat release_notes.md
-
-      - name: Create GitHub Release
-        if: steps.check_tag.outputs.exists == 'false'
-        run: gh release create "${{ steps.calver.outputs.version }}" --title "Release ${{ steps.calver.outputs.version }}" --notes-file release_notes.md
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+      # The image is built and pushed BEFORE the tag and release exist, so a
+      # registry failure leaves no trace: no tag, no release promising an image
+      # that was never published. Order matters for retries too — calver derives
+      # the next MICRO from the tags already in the month, so tagging first made
+      # every re-run mint a fresh version and pile up empty releases.
+      #
       # Without an explicit buildx builder, build-push-action falls back to the
       # legacy docker driver, whose GHCR push path intermittently fails with
       # "unknown blob" at manifest time.
@@ -137,3 +111,35 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.description=AI-native, local-first, model-agnostic document workspace built on Typst
             org.opencontainers.image.licenses=AGPL-3.0-only
+
+      - name: Create and push git tag
+        if: steps.check_tag.outputs.exists == 'false'
+        run: node scripts/calver.mjs --tag --push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate release notes
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          VERSION="${{ steps.calver.outputs.version }}"
+          PREV_TAG="$(git tag -l --sort=-v:refname | grep -E '^[0-9]{4}\.[0-9]{2}\.[0-9]+$' | sed -n '2p')"
+          {
+            echo "## Release ${VERSION}"
+            echo ""
+            if [ -z "$PREV_TAG" ]; then
+              echo "First CalVer release of Galley."
+              echo ""
+              echo "### Changes"
+              git log --pretty=format:'- %s (%h)' --no-merges
+            else
+              echo "### Changes since ${PREV_TAG}"
+              git log "${PREV_TAG}..HEAD" --pretty=format:'- %s (%h)' --no-merges
+            fi
+          } > release_notes.md
+          cat release_notes.md
+
+      - name: Create GitHub Release
+        if: steps.check_tag.outputs.exists == 'false'
+        run: gh release create "${{ steps.calver.outputs.version }}" --title "Release ${{ steps.calver.outputs.version }}" --notes-file release_notes.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
