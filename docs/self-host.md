@@ -204,6 +204,22 @@ It builds the whole workspace (`pnpm -r build` → `apps/web/dist` incl. the typ
 WASM; tsc for the Node services), runs as the non-root `node` user, and `EXPOSE`s
 8080/8787/1234/3001.
 
+### Serving Galley under a subpath
+
+Galley is served from the root (`/`) by default. To host it under a path prefix
+(a reverse proxy at `example.com/galley`, or the GitHub Pages demo), build the
+bundle with a matching Vite base:
+
+```bash
+pnpm --filter @galley/web exec vite build --base=/galley/
+```
+
+The base is baked into the bundle at build time: the router strips it off
+`location.pathname`, the worker loads its WASM + fonts from under it, and share
+links carry it. Serve the built `apps/web/dist` at exactly that prefix, and make
+sure unknown paths under it fall back to `index.html` (the app owns its routes).
+The default build is unchanged and needs none of this.
+
 ## Kubernetes
 
 Manifests + apply order live in [`deploy/k8s/`](../deploy/k8s/README.md). Defaults
