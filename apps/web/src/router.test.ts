@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { homeShowsEditor, parseRoute, routeHref } from "./router.js";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { currentRoute, homeShowsEditor, navigate, parseRoute, routeHref } from "./router.js";
 import { joinBase, stripBaseFrom } from "./base.js";
 
 describe("parseRoute", () => {
@@ -142,5 +142,55 @@ describe("subpath deploys", () => {
       expect(pushed.startsWith("/galley/")).toBe(true);
       expect(parseRoute(stripBaseFrom("/galley/", pushed))).toEqual(route);
     }
+  });
+});
+
+describe("currentRoute / navigate — the browser half of the seam", () => {
+  // Neither function is exercised by the pure-composition tests above (those
+  // only prove stripBaseFrom/joinBase compose correctly with parseRoute). Both
+  // reference the bare `window` identifier, which resolves through
+  // `globalThis` at call time — no jsdom needed, just a minimal vi.stubGlobal.
+  // Keep the stub to `location` (+ `history` for navigate) and don't call
+  // subscribeToRoute: it wires a real `window.addEventListener`, which this
+  // minimal stub doesn't provide.
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  describe("currentRoute", () => {
+    it("strips the deploy base before parsing, under a subpath build", () => {
+      vi.stubEnv("BASE_URL", "/galley/");
+      vi.stubGlobal("window", { location: { pathname: "/galley/library", search: "" } });
+      expect(currentRoute()).toEqual({ kind: "library" });
+    });
+
+    it("is the identity at the default base", () => {
+      vi.stubGlobal("window", { location: { pathname: "/library", search: "" } });
+      expect(currentRoute()).toEqual({ kind: "library" });
+    });
+  });
+
+  describe("navigate", () => {
+    it("pushes the href rebased under a subpath build", () => {
+      vi.stubEnv("BASE_URL", "/galley/");
+      const pushState = vi.fn();
+      vi.stubGlobal("window", {
+        history: { pushState },
+        location: { pathname: "/galley/", search: "" },
+      });
+      navigate("/library");
+      expect(pushState).toHaveBeenCalledWith(null, "", "/galley/library");
+    });
+
+    it("pushes exactly the app-absolute href at the default base", () => {
+      const pushState = vi.fn();
+      vi.stubGlobal("window", {
+        history: { pushState },
+        location: { pathname: "/", search: "" },
+      });
+      navigate("/library");
+      expect(pushState).toHaveBeenCalledWith(null, "", "/library");
+    });
   });
 });
