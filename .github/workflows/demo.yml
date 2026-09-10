@@ -60,8 +60,16 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Checkout code
+      # Pin the checkout to the commit the triggering Release actually gated.
+      # On a `workflow_run` trigger the default ref is the branch's CURRENT
+      # head, so a push landing while this job queues would publish a commit
+      # whose own Release hasn't finished — the exact gap the gate above
+      # exists to close. `workflow_run` is absent on a manual dispatch, so the
+      # fallback is an empty string, which checkout reads as "the default ref".
+      - name: Checkout the gated commit
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || '' }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
