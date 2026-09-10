@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { homeShowsEditor, parseRoute, routeHref } from "./router.js";
+import { joinBase, stripBaseFrom } from "./base.js";
 
 describe("parseRoute", () => {
   it("maps / to the default project", () => {
@@ -108,5 +109,38 @@ describe("routeHref", () => {
   it("percent-encodes ids and rooms", () => {
     expect(routeHref({ kind: "project", id: "a b" })).toBe("/p/a%20b");
     expect(routeHref({ kind: "join", room: "r/s" })).toBe("/join/r%2Fs");
+  });
+});
+
+describe("subpath deploys", () => {
+  // `currentRoute()` is browser-only, so prove its COMPOSITION here: the
+  // browser pathname goes through stripBaseFrom, and the result must parse to
+  // exactly the route the root deploy produces.
+  it("parses a /galley/-based pathname to the same route as a root deploy", () => {
+    expect(parseRoute(stripBaseFrom("/galley/", "/galley/"))).toEqual({ kind: "home" });
+    expect(parseRoute(stripBaseFrom("/galley/", "/galley"))).toEqual({ kind: "home" });
+    expect(parseRoute(stripBaseFrom("/galley/", "/galley/library"))).toEqual({ kind: "library" });
+    expect(parseRoute(stripBaseFrom("/galley/", "/galley/settings"))).toEqual({ kind: "settings" });
+    expect(parseRoute(stripBaseFrom("/galley/", "/galley/p/abc"))).toEqual({
+      kind: "project",
+      id: "abc",
+    });
+    expect(parseRoute(stripBaseFrom("/galley/", "/galley/join/share-x"), "?role=editor")).toEqual({
+      kind: "join",
+      room: "share-x",
+      role: "editor",
+    });
+  });
+
+  it("navigating to a routeHref lands on a pathname that parses back", () => {
+    for (const route of [
+      { kind: "library" } as const,
+      { kind: "settings" } as const,
+      { kind: "project", id: "abc" } as const,
+    ]) {
+      const pushed = joinBase("/galley/", routeHref(route));
+      expect(pushed.startsWith("/galley/")).toBe(true);
+      expect(parseRoute(stripBaseFrom("/galley/", pushed))).toEqual(route);
+    }
   });
 });
