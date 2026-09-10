@@ -1,21 +1,36 @@
 name: Demo
 
-# Publishes the public, no-signup demo to GitHub Pages on every merge to main.
+# Publishes the public, no-signup demo to GitHub Pages after a successful
+# Release on main.
 #
 # The web app is a COMPLETE Galley on its own: typst.ts compiles in a Web Worker,
 # the WASM + fonts are served from the bundle (never a CDN), and the offline Demo
 # agent needs no provider or key — so a static host is all this needs. The sync
-# relay, model proxy and server-side compile service are opt-in and simply absent
-# here; Share surfaces its normal "sharing is unavailable" notice.
+# relay, model proxy and server-side compile service are opt-in and simply
+# absent here; clicking Share sits on "Connecting…" forever, because
+# `resolveSyncUrl` derives `wss://vitofico.github.io:1234` from the page origin
+# — that passes the `wss?://` validation, so no refusal notice fires, but no
+# relay is reachable at that host. A known rough edge, tracked for follow-up.
 #
 # Pages serves a PROJECT site from a subpath, so the bundle is built with
 # `--base=/galley/`. Everything else in the repo builds at the default base `/`
 # and is untouched by this workflow.
+#
+# Precondition: the repository's Pages source must be set to "GitHub Actions"
+# (Settings → Pages) before the first run, or the `actions/configure-pages`
+# step below fails. That's a one-time human action — deliberately not automated
+# here (no `enablement: true`), since enabling a public URL shouldn't happen
+# from a workflow file.
 
 on:
-  push:
-    branches:
-      - main
+  # release.yml already withholds the container image behind `needs:
+  # green-gate`; the public demo deserves at least the same gate, so it rides
+  # on Release's result instead of racing it on its own `push` trigger.
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+  # Kept for a manual redeploy (e.g. re-publishing after a Pages config fix)
+  # without needing a new Release.
   workflow_dispatch:
 
 permissions:
@@ -33,6 +48,14 @@ jobs:
   deploy:
     name: Build & deploy the demo
     runs-on: ubuntu-latest
+    # Only deploy in the canonical repo (a fork's Release run must never
+    # publish to the fork owner's Pages), and only when the triggering Release
+    # actually succeeded — workflow_dispatch is exempt so a manual redeploy
+    # isn't blocked on re-running Release.
+    if: >-
+      github.repository == 'vitofico/galley' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.workflow_run.conclusion == 'success')
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
