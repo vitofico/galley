@@ -18,7 +18,8 @@
 
 <p align="center">
   <strong><a href="https://vitofico.github.io/galley/">▶ Try the live demo</a></strong> —
-  no signup, no API key. Everything runs in your browser.
+  no signup, no API key. Everything runs in your browser. It's meant for the
+  built-in offline Demo agent — don't enter a real API key or GitHub token there.
 </p>
 
 A *galley proof* is the preliminary typeset version you check and correct before
