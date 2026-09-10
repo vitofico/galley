@@ -7,6 +7,7 @@
  * Collaboration stays an EXPLICIT user action — nothing here runs unless the user
  * clicks Share. The default boot never touches a sync server.
  */
+import { withBase } from "./base.js";
 
 /** The fixed port the `apps/sync` relay listens on (mirrors apps/sync/server.ts). */
 export const SYNC_PORT = 1234;
@@ -223,7 +224,10 @@ export function resolveSessionRole(
  * Old query-param share links keep working via `legacyRedirect` (router.ts).
  */
 export function buildShareLink(room: string, syncOverride?: string, role?: ShareRole): string {
-  const path = `/join/${encodeURIComponent(room)}`;
+  // Rebased for subpath deploys (the Pages demo lives at /galley/): the link is
+  // absolutized against the page ORIGIN by the copy path, so it must carry the
+  // base itself or it would point at the host root. Identity at base `/`.
+  const path = withBase(`/join/${encodeURIComponent(room)}`);
   const params = new URLSearchParams();
   if (syncOverride) params.set("sync", syncOverride);
   // Encode the role EXPLICITLY when given — an editor link must say `role=editor`
