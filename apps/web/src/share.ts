@@ -1,8 +1,11 @@
 /**
- * Share/Connect helpers (roadmap #14-C) — pure, framework-free, so they unit-test
- * in the Node gate (no jsdom). These let the project shell open a collaborative
- * session WITHOUT the user hand-editing the URL: derive the sync-server URL,
- * mint an unguessable room, and build the link a collaborator opens to join.
+ * Share/Connect helpers (roadmap #14-C) — framework-free, so they unit-test in
+ * the Node gate (no jsdom). Every function here is still pure except
+ * {@link buildShareLink}, which now reads the ambient deploy base (`base.ts`)
+ * to rebase the link it builds for subpath deploys. These let the project
+ * shell open a collaborative session WITHOUT the user hand-editing the URL:
+ * derive the sync-server URL, mint an unguessable room, and build the link a
+ * collaborator opens to join.
  *
  * Collaboration stays an EXPLICIT user action — nothing here runs unless the user
  * clicks Share. The default boot never touches a sync server.

@@ -19,7 +19,7 @@
  * root-served deployments byte-for-byte unchanged.
  */
 
-/** Normalize any Vite base spelling into the canonical `/` or `/seg/` form. */
+/** Normalize an absolute-path Vite base spelling into the canonical `/` or `/seg/` form. */
 export function normalizeBase(base: string): string {
   const trimmed = base.trim();
   if (trimmed === "" || trimmed === "/") return "/";
