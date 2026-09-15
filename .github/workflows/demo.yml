@@ -1,0 +1,114 @@
+name: Demo
+
+# Publishes the public, no-signup demo to GitHub Pages after a successful
+# Release on main.
+#
+# The web app is a COMPLETE Galley on its own: typst.ts compiles in a Web Worker,
+# the WASM + fonts are served from the bundle (never a CDN), and the offline Demo
+# agent needs no provider or key — so a static host is all this needs. The sync
+# relay, model proxy and server-side compile service are opt-in and simply
+# absent here; clicking Share sits on "Connecting…" forever, because
+# `resolveSyncUrl` derives `wss://vitofico.github.io:1234` from the page origin
+# — that passes the `wss?://` validation, so no refusal notice fires, but no
+# relay is reachable at that host. A known rough edge, tracked for follow-up.
+#
+# Pages serves a PROJECT site from a subpath, so the bundle is built with
+# `--base=/galley/`. Everything else in the repo builds at the default base `/`
+# and is untouched by this workflow.
+#
+# Precondition: the repository's Pages source must be set to "GitHub Actions"
+# (Settings → Pages) before the first run, or the `actions/configure-pages`
+# step below fails. That's a one-time human action — deliberately not automated
+# here (no `enablement: true`), since enabling a public URL shouldn't happen
+# from a workflow file.
+
+on:
+  # release.yml already withholds the container image behind `needs:
+  # green-gate`; the public demo deserves at least the same gate, so it rides
+  # on Release's result instead of racing it on its own `push` trigger.
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+  # Kept for a manual redeploy (e.g. re-publishing after a Pages config fix)
+  # without needing a new Release.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; queue instead of cancelling, so the newest main
+# always wins the last word.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build & deploy the demo
+    runs-on: ubuntu-latest
+    # Only deploy in the canonical repo (a fork's Release run must never
+    # publish to the fork owner's Pages), and only when the triggering Release
+    # actually succeeded — workflow_dispatch is exempt so a manual redeploy
+    # isn't blocked on re-running Release.
+    if: >-
+      github.repository == 'vitofico/galley' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.workflow_run.conclusion == 'success')
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      # Pin the checkout to the commit the triggering Release actually gated.
+      # On a `workflow_run` trigger the default ref is the branch's CURRENT
+      # head, so a push landing while this job queues would publish a commit
+      # whose own Release hasn't finished — the exact gap the gate above
+      # exists to close. `workflow_run` is absent on a manual dispatch, so the
+      # fallback is an empty string, which checkout reads as "the default ref".
+      - name: Checkout the gated commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || '' }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Stages the typst WASM + the default font set into public/. Network is
+      # available at build (like `pnpm install`); nothing is fetched at runtime.
+      - name: Stage the typst WASM + fonts
+        run: pnpm --filter @galley/web copy-wasm
+
+      # `exec vite build` rather than the package's `build` script: this passes
+      # --base explicitly instead of relying on pnpm's arg-forwarding into a
+      # two-command script. The default base stays `/` everywhere else.
+      - name: Build the SPA for the /galley/ subpath
+        run: pnpm --filter @galley/web exec vite build --base=/galley/
+
+      # Pages has no SPA rewrite: a deep link like /galley/settings is a miss,
+      # and Pages answers a miss with 404.html. Serving the app there makes deep
+      # links and reloads work (the response carries a 404 status, which no
+      # browser surfaces once the app renders).
+      - name: Add the SPA fallback
+        run: cp apps/web/dist/index.html apps/web/dist/404.html
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload the bundle
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: apps/web/dist
+
+      - name: Deploy to Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

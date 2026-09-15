@@ -16,6 +16,12 @@
   <a href="https://ko-fi.com/vito507767"><img src="https://img.shields.io/badge/Ko--fi-support%20this%20project-ff5e5b?logo=ko-fi&logoColor=white" alt="Support this project on Ko-fi" /></a>
 </p>
 
+<p align="center">
+  <strong><a href="https://vitofico.github.io/galley/">▶ Try the live demo</a></strong> —
+  no signup, no API key. Everything runs in your browser. It's meant for the
+  built-in offline Demo agent — don't enter a real API key or GitHub token there.
+</p>
+
 A *galley proof* is the preliminary typeset version you check and correct before
 final layout — which is exactly this app's core loop: **compile → inspect →
 correct → repeat.**

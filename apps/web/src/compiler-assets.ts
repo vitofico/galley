@@ -32,6 +32,7 @@ import {
   resolveTransport,
   serverConfigured,
 } from "./components/compiler-mode.js";
+import { deployBase, joinBase } from "./base.js";
 
 /**
  * The minimal window surface {@link gatherServerUrlInputs} reads. Matches the
@@ -113,22 +114,38 @@ function legacyServerCompileUrl(): string | null {
   return resolveServerCompileUrl(inputs);
 }
 
+/**
+ * The `public/`-served asset URLs the worker compiler loads, resolved against a
+ * deploy base. These live in `public/` (staged by scripts/copy-wasm.mjs, never a
+ * CDN), which Vite copies verbatim — it does NOT rewrite their URLs the way it
+ * rewrites `assets/*`, so a subpath build has to prefix them itself. Pure, so
+ * the base matrix is provable offline.
+ */
+export function compilerAssetUrls(base: string): {
+  wasmUrl: string;
+  rendererUrl: string;
+  fontAssetPrefix: string;
+} {
+  return {
+    wasmUrl: joinBase(base, "/typst_ts_web_compiler_bg.wasm"),
+    rendererUrl: joinBase(base, "/typst_ts_renderer_bg.wasm"),
+    // typst.ts bundles no fonts; the default text set is served locally under
+    // /fonts/ (staged by scripts/copy-wasm.mjs, never a CDN) so text renders.
+    fontAssetPrefix: joinBase(base, "/fonts/"),
+  };
+}
+
 /** Build the local Web Worker compiler (the historical default). */
 function createWorkerCompiler(): Promise<Compiler> {
   // A worker FACTORY (not a single worker) so the compiler can respawn a wedged
   // worker on the timeout path. Each call builds a fresh first-party worker the
-  // bundler can see.
+  // bundler can see. Vite rewrites this specifier for a subpath build already;
+  // the public/ assets below are the ones it cannot, hence compilerAssetUrls.
   const createWorker = (): CompilerWorkerHandle =>
     new Worker(new URL("./typst.worker.ts", import.meta.url), {
       type: "module",
     }) as unknown as CompilerWorkerHandle;
-  return connectCompilerWorker(createWorker, {
-    wasmUrl: "/typst_ts_web_compiler_bg.wasm",
-    rendererUrl: "/typst_ts_renderer_bg.wasm",
-    // typst.ts bundles no fonts; the default text set is served locally under
-    // /fonts/ (staged by scripts/copy-wasm.mjs, never a CDN) so text renders.
-    fontAssetPrefix: "/fonts/",
-  });
+  return connectCompilerWorker(createWorker, compilerAssetUrls(deployBase()));
 }
 
 /**

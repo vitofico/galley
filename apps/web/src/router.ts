@@ -14,6 +14,7 @@
  */
 
 import { parseShareRole, type ShareRole } from "./share.js";
+import { stripBase, withBase } from "./base.js";
 
 export type Route =
   | { kind: "home" }
@@ -103,15 +104,20 @@ function notify(): void {
 
 /** The route for the CURRENT browser location. Browser-only. */
 export function currentRoute(): Route {
-  return parseRoute(window.location.pathname, window.location.search);
+  // The pathname carries the deploy base (`/galley/library`); the router's pure
+  // half only ever sees app-absolute paths (`/library`). Identity at base `/`.
+  return parseRoute(stripBase(window.location.pathname), window.location.search);
 }
 
 /**
  * Navigate to an app path WITHOUT a full reload: push a history entry and
  * notify subscribers (the route root re-renders). Browser-only.
+ *
+ * Takes an APP-ABSOLUTE href (`/library`, `routeHref(route)`) and rebases it on
+ * the way out, so every call site stays base-agnostic. Identity at base `/`.
  */
 export function navigate(href: string): void {
-  window.history.pushState(null, "", href);
+  window.history.pushState(null, "", withBase(href));
   notify();
 }
 

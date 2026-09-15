@@ -20,7 +20,12 @@ import {
   resolveServerCompileUrl,
   serverConfigured,
 } from "./components/compiler-mode.js";
-import { gatherServerUrlInputs, readServerUrlInputs, type UrlInputsWindow } from "./compiler-assets.js";
+import {
+  compilerAssetUrls,
+  gatherServerUrlInputs,
+  readServerUrlInputs,
+  type UrlInputsWindow,
+} from "./compiler-assets.js";
 
 const RUNTIME = "http://runtime.example.com/compile";
 const BUILD = "http://build.example.com/compile";
@@ -130,5 +135,23 @@ describe("readServerUrlInputs (live-window wrapper)", () => {
   it("returns empty inputs in non-browser contexts (node test env: no window)", () => {
     expect(typeof window).toBe("undefined");
     expect(readServerUrlInputs()).toEqual({});
+  });
+});
+
+describe("compilerAssetUrls: the public/ assets the worker loads", () => {
+  it("serves them from the root by default — byte-for-byte today's values", () => {
+    expect(compilerAssetUrls("/")).toEqual({
+      wasmUrl: "/typst_ts_web_compiler_bg.wasm",
+      rendererUrl: "/typst_ts_renderer_bg.wasm",
+      fontAssetPrefix: "/fonts/",
+    });
+  });
+
+  it("moves them under a subpath base, so the Pages demo finds its WASM + fonts", () => {
+    expect(compilerAssetUrls("/galley/")).toEqual({
+      wasmUrl: "/galley/typst_ts_web_compiler_bg.wasm",
+      rendererUrl: "/galley/typst_ts_renderer_bg.wasm",
+      fontAssetPrefix: "/galley/fonts/",
+    });
   });
 });

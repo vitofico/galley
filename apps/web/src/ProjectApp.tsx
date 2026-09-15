@@ -4809,10 +4809,8 @@ export function ProjectApp({
   }, []);
 
   // Unified settings (#19.7): every preference lives on the /settings route.
-  // When this shell was mounted BY the router (UnifiedRoot/JoinRoot pass
-  // `onOpenLibrary`), `navigate()` swaps the route root in place; the legacy
-  // `?project=1` hatch mounts ProjectApp directly with no route subscription,
-  // so it takes a full navigation instead (the hatch is dev/e2e-only).
+  // ProjectApp is always mounted BY the router (UnifiedRoot/JoinRoot pass
+  // `onOpenLibrary`), so `navigate()` swaps the route root in place.
   const gotoSettings = useCallback(
     (section?: SettingsSectionId) => {
       // Thread the route we're leaving so the settings page's "Back" returns
@@ -4821,7 +4819,6 @@ export function ProjectApp({
       const origin = onOpenLibrary ? routeHref(currentRoute()) : undefined;
       const href = settingsHref(section, origin && origin !== "/" ? origin : undefined);
       if (onOpenLibrary) navigate(href);
-      else window.location.assign(href);
     },
     [onOpenLibrary],
   );

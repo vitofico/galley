@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { homeShowsEditor, parseRoute, routeHref } from "./router.js";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { currentRoute, homeShowsEditor, navigate, parseRoute, routeHref } from "./router.js";
+import { joinBase, stripBaseFrom } from "./base.js";
 
 describe("parseRoute", () => {
   it("maps / to the default project", () => {
@@ -108,5 +109,88 @@ describe("routeHref", () => {
   it("percent-encodes ids and rooms", () => {
     expect(routeHref({ kind: "project", id: "a b" })).toBe("/p/a%20b");
     expect(routeHref({ kind: "join", room: "r/s" })).toBe("/join/r%2Fs");
+  });
+});
+
+describe("subpath deploys", () => {
+  // `currentRoute()` is browser-only, so prove its COMPOSITION here: the
+  // browser pathname goes through stripBaseFrom, and the result must parse to
+  // exactly the route the root deploy produces.
+  it("parses a /galley/-based pathname to the same route as a root deploy", () => {
+    expect(parseRoute(stripBaseFrom("/galley/", "/galley/"))).toEqual({ kind: "home" });
+    expect(parseRoute(stripBaseFrom("/galley/", "/galley"))).toEqual({ kind: "home" });
+    expect(parseRoute(stripBaseFrom("/galley/", "/galley/library"))).toEqual({ kind: "library" });
+    expect(parseRoute(stripBaseFrom("/galley/", "/galley/settings"))).toEqual({ kind: "settings" });
+    expect(parseRoute(stripBaseFrom("/galley/", "/galley/p/abc"))).toEqual({
+      kind: "project",
+      id: "abc",
+    });
+    expect(parseRoute(stripBaseFrom("/galley/", "/galley/join/share-x"), "?role=editor")).toEqual({
+      kind: "join",
+      room: "share-x",
+      role: "editor",
+    });
+  });
+
+  it("navigating to a routeHref lands on a pathname that parses back", () => {
+    for (const route of [
+      { kind: "library" } as const,
+      { kind: "settings" } as const,
+      { kind: "project", id: "abc" } as const,
+    ]) {
+      const pushed = joinBase("/galley/", routeHref(route));
+      expect(pushed.startsWith("/galley/")).toBe(true);
+      expect(parseRoute(stripBaseFrom("/galley/", pushed))).toEqual(route);
+    }
+  });
+});
+
+describe("currentRoute / navigate — the browser half of the seam", () => {
+  // Neither function is exercised by the pure-composition tests above (those
+  // only prove stripBaseFrom/joinBase compose correctly with parseRoute). Both
+  // reference the bare `window` identifier, which resolves through
+  // `globalThis` at call time — no jsdom needed, just a minimal vi.stubGlobal.
+  // Keep the stub to `location` (+ `history` for navigate) and don't call
+  // subscribeToRoute: it wires a real `window.addEventListener`, which this
+  // minimal stub doesn't provide.
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  describe("currentRoute", () => {
+    it("strips the deploy base before parsing, under a subpath build", () => {
+      vi.stubEnv("BASE_URL", "/galley/");
+      vi.stubGlobal("window", { location: { pathname: "/galley/library", search: "" } });
+      expect(currentRoute()).toEqual({ kind: "library" });
+    });
+
+    it("is the identity at the default base", () => {
+      vi.stubGlobal("window", { location: { pathname: "/library", search: "" } });
+      expect(currentRoute()).toEqual({ kind: "library" });
+    });
+  });
+
+  describe("navigate", () => {
+    it("pushes the href rebased under a subpath build", () => {
+      vi.stubEnv("BASE_URL", "/galley/");
+      const pushState = vi.fn();
+      vi.stubGlobal("window", {
+        history: { pushState },
+        location: { pathname: "/galley/", search: "" },
+      });
+      navigate("/library");
+      expect(pushState).toHaveBeenCalledWith(null, "", "/galley/library");
+    });
+
+    it("pushes exactly the app-absolute href at the default base", () => {
+      const pushState = vi.fn();
+      vi.stubGlobal("window", {
+        history: { pushState },
+        location: { pathname: "/", search: "" },
+      });
+      navigate("/library");
+      expect(pushState).toHaveBeenCalledWith(null, "", "/library");
+    });
   });
 });

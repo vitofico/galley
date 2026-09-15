@@ -1,10 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   resolveSyncUrl,
   runtimeSyncUrl,
   configuredSyncUrlOverride,
   mintShareRoom,
   buildShareLink,
+  roomFromShareLink,
   parseShareRole,
   resolveSessionRole,
   DEFAULT_SHARE_ROLE,
@@ -197,5 +198,27 @@ describe("resolveSessionRole (B19 — the CONNECTION is the source of truth for 
     expect(resolveSessionRole(true, undefined, "viewer")).toBe("viewer");
     expect(resolveSessionRole(true, undefined, "editor")).toBe("editor");
     expect(resolveSessionRole(true, undefined, undefined)).toBe("viewer");
+  });
+});
+
+describe("share links under a subpath deploy", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("keeps today's root-relative link at the default base", () => {
+    expect(buildShareLink("share-abc", undefined, "editor")).toBe("/join/share-abc?role=editor");
+  });
+
+  it("carries the base, and still round-trips through roomFromShareLink", () => {
+    vi.stubEnv("BASE_URL", "/galley/");
+    const link = buildShareLink("share-abc", undefined, "editor");
+    expect(link).toBe("/galley/join/share-abc?role=editor");
+    // The copy path absolutizes with `new URL(link, origin)`, so a based href
+    // must still yield the right room when read back.
+    expect(roomFromShareLink(link)).toBe("share-abc");
+    expect(new URL(link, "https://vitofico.github.io").toString()).toBe(
+      "https://vitofico.github.io/galley/join/share-abc?role=editor",
+    );
   });
 });
