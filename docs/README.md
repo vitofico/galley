@@ -16,8 +16,11 @@
   [`UNIVERSE_INTEGRATION.md`](UNIVERSE_INTEGRATION.md) — in-browser WASM compile, the
   opt-in compile service, and the Typst Universe package-integrity manifest + fail-closed fetch.
 - [`providers.md`](providers.md) — model providers, transports, local-Ollama dev.
-- [`mcp-kernel-setup.md`](mcp-kernel-setup.md) — connect an external MCP client
-  (Claude Code, etc.) to a Galley project via the local kernel.
+- [`mcp.md`](mcp.md) — **start here for MCP**: drive Galley from Claude Code or
+  Codex over the local kernel, using your own plan rather than a provider API
+  key. What the agent can and cannot do, and how to connect it.
+- [`mcp-kernel-setup.md`](mcp-kernel-setup.md) — the full kernel reference:
+  every flag, both modes, control-room pairing, and troubleshooting.
 - [`server-and-collaboration.md`](server-and-collaboration.md) — sync relay, rooms,
   presence, attribution.
 - [`github-connect.md`](github-connect.md) — Connect GitHub v0: paste-a-PAT +

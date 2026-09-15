@@ -106,6 +106,32 @@ auto-applies an edit. (External MCP agents can be granted opt-in auto-accept —
 by default, signed, checkpointed, and revertable — which only drives the same
 Accept path; see the [security model](docs/security-model.md).)
 
+## Bring your own agent (no API key)
+
+Galley's built-in agent needs a provider API key, billed per token. You can skip
+that entirely: Galley ships a **local MCP kernel** that carries no model at all.
+No provider, no key, no inference. It is a bridge that exposes your project as
+tools to an agent you already run, so **Claude Code or Codex drives Galley on the
+plan you already pay for**.
+
+```bash
+# Share the project in the browser to mint a room id, then:
+claude mcp add galley -- pnpm -C /path/to/galley --filter @galley/mcp start -- \
+  --sync ws://localhost:1234 --room <room-id> --file /main.typ
+```
+
+Your agent gets the live document, the file tree, query-relevant excerpts across
+files, and real Typst diagnostics. What it does **not** get is write access:
+`propose_edit` and `propose_files` publish a pending review card, and a human
+clicks Accept. That gate is structural, not a preference.
+
+Control mode goes further and lets the agent list your library and ask to open a
+project, behind a one-time pairing code, per-project read grants that default to
+zero, and a blocking confirmation for every open.
+
+→ **[Use your own coding agent with Galley](docs/mcp.md)** for the walkthrough,
+or [the full kernel reference](docs/mcp-kernel-setup.md) for every flag.
+
 ## Monorepo layout
 
 ```
@@ -151,6 +177,7 @@ Read these in order:
 | [`docs/editing-and-diff.md`](docs/editing-and-diff.md) | Search/replace contract, scratch isolation, diff, Accept/Reject conflicts |
 | [`docs/compiler.md`](docs/compiler.md) | typst.ts init, worker protocol, fonts, diagnostics normalization, preview/export |
 | [`docs/providers.md`](docs/providers.md) | Provider types, capability probing, CORS/key caveats, local vs remote privacy |
+| [`docs/mcp.md`](docs/mcp.md) | Drive Galley from Claude Code or Codex over MCP, on your own plan instead of an API key |
 | [`docs/decisions/`](docs/decisions) | Architecture Decision Records (ADRs) |
 
 ## Quick start
