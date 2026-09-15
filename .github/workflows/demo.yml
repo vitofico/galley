@@ -91,7 +91,14 @@ jobs:
       # `exec vite build` rather than the package's `build` script: this passes
       # --base explicitly instead of relying on pnpm's arg-forwarding into a
       # two-command script. The default base stays `/` everywhere else.
+      # VITE_GALLEY_PUBLIC_URL turns on the Open Graph / Twitter Card tags. It is
+      # the demo's own absolute origin, because crawlers do not reliably resolve
+      # a relative og:image, and no other deployment's origin is knowable here.
+      # Unset everywhere else, where the injection is the identity — see
+      # apps/web/src/social-meta.ts.
       - name: Build the SPA for the /galley/ subpath
+        env:
+          VITE_GALLEY_PUBLIC_URL: https://vitofico.github.io/galley/
         run: pnpm --filter @galley/web exec vite build --base=/galley/
 
       # Pages has no SPA rewrite: a deep link like /galley/settings is a miss,

@@ -1,12 +1,41 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import { buildSocialMetaTags } from "./src/social-meta.js";
+
+/**
+ * Inject Open Graph / Twitter Card tags into index.html at build time.
+ *
+ * They must carry ABSOLUTE urls (crawlers do not reliably resolve relative
+ * ones), and the only origin that is right for a deployment is its own — so the
+ * origin comes from `VITE_GALLEY_PUBLIC_URL` rather than being hardcoded. With
+ * the variable unset this plugin is the IDENTITY: `buildSocialMetaTags` returns
+ * "" and the HTML passes through untouched, so every self-hosted build is
+ * byte-identical to before. Only the Demo workflow sets it.
+ */
+function socialMeta(publicUrl: string | undefined): Plugin {
+  return {
+    name: "galley-social-meta",
+    transformIndexHtml: {
+      order: "pre",
+      handler(html: string): string {
+        const tags = buildSocialMetaTags(publicUrl);
+        if (tags === "") return html;
+        return html.replace("</head>", `  ${tags}\n  </head>`);
+      },
+    },
+  };
+}
 
 // The typst compiler runs in a Web Worker (ES module). WASM is served from
 // public/ (copied there by scripts/copy-wasm.mjs) so nothing is fetched from a
 // CDN at runtime. The two typst WASM packages are excluded from dep
 // pre-bundling — they are large and loaded as raw bytes by the worker.
-export default defineConfig({
-  plugins: [react()],
+export default defineConfig(({ mode }) => {
+  // loadEnv (not bare process.env) so a self-hoster's .env file works the same
+  // way it does for every other VITE_ variable the app reads.
+  const env = loadEnv(mode, process.cwd(), "");
+  return {
+  plugins: [react(), socialMeta(env["VITE_GALLEY_PUBLIC_URL"])],
   worker: { format: "es" },
   server: { port: 5173, strictPort: true },
   preview: { port: 4173, strictPort: true },
@@ -37,4 +66,5 @@ export default defineConfig({
       },
     },
   },
+  };
 });
