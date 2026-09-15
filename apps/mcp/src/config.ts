@@ -100,6 +100,11 @@ export type KernelCliResult = KernelConfig | { mode: "help" };
 
 export const KERNEL_USAGE = [
   "usage:",
+  "  (`galley-mcp` is this package's bin. From a source checkout, install it once",
+  "   with `cd apps/mcp && pnpm link --global` — run `pnpm setup` first if pnpm",
+  "   has no global bin dir — or symlink bin/galley-mcp.mjs onto your PATH.",
+  "   Without it, substitute `pnpm -C <path-to-galley> --filter @galley/mcp start --`.)",
+  "",
   "  per-project mode (ADR-0020) — join ONE shared project room, scoped to ONE file:",
   "    galley-mcp --sync ws://localhost:1234 --room <share-room-id> --file /main.typ \\",
   "               [--compile-url http://localhost:3001]",

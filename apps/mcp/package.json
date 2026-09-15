@@ -5,6 +5,9 @@
   "type": "module",
   "description": "Inbound MCP local kernel (#16.1, ADR-0020): exposes Galley's agent tools to external MCP clients over local stdio. Scaffold only — the kernel (sync-room peer + pending-proposal mailbox behind the browser Accept gate) lands as its own reviewed slice.",
   "main": "./src/index.ts",
+  "bin": {
+    "galley-mcp": "./bin/galley-mcp.mjs"
+  },
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "start": "tsx src/main.ts",

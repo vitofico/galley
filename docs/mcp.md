@@ -71,14 +71,33 @@ trail, and flanked by an always-visible banner with a kill switch.
 You need a running Galley, a running sync relay (`ws://localhost:1234` in local
 dev), a project open in the browser, and a checkout of this repo.
 
-> **There is no `galley-mcp` binary yet.** The package is unpublished, so the
-> kernel's own `--help` and the pairing command in Settings both print
-> `galley-mcp …` aspirationally. Substitute
-> `pnpm -C /path/to/galley --filter @galley/mcp start --` wherever you see it.
+### 1. Install the `galley-mcp` command
+
+The kernel ships as this repo's `galley-mcp` bin, but it is not published to npm
+yet, so a fresh machine has no such command. Install it once from your checkout:
+
+```bash
+cd apps/mcp && pnpm link --global
+```
+
+If pnpm reports it has no global bin directory, run `pnpm setup` once (it creates
+that directory and adds it to your PATH), then repeat the link. If you would
+rather not touch pnpm's global state, a plain symlink works just as well:
+
+```bash
+ln -s "$PWD/apps/mcp/bin/galley-mcp.mjs" /usr/local/bin/galley-mcp
+```
+
+Either way, `galley-mcp --help` should now work from any directory. The bin runs
+the TypeScript source through tsx rather than a build output, so it never goes
+stale after a `git pull`.
+
+> Prefer not to install anything? Every command below also works as
+> `pnpm -C /path/to/galley --filter @galley/mcp start -- …` with the same flags.
 > Use `-C` with an absolute path rather than `--filter` alone, because your MCP
 > client will not spawn the kernel with this repo as its working directory.
 
-### 1. Mint a room
+### 2. Mint a room
 
 Open your project in Galley and click **Share**. This upgrades the local session
 to a shared room and shows a join link:
@@ -95,12 +114,12 @@ local dev, or `wss://<your-host>:1234` on a deployed instance.
 > Room ids are capabilities, not names. Anyone holding one can reach that
 > project. Treat them like passwords, and keep them out of shared logs and chat.
 
-### 2. Register the kernel with your client
+### 3. Register the kernel with your client
 
 **Claude Code:**
 
 ```bash
-claude mcp add galley -- pnpm -C /path/to/galley --filter @galley/mcp start -- \
+claude mcp add galley -- galley-mcp \
   --sync ws://localhost:1234 --room share-1b2c3d4e-... --file /main.typ
 ```
 
@@ -109,7 +128,7 @@ Confirm with `claude mcp list`.
 **Codex:**
 
 ```bash
-codex mcp add galley -- pnpm -C /path/to/galley --filter @galley/mcp start -- \
+codex mcp add galley -- galley-mcp \
   --sync ws://localhost:1234 --room share-1b2c3d4e-... --file /main.typ
 ```
 
@@ -117,10 +136,8 @@ Confirm with `codex mcp list`. Or write it into `~/.codex/config.toml` by hand:
 
 ```toml
 [mcp_servers.galley]
-command = "pnpm"
+command = "galley-mcp"
 args = [
-  "-C", "/path/to/galley",
-  "--filter", "@galley/mcp", "start", "--",
   "--sync", "ws://localhost:1234",
   "--room", "share-1b2c3d4e-...",
   "--file", "/main.typ",
@@ -136,7 +153,7 @@ args = [
 > and wants an `https://` URL. It will reject this, and the `wss://` sync URL is
 > the relay, not an MCP endpoint.
 
-### 3. Work
+### 4. Work
 
 Ask your agent to read the document and suggest something. Its proposals show up
 in Galley as review cards. You accept or reject them.
@@ -159,8 +176,7 @@ forward-secret channel, so the long-lived key never appears in argv, shell
 history, or process listings.
 
 ```bash
-pnpm -C /path/to/galley --filter @galley/mcp start -- \
-  --sync ws://localhost:1234 --pairing-code <code>
+galley-mcp --sync ws://localhost:1234 --pairing-code <code>
 ```
 
 After a successful handshake the kernel stores the pairing under
