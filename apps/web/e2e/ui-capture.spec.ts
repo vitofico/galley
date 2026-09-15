@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test, expect } from "@playwright/test";
-import { gotoEditor } from "./app-helpers.js";
+import { gotoEditor, suppressCoachOverlay } from "./app-helpers.js";
 import { openFilesDock } from "./files-dock.js";
 import {
   CollabDocument,
@@ -125,6 +125,10 @@ for (const theme of ["light", "dark"] as const) {
     await settle(page);
     await setTheme(page, theme);
     // #19.2: the file list is the rail's docked card; its rail icon closes it.
+    // The dock auto-collapses on a first run at 1280px (`shouldBootFilesClosed`),
+    // so open it first — this capture is the editor after an EXPLICIT collapse,
+    // not the boot default, and without this the rail click opened it instead.
+    await openFilesDock(page);
     await page.getByTestId("rail-files").click();
     await expect(page.getByTestId("project-files")).toHaveCount(0);
     await freeze(page);
@@ -213,10 +217,12 @@ for (const theme of ["light", "dark"] as const) {
     await settle(page);
     await setTheme(page, theme);
     // The rail magnifier docks the Search panel; type a query the default
-    // workspace matches so the populated results list (count + rows) is shown.
+    // workspace actually contains so the populated results list (count + rows)
+    // is shown. The blank starter is "= Untitled\n\nStart writing…\n" — it has
+    // no "the" in it, which is why the old query matched nothing.
     await page.getByTestId("rail-search").click();
     await expect(page.getByTestId("search-panel")).toBeVisible();
-    await page.getByTestId("search-input").fill("the");
+    await page.getByTestId("search-input").fill("writing");
     await expect(page.getByTestId("search-result").first()).toBeVisible();
     await freeze(page);
     await page.waitForTimeout(150);
@@ -285,6 +291,8 @@ for (const theme of ["light", "dark"] as const) {
     await settle(page);
     await setTheme(page, theme);
     // Create a couple of files under /chapters so the nested folder renders.
+    // The add-file affordance lives INSIDE the files dock, which boots closed.
+    await openFilesDock(page);
     await page.getByTestId("new-file-path").fill("/chapters/intro.typ");
     await page.getByTestId("add-file").click();
     await page.getByTestId("new-file-path").fill("/chapters/method.typ");
@@ -478,7 +486,16 @@ for (const theme of ["light", "dark"] as const) {
     await settle(page);
     await setTheme(page, theme);
     // Delete the main file → the Notice (with its inline action) appears in the
-    // files dock.
+    // files dock — which has to be open for the per-file delete control to exist.
+    await openFilesDock(page);
+    // The notice only fires while another file SURVIVES to be promoted
+    // (`mainDeleted` is `mainFileSnapshot.deleted && liveFiles.length > 0`), and
+    // the blank starter now ships exactly ONE file. Deleting it used to leave a
+    // second file behind; today it empties the project, so the notice correctly
+    // stays hidden and this capture had nothing to shoot. Add a file first, which
+    // is also the only state where "Pick new main" means anything.
+    await page.getByTestId("new-file-path").fill("/chapter.typ");
+    await page.getByTestId("add-file").click();
     await page.locator('[data-testid="delete-file"][data-path="/main.typ"]').click();
     await expect(page.getByTestId("main-deleted-notice")).toBeVisible();
     await freeze(page);
@@ -628,7 +645,12 @@ for (const theme of ["light", "dark"] as const) {
     test(`capture: agent open-project consent (${theme})`, async ({ page }) => {
       // Enable Agent Access in /settings, read the pairing coordinates, then go
       // back to the editor (SPA) so the ProjectApp consent handler is mounted.
-      await page.goto("/settings");
+      // `settings-back` honors a `from` param and otherwise falls back to "/",
+      // which routes to the LIBRARY — there is no editor there, so settle()
+      // below would wait forever. Point it at a project route explicitly.
+      const consentProject = `/p/agent-consent-cap-${theme}`;
+      await suppressCoachOverlay(page);
+      await page.goto(`/settings?from=${encodeURIComponent(consentProject)}`);
       await expect(page.getByTestId("settings-page")).toBeVisible({ timeout: 30_000 });
       if (theme === "dark") {
         await page.getByTestId("settings-theme-dark").click();
@@ -1104,13 +1126,16 @@ for (const theme of ["light", "dark"] as const) {
     await gotoEditor(page, { id: `comment-cap-${theme}` });
     await settle(page);
     await setTheme(page, theme);
+    // Dismiss the transient-storage banner BEFORE selecting. It pins a bottom
+    // banner that intercepts the comment bubble, but dismissing it afterwards
+    // blurs the editor — which drops the selection and takes the bubble with it,
+    // so the click below could never land.
+    const dismissT = page.getByTestId("transient-storage-dismiss");
+    if (await dismissT.isVisible().catch(() => false)) await dismissT.click();
     const editor = page.locator('[data-testid="editor"] .cm-content');
     await editor.click();
     await editor.getByText("writing", { exact: false }).first().dblclick();
     await expect(page.getByTestId("comment-add")).toBeVisible();
-    // Transient-storage context pins a bottom banner that intercepts the bubble.
-    const dismissT = page.getByTestId("transient-storage-dismiss");
-    if (await dismissT.isVisible().catch(() => false)) await dismissT.click();
     await page.getByTestId("comment-add").click();
     await page.getByTestId("comment-create-input").fill("Is this the final title?");
     await page.getByTestId("comment-create-submit").click();
@@ -1127,13 +1152,16 @@ for (const theme of ["light", "dark"] as const) {
     await gotoEditor(page, { id: `comment-overview-cap-${theme}` });
     await settle(page);
     await setTheme(page, theme);
+    // Dismiss the transient-storage banner BEFORE selecting. It pins a bottom
+    // banner that intercepts the comment bubble, but dismissing it afterwards
+    // blurs the editor — which drops the selection and takes the bubble with it,
+    // so the click below could never land.
+    const dismissT = page.getByTestId("transient-storage-dismiss");
+    if (await dismissT.isVisible().catch(() => false)) await dismissT.click();
     const editor = page.locator('[data-testid="editor"] .cm-content');
     await editor.click();
     await editor.getByText("writing", { exact: false }).first().dblclick();
     await expect(page.getByTestId("comment-add")).toBeVisible();
-    // Transient-storage context pins a bottom banner that intercepts the bubble.
-    const dismissT = page.getByTestId("transient-storage-dismiss");
-    if (await dismissT.isVisible().catch(() => false)) await dismissT.click();
     await page.getByTestId("comment-add").click();
     await page.getByTestId("comment-create-input").fill("Pick a stronger title.");
     await page.getByTestId("comment-create-submit").click();
