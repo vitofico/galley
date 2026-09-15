@@ -22,6 +22,13 @@
   built-in offline Demo agent — don't enter a real API key or GitHub token there.
 </p>
 
+<p align="center">
+  <a href="https://vitofico.github.io/galley/">
+    <img src="docs/assets/galley-editor.png" width="900"
+      alt="The Galley editor: Typst source on the left, the typeset 'Annus Mirabilis' manuscript rendering in the middle, and the agent panel on the right showing the offline Demo model." />
+  </a>
+</p>
+
 A *galley proof* is the preliminary typeset version you check and correct before
 final layout — which is exactly this app's core loop: **compile → inspect →
 correct → repeat.**

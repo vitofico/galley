@@ -1181,6 +1181,29 @@ test("capture: Einstein desk restyled (academic → modern → minimal)", async 
   await preview.screenshot({ path: `${SHOTS}/einstein-minimal.png` });
 });
 
+/**
+ * The README hero: the whole three-pane workspace over a REAL manuscript —
+ * source on the left, the typeset result in the middle, the agent on the right.
+ * The plain `editor` captures above deliberately shoot the blank starter (they
+ * exist to review chrome), which reads as an empty app; this one seeds the 1905
+ * demo so the shot shows Galley actually doing its job.
+ *
+ * Both first-run affordances are dismissed first — the "New here?" pill and the
+ * transient-storage banner are honest in the product but pure noise in a still
+ * image, and the banner also steals a strip of the editor's height.
+ */
+test("capture: README hero (seeded manuscript, full workspace)", async ({ page }) => {
+  await page.goto("/?seed=einstein");
+  await settle(page);
+  for (const id of ["first-run-dismiss", "transient-storage-dismiss"]) {
+    const btn = page.getByTestId(id);
+    if (await btn.isVisible().catch(() => false)) await btn.click();
+  }
+  await freeze(page);
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: `${SHOTS}/readme-hero.png`, fullPage: true });
+});
+
 // #7 7D binary assets: the files pane holding an uploaded image row (with its
 // hover ops + the "Upload asset…" affordance), and the preview modal showing
 // that image. A real 1×1 PNG so the preview renders a raster <img>.
