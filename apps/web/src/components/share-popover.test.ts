@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildPresenceRoster,
   displayedShareLink,
-  isShareConnecting,
+  shareConnectPhase,
   peerDisplayName,
   peerRoleLabel,
   presenceSummary,
@@ -10,21 +10,36 @@ import {
 
 const ORIGIN = "http://localhost:4173";
 
-describe("isShareConnecting (H8)", () => {
-  it("is true only while a connection exists but has never connected (linkStatus 'initial')", () => {
-    expect(isShareConnecting(true, "initial")).toBe(true);
+describe("shareConnectPhase (H8 + host-side unreachable timeout)", () => {
+  it("is 'connecting' while a connection exists, has never connected, and the timeout hasn't fired", () => {
+    expect(shareConnectPhase(true, "initial", false)).toBe("connecting");
   });
 
-  it("is false once the socket has connected at least once", () => {
-    // After the first "connected", linkStatus leaves "initial" for good.
-    expect(isShareConnecting(true, "online")).toBe(false);
-    expect(isShareConnecting(true, "reconnecting")).toBe(false);
-    expect(isShareConnecting(true, "reconnected")).toBe(false);
+  it("degrades to 'unreachable' once the timeout fires on a still-never-connected link", () => {
+    // The demo case: a static deploy with no relay behind it. The derived
+    // wss:// URL passes validation, so nothing refuses — only the timer can
+    // tell the host that no one is answering.
+    expect(shareConnectPhase(true, "initial", true)).toBe("unreachable");
   });
 
-  it("is false with no connection (a plain local session is never 'connecting')", () => {
-    expect(isShareConnecting(false, "initial")).toBe(false);
-    expect(isShareConnecting(false, "online")).toBe(false);
+  it("is 'idle' once the socket has connected at least once, timed out or not", () => {
+    // After the first "connected", linkStatus leaves "initial" for good, so a
+    // late timer must never paint a live room as unreachable.
+    for (const status of ["online", "reconnecting", "reconnected", "stale"] as const) {
+      expect(shareConnectPhase(true, status, false)).toBe("idle");
+      expect(shareConnectPhase(true, status, true)).toBe("idle");
+    }
+  });
+
+  it("self-heals: a late connect leaves 'unreachable' even though the timer already fired", () => {
+    expect(shareConnectPhase(true, "initial", true)).toBe("unreachable");
+    expect(shareConnectPhase(true, "online", true)).toBe("idle");
+  });
+
+  it("is 'idle' with no connection (a plain local session never shows share progress)", () => {
+    expect(shareConnectPhase(false, "initial", false)).toBe("idle");
+    expect(shareConnectPhase(false, "initial", true)).toBe("idle");
+    expect(shareConnectPhase(false, "online", false)).toBe("idle");
   });
 });
 

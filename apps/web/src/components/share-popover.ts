@@ -5,24 +5,56 @@
 
 import type { LinkStatus } from "../link-status.js";
 
+/** The host-side progress phase of a freshly minted share room. */
+export type ShareConnectPhase = "idle" | "connecting" | "unreachable";
+
 /**
- * H8: the host has live-upgraded to a room (a connection object exists) but its
- * socket hasn't completed its first handshake yet — `linkStatus` is still
- * "initial", which the C2 reducer leaves untouched until the first "connected"
- * status. Until then the minted join link points at a room nobody is serving, so
- * the popover should present a calm "Connecting…" state, NOT a copyable link.
- *
- * Once the first "connected" lands, `linkStatus` advances to "online" (and never
- * returns to "initial" — a later drop is "reconnecting"), so this is true ONLY
- * for the pre-first-connect window. Host-only at the call site (a joiner boots
- * into an existing room; the auth-on registration-pending path is handled
- * separately). Pure so the Node gate proves the gate without a live socket.
+ * How long the host waits for its OWN socket's first handshake before telling
+ * the user nobody answered. Mirrors the joiner-side join-sync timeout (the two
+ * are the same wait: registration has already resolved by the time either runs,
+ * so all that remains is the socket opening).
  */
-export function isShareConnecting(
+export const SHARE_CONNECT_TIMEOUT_MS = 5_000;
+
+/**
+ * Shown when {@link shareConnectPhase} reaches "unreachable". Deliberately
+ * hedged: the client CANNOT distinguish a relay that is merely slow from one
+ * that does not exist, so it reports what the user can observe ("not available
+ * here") rather than asserting a cause, and the phase self-heals if a late
+ * handshake still lands.
+ */
+export const SHARE_UNREACHABLE_MESSAGE =
+  "Couldn't reach the sharing server — live collaboration isn't available here. Your work is saved on this device.";
+
+/**
+ * H8 + the host-side unreachable timeout: which state the Share popover should
+ * present while a minted room's socket has yet to complete its first handshake.
+ *
+ *  - no connection                       → `idle`        (a plain local session shows no progress at all)
+ *  - connected at least once             → `idle`        (linkStatus has left "initial" for good — show the link)
+ *  - never connected, timer not yet fired → `connecting`  (calm "Connecting…", link withheld)
+ *  - never connected, timer fired         → `unreachable` (go loud — see {@link SHARE_UNREACHABLE_MESSAGE})
+ *
+ * The `connecting` state used to be terminal, which is how a relay-less static
+ * deploy (the GitHub Pages demo) produced a popover that span forever: the page
+ * origin yields a syntactically VALID `wss://<host>:1234`, so URL validation
+ * refuses nothing and no error path fires — the socket simply never opens and
+ * `linkStatus` never leaves "initial". Nothing but a timer can observe that, so
+ * `timedOut` is the third input.
+ *
+ * `linkStatus` is checked BEFORE `timedOut`, so a late-but-successful handshake
+ * always wins over an already-fired timer (the phase is non-terminal and
+ * self-heals, exactly like the joiner's `stalled` cue). Pure, so the Node gate
+ * proves every transition without a live socket.
+ */
+export function shareConnectPhase(
   connectionPresent: boolean,
   linkStatus: LinkStatus,
-): boolean {
-  return connectionPresent && linkStatus === "initial";
+  timedOut: boolean,
+): ShareConnectPhase {
+  if (!connectionPresent) return "idle";
+  if (linkStatus !== "initial") return "idle";
+  return timedOut ? "unreachable" : "connecting";
 }
 
 /**
