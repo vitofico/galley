@@ -31,7 +31,9 @@ import {
   peerDisplayName,
   peerRoleLabel,
   presenceSummary,
+  SHARE_UNREACHABLE_MESSAGE,
   type RosterPeer,
+  type ShareConnectPhase,
 } from "./share-popover.js";
 import { useDismissable, type DismissReason } from "./use-dismissable.js";
 import { Notice } from "./Notice.js";
@@ -47,12 +49,14 @@ export interface SharePopoverProps {
   /** Whether the session is live-connected to a sync room. */
   connected: boolean;
   /**
-   * H8: the host has minted a room but its socket hasn't completed its first
-   * handshake yet — present a "Connecting…" state instead of a copyable link
-   * that points at a room nobody is serving. Absent/false → the historical
-   * behavior (link shown as soon as it's minted). Host-only.
+   * H8: how far along the host's freshly minted room is. "connecting" presents a
+   * calm progress line instead of a copyable link that points at a room nobody
+   * is serving; "unreachable" means the first handshake never landed inside
+   * {@link SHARE_CONNECT_TIMEOUT_MS} and says so rather than spinning forever.
+   * Absent → "idle", the historical behavior (link shown as soon as it's
+   * minted). Host-only.
    */
-  connecting?: boolean;
+  connectPhase?: ShareConnectPhase;
   /** The minted join link (sharer side), possibly relative. Null until minted. */
   shareLink: string | null;
   /** A share failure to surface (#19.4, spec §8) — shown as an error Notice. */
@@ -107,7 +111,7 @@ export interface SharePopoverProps {
 
 export function SharePopover({
   connected,
-  connecting,
+  connectPhase,
   shareLink,
   error,
   peers,
@@ -269,7 +273,7 @@ export function SharePopover({
             <p className="share-popover-pending" role="status">
               Creating a share link…
             </p>
-          ) : connecting ? (
+          ) : connectPhase === "connecting" ? (
             // H8: the room is minted but the socket hasn't opened — hold the
             // copyable link back until the first "connected" status, so a host
             // never sends a link to a room nobody is serving yet.
@@ -280,6 +284,15 @@ export function SharePopover({
             >
               Connecting… your share link will be ready in a moment.
             </p>
+          ) : connectPhase === "unreachable" ? (
+            // The handshake never landed. Say so instead of spinning forever —
+            // on a relay-less deploy (the Pages demo) nothing else ever will,
+            // because the derived wss:// URL is valid and simply goes unanswered.
+            <Notice
+              severity="warning"
+              testId="share-unreachable"
+              message={SHARE_UNREACHABLE_MESSAGE}
+            />
           ) : link ? (
             <div className="share-bar" data-testid="share-bar" role="status">
               {role && onRoleChange ? (

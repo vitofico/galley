@@ -90,7 +90,12 @@ import {
   type LinkStatus,
   type StorageCueState,
 } from "./link-status.js";
-import { isShareConnecting, buildPresenceRoster, type RosterPeer } from "./components/share-popover.js";
+import {
+  shareConnectPhase,
+  buildPresenceRoster,
+  SHARE_CONNECT_TIMEOUT_MS,
+  type RosterPeer,
+} from "./components/share-popover.js";
 import { joinPhaseOnTimeout, joinSyncCue, type JoinSyncPhase } from "./join-sync.js";
 import {
   applyAcceptedFileAsAgent,
@@ -671,6 +676,10 @@ export function ProjectApp({
   // link-status.ts). Drives a calm "Reconnecting…"/"Reconnected" banner and dims
   // stale presence while a drop is in flight. "initial" until the first connect.
   const [linkStatus, setLinkStatus] = useState<LinkStatus>("initial");
+  // H8 timeout: whether the host's first handshake has already overrun
+  // SHARE_CONNECT_TIMEOUT_MS. Only a timer can observe "nobody answered"
+  // — an unanswered socket produces no status edge and no error.
+  const [shareConnectTimedOut, setShareConnectTimedOut] = useState(false);
   // C2: the link cue to render (null = healthy/no connection → no banner).
   const linkCue = connection ? linkStatusCue(linkStatus) : null;
   // B2: the storage-full cue — ORTHOGONAL to the link phase. The relay refused a
@@ -1603,6 +1612,20 @@ export function ProjectApp({
     const timer = setTimeout(() => setLinkStatus((prev) => reduceLinkStatus(prev, "settle")), 3_000);
     return () => clearTimeout(timer);
   }, [linkStatus]);
+
+  // H8 timeout: a minted room whose socket never opens leaves `linkStatus` at
+  // "initial" forever, which used to render a permanent "Connecting…". Arm a
+  // timer for exactly that window. The flag RESETS whenever the window is not
+  // open (no connection, or the link has connected at least once), so a later
+  // share attempt starts clean and a reconnect never inherits a stale timeout.
+  useEffect(() => {
+    if (connection === undefined || linkStatus !== "initial") {
+      setShareConnectTimedOut(false);
+      return;
+    }
+    const timer = setTimeout(() => setShareConnectTimedOut(true), SHARE_CONNECT_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [connection, linkStatus]);
 
   // L6: staleness degrade. `onStatus` only fires on a real (re)open/drop, so a link
   // that stays "online" while its peer quietly vanishes — the joiner whose host
@@ -6321,9 +6344,14 @@ export function ProjectApp({
               // chooser is the host's link-minting control (joiners don't mint).
               {...(config.syncUrl === undefined
                 ? {
-                    // H8: gate the copyable link on the first "connected" status
-                    // — host-only (a joiner boots into an already-served room).
-                    connecting: isShareConnecting(connection !== undefined, linkStatus),
+                    // H8: gate the copyable link on the first "connected" status,
+                    // and go loud if that status never arrives — host-only (a
+                    // joiner boots into an already-served room).
+                    connectPhase: shareConnectPhase(
+                      connection !== undefined,
+                      linkStatus,
+                      shareConnectTimedOut,
+                    ),
                     onUnshare,
                     role: shareRole,
                     onRoleChange: onShareRoleChange,
