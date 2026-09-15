@@ -33,10 +33,15 @@ project, use **control mode**.
   `ws(s)://<your-galley-host>:1234`.
 - **A project to work on**, open in that browser tab.
 - **An MCP client** (e.g. Claude Code) that can launch a local stdio MCP server.
-- The repo checked out, so you can run `pnpm --filter @galley/mcp start`. (A
-  published `galley-mcp` binary is referenced in the kernel's own `--help`; from
-  a source checkout, substitute `pnpm --filter @galley/mcp start --` for
-  `galley-mcp` in every command below.)
+- The repo checked out, and the kernel's `galley-mcp` bin installed from it
+  (once per machine): `cd apps/mcp && pnpm link --global`, preceded by
+  `pnpm setup` if pnpm has no global bin directory, or a plain symlink of
+  `apps/mcp/bin/galley-mcp.mjs` onto your PATH. The package is not published to
+  npm yet, so without this step there is no `galley-mcp` command. Every command
+  below also works as `pnpm -C <path-to-galley> --filter @galley/mcp start -- …`
+  if you would rather install nothing — use `-C` with an absolute path, because
+  an MCP client will not spawn the kernel with the repo as its working
+  directory. See [`mcp.md`](mcp.md#1-install-the-galley-mcp-command).
 
 > **Room ids are capabilities.** Both the share-room id (per-project mode) and
 > the control-room id (control mode) are unguessable secrets minted by the
@@ -140,8 +145,8 @@ claude mcp add galley -- pnpm --filter @galley/mcp start -- \
   --sync ws://localhost:1234 --room <room-id> --file /main.typ
 ```
 
-(With a published `galley-mcp` binary on your PATH, drop the
-`pnpm --filter @galley/mcp start --` and start the command at `galley-mcp`.)
+(With `galley-mcp` on your PATH — see Prerequisites — the whole
+`pnpm --filter @galley/mcp start --` prefix collapses to `galley-mcp`.)
 Then `claude mcp list` to confirm it connects. Or add it to your MCP config by
 hand (adjust the absolute path to your checkout):
 
@@ -222,8 +227,9 @@ copyable **pairing command** carrying a **one-time pairing code** (B2,
 galley-mcp --sync <sync-url> --pairing-code <code>
 ```
 
-Click **Copy**. (From a source checkout, replace the leading `galley-mcp` with
-`pnpm --filter @galley/mcp start --`.) The code is **one-time** and **expires in
+Click **Copy**. (The command starts with `galley-mcp`; install that bin once as
+described in Prerequisites, or replace the leading word with
+`pnpm -C <path-to-galley> --filter @galley/mcp start --`.) The code is **one-time** and **expires in
 10 minutes**. When the kernel runs, it derives a temporary pairing room + keys
 from the code (HKDF), proves it knows the code (a MAC, never the code itself), and
 runs an authenticated **ephemeral-ECDH** exchange to receive the control room +

@@ -115,8 +115,11 @@ tools to an agent you already run, so **Claude Code or Codex drives Galley on th
 plan you already pay for**.
 
 ```bash
+# One-time: install the kernel's bin from your checkout
+cd apps/mcp && pnpm link --global
+
 # Share the project in the browser to mint a room id, then:
-claude mcp add galley -- pnpm -C /path/to/galley --filter @galley/mcp start -- \
+claude mcp add galley -- galley-mcp \
   --sync ws://localhost:1234 --room <room-id> --file /main.typ
 ```
 

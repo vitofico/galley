@@ -173,6 +173,19 @@ export function AgentAccessSettings() {
                 The pairing code is one-time and <strong>expires in 10 minutes</strong>. Once your
                 kernel pairs, it remembers the session — later runs need no re-paste.
               </p>
+              {/* The command above starts with `galley-mcp`, which is this repo's
+                  bin (apps/mcp/bin/galley-mcp.mjs) and is NOT on a fresh machine's
+                  PATH. Copy-then-paste used to fail with `command not found` and
+                  nothing here said why, so say it once, right where the Copy
+                  button is. */}
+              <p className="settings-note" data-testid="agent-access-install-hint">
+                First time? <code>galley-mcp</code> ships with the Galley source. Install it once
+                with <code>cd apps/mcp &amp;&amp; pnpm link --global</code> (run <code>pnpm setup</code>{" "}
+                first if pnpm has no global bin directory), or symlink{" "}
+                <code>apps/mcp/bin/galley-mcp.mjs</code> onto your PATH. Without it, run the kernel
+                as <code>pnpm -C &lt;path-to-galley&gt; --filter @galley/mcp start -- …</code> with
+                the same flags.
+              </p>
             </>
           ) : (
             <p className="settings-note" data-testid="agent-access-pairing-used">
