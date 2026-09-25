@@ -149,6 +149,7 @@ async function main(): Promise<void> {
       responseKey,
       ...(compileService !== undefined ? { compileService } : {}),
     });
+    exitWhenClientDisconnects(() => control.destroy());
     await server.connect(new StdioServerTransport());
     // Room ids are CAPABILITIES — stderr gets only a non-reversible fingerprint
     // (Security round 2, finding 2; logs get persisted and shared).
@@ -180,6 +181,7 @@ async function main(): Promise<void> {
       }),
     ...(compileService !== undefined ? { compileService } : {}),
   });
+  exitWhenClientDisconnects(() => session.destroy());
   await server.connect(new StdioServerTransport());
   // Same redaction stance as control mode: the share-room id is a capability.
   console.error(
@@ -194,6 +196,19 @@ async function main(): Promise<void> {
           "(still serving; tool calls answer once it replicates)",
       ),
   );
+}
+
+/**
+ * Exit when the MCP client closes stdin, which is how the stdio transport asks
+ * a server to shut down. The SDK's transport does not watch for it, and the
+ * relay socket's reconnect loop would otherwise keep the process running after
+ * its client has gone. Attached before connecting, so an early close is not missed.
+ */
+function exitWhenClientDisconnects(release: () => void): void {
+  process.stdin.once("end", () => {
+    release();
+    process.exit(0);
+  });
 }
 
 main().catch((err: unknown) => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -47,5 +48,22 @@ describe("galley-mcp bin — starts with no Galley running", () => {
     } finally {
       await client.close();
     }
+  }, 30_000);
+
+  it("exits cleanly when the client closes stdin, the stdio transport's shutdown signal", async () => {
+    const port = await deadPort();
+    const child = spawn(
+      process.execPath,
+      [BIN, "--sync", `ws://127.0.0.1:${port}`, "--room", "probe-room", "--file", "/main.typ"],
+      { stdio: ["pipe", "ignore", "ignore"] },
+    );
+    const exited = new Promise<number | null>((resolve) => child.once("exit", resolve));
+    child.stdin.end();
+    const code = await Promise.race([
+      exited,
+      new Promise<"still running">((resolve) => setTimeout(() => resolve("still running"), 15_000)),
+    ]);
+    if (code === "still running") child.kill("SIGKILL");
+    expect(code).toBe(0);
   }, 30_000);
 });
