@@ -340,7 +340,7 @@ export function joinRoom(
         const timer = setTimeout(() => {
           cleanup();
           // The room id is a CAPABILITY (Security round 2, finding 2): this
-          // message reaches stderr verbatim via main()'s startup catch, so it
+          // message reaches stderr verbatim via main()'s readiness log, so it
           // carries only the non-reversible fingerprint, never the id.
           reject(
             new Error(

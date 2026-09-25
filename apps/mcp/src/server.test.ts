@@ -163,6 +163,45 @@ describe("galley mcp kernel — static tool surface (ADR-0024 §2)", () => {
   });
 });
 
+describe("galley mcp kernel — readiness gate (serve before the file replicates)", () => {
+  it("lists every tool while the gate is pending, and a tool call waits for it", async () => {
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const { surface } = projectFixture("= Title\nbody\n");
+    const client = await connectedClient({ surface, whenReady: () => gate });
+
+    // Introspection never waits on the gate: no Galley open, tools still listed.
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name)).toContain("read_document");
+
+    let settled = false;
+    const pending = client.callTool({ name: "read_document", arguments: {} }).finally(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(settled).toBe(false);
+    open();
+    expect(firstText(await pending)).toBe("= Title\nbody\n");
+  });
+
+  it("a failed gate is the call's isError result, and nothing is published", async () => {
+    const { project, surface } = projectFixture("= Title\nbody\n");
+    const client = await connectedClient({
+      surface,
+      whenReady: () => Promise.reject(new Error("/main.typ has not replicated from the project room yet")),
+    });
+    const result = await client.callTool({
+      name: "propose_edit",
+      arguments: { request: "x", edits: [{ search: "body\n", replace: "body!\n" }] },
+    });
+    expect(result.isError).toBe(true);
+    expect(firstText(result)).toMatch(/has not replicated/);
+    expect(getPendingProposals(project)).toHaveLength(0);
+  });
+});
+
 describe("galley mcp kernel — unconfigured (no joined room)", () => {
   it("lists exactly the liveness tool — there is no document surface to serve", async () => {
     const client = await connectedClient();

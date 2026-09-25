@@ -92,8 +92,9 @@ async function resolveControlAuthority(
  *     [--compile-url http://localhost:3001]
  *
  * Both room ids are unguessable capabilities minted by the browser (Share /
- * Agent Access). Per-project mode joins ONE room scoped to ONE file, waits
- * until the file has replicated, then serves the document tools. Control mode
+ * Agent Access). Per-project mode joins ONE room scoped to ONE file and serves
+ * the document tools at once; each tool call waits for the file to replicate
+ * (so the kernel starts, and lists its tools, with no Galley open). Control mode
  * joins the Agent Access control room and serves `list_projects` /
  * `list_versions` / `open_project`; a successful open_project joins the
  * project room the BROWSER minted and adds the per-project tools to the same
@@ -159,19 +160,24 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Serve first, wait later: the MCP handshake and tools/list never depend on
+  // Galley being open, so a client (or a registry probing the server) can
+  // connect before the tab is. Each tool call waits for the file instead and
+  // fails with an honest error if it never replicates; the join keeps syncing
+  // in the background, so opening the project later makes the next call work.
   const session = joinRoom(config);
-  try {
-    await session.whenFileReady();
-  } catch (err) {
-    session.destroy();
-    throw err;
-  }
-  console.error(`galley mcp kernel: joined room, ${config.filePath} is live`);
-
   const server = createGalleyMcpServer({
     surface: session.surface,
     // ADR-0024 §1: every per-project result carries honest, room-derived liveness.
     liveness: () => session.liveness(),
+    // Generic on purpose, like open_project's: the MCP client gets no room detail.
+    whenReady: () =>
+      session.whenFileReady().catch(() => {
+        throw new Error(
+          `${config.filePath} has not replicated from the project room yet — open the project ` +
+            "in Galley, click Share, and check that --room and --file match the Share link",
+        );
+      }),
     ...(compileService !== undefined ? { compileService } : {}),
   });
   await server.connect(new StdioServerTransport());
@@ -179,6 +185,14 @@ async function main(): Promise<void> {
   console.error(
     `galley mcp kernel listening on stdio (room configured: ${roomFingerprint(config.room)}, ` +
       `file ${config.filePath}, compile ${config.compileUrl ?? "not configured"})`,
+  );
+  session.whenFileReady().then(
+    () => console.error(`galley mcp kernel: joined room, ${config.filePath} is live`),
+    (err: unknown) =>
+      console.error(
+        `galley mcp kernel: ${err instanceof Error ? err.message : String(err)} ` +
+          "(still serving; tool calls answer once it replicates)",
+      ),
   );
 }
 

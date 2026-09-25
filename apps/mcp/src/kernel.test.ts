@@ -486,7 +486,7 @@ describe("mcp kernel ⇄ real sync relay", () => {
     }
   });
 
-  it("per-project STARTUP-FAILURE stderr never contains the room capability — only its fingerprint (Security round 3)", async () => {
+  it("per-project not-ready stderr never contains the room capability — only its fingerprint (Security round 3)", async () => {
     const room = `share-${"d".repeat(32)}`; // a realistic Share capability
     const lines: string[] = [];
     const spy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
@@ -503,10 +503,12 @@ describe("mcp kernel ⇄ real sync relay", () => {
         await session.whenFileReady(300);
       } catch (err) {
         message = err instanceof Error ? err.message : String(err);
-        // EXACTLY main()'s startup-failure stderr line (main.ts catch): the
+        // EXACTLY main()'s not-ready stderr line (main.ts readiness log): the
         // session's timeout message is what reaches stderr verbatim, so the
         // capability must already be absent at the SOURCE.
-        console.error(`galley mcp kernel failed to start: ${message}`);
+        console.error(
+          `galley mcp kernel: ${message} (still serving; tool calls answer once it replicates)`,
+        );
       }
       expect(message).toMatch(/timed out waiting for \/main\.typ/);
       expect(message).toContain(roomFingerprint(room)); // still distinguishable…

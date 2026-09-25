@@ -95,6 +95,15 @@ export interface KernelTools {
    */
   liveness?: () => Liveness;
   /**
+   * Readiness gate for a session that serves BEFORE its file has replicated
+   * (per-project mode starts answering MCP at once, so a client can connect and
+   * list tools with no Galley open). Every per-project tool awaits it before
+   * touching the surface, so no call ever reads a half-synced replica; a
+   * rejection becomes that call's one-line isError result. ABSENT → no wait
+   * (control mode attaches only after the file is ready).
+   */
+  whenReady?: () => Promise<void>;
+  /**
    * Binary upload seam (A2) — push image bytes to the browser over the
    * galley-blob-v1 channel and return the content-addressed pointer. The kernel
    * is the SENDER: per call it computes `hash = sha256(bytes)` + `size`, asks the
@@ -380,6 +389,13 @@ export function registerProjectTools(
   // provider — one code path, byte-for-byte behavior for the eager callers.
   const provider: () => ProjectAttachment | undefined =
     typeof tools === "function" ? tools : () => tools;
+  // Resolve the attachment for one call, first waiting out its readiness gate
+  // (if any). A failed gate throws, which the SDK returns as an isError result.
+  const attached = async (): Promise<ProjectAttachment | undefined> => {
+    const att = provider();
+    await att?.whenReady?.();
+    return att;
+  };
 
   // ADR-0024 §1 honesty helpers, resolved per call. When a liveness provider is
   // present on the live attachment, EVERY per-project result carries the current
@@ -408,7 +424,7 @@ export function registerProjectTools(
       inputSchema: {},
     },
     async () => {
-      const att = provider();
+      const att = await attached();
       if (att === undefined) return jsonResult(NO_PROJECT_RESULT);
       const read = att.surface.readDocument();
       if (!read.ok) return errorResult(`read_document: ${read.error}`);
@@ -430,7 +446,7 @@ export function registerProjectTools(
       inputSchema: {},
     },
     async () => {
-      const att = provider();
+      const att = await attached();
       if (att === undefined) return jsonResult(NO_PROJECT_RESULT);
       const listed = att.surface.listFiles();
       if (!listed.ok) return errorResult(`list_files: ${listed.error}`);
@@ -470,7 +486,7 @@ export function registerProjectTools(
       },
     },
     async ({ path }) => {
-      const att = provider();
+      const att = await attached();
       if (att === undefined) return jsonResult(NO_PROJECT_RESULT);
       // ALL read_file bounding lives in the surface (Security round 2): the
       // byte cap is enforced BEFORE the text is materialized (O(1) length
@@ -524,7 +540,7 @@ export function registerProjectTools(
       },
     },
     async ({ query, budget }) => {
-      const att = provider();
+      const att = await attached();
       if (att === undefined) return jsonResult(NO_PROJECT_RESULT);
       // ALL context bounding lives in the surface (the read_file pattern): the
       // metadata-first scan, the per-file cap, the cumulative materialization
@@ -596,7 +612,7 @@ export function registerProjectTools(
       },
     },
     async ({ request, edits }) => {
-      const att = provider();
+      const att = await attached();
       if (att === undefined) return jsonResult(NO_PROJECT_RESULT);
       const surface = att.surface;
       const read = surface.readDocument();
@@ -800,7 +816,7 @@ export function registerProjectTools(
       },
     },
     async ({ request, ops }) => {
-      const att = provider();
+      const att = await attached();
       if (att === undefined) return jsonResult(NO_PROJECT_RESULT);
       const surface = att.surface;
       // The fully-built op set, preserving the CALLER'S INPUT ORDER (A2-D3): each
@@ -1205,7 +1221,7 @@ export function registerProjectTools(
       inputSchema: {},
     },
     async () => {
-      const att = provider();
+      const att = await attached();
       // ADR-0024 §2: compile keeps its existing structured not_configured no-op
       // when nothing is attached (no project ⇒ no compile seam either).
       const compileService = att?.compileService;
