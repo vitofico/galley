@@ -115,12 +115,13 @@ Env fallbacks exist for every flag (`GALLEY_MCP_SYNC`, `GALLEY_MCP_ROOM`,
 `GALLEY_MCP_FILE`, `GALLEY_MCP_COMPILE_URL`); flags win over env. Run
 `pnpm --filter @galley/mcp start -- --help` to print the kernel's own usage.
 
-On success the kernel waits until the file has replicated, then logs to
-**stderr**:
+The kernel starts serving MCP at once, before the file has replicated, so your
+client can connect and list the tools even if the Galley tab is not open yet.
+Each tool call waits for the file instead. It logs to **stderr**:
 
 ```
-galley mcp kernel: joined room, /main.typ is live
 galley mcp kernel listening on stdio (room configured: shar…(NN chars), file /main.typ, compile …)
+galley mcp kernel: joined room, /main.typ is live
 ```
 
 (The room id is redacted to a non-reversible fingerprint in logs — that's
@@ -349,7 +350,9 @@ and expose nothing beyond what the grant already covers. Mutating ops
 ## Troubleshooting
 
 **`timed out waiting for /<file> in room …`**
-The kernel joined but the file never replicated within the timeout. Check that:
+The kernel is running but the file never replicated within the timeout. It keeps
+serving and keeps syncing, but until the file arrives every tool call fails with
+`/<file> has not replicated from the project room yet`. Check that:
 the project is actually **shared** (click Share so the room exists and is live),
 the **room id** matches the one from the Share link exactly, and the **file
 path** exists in the project (with a leading slash, e.g. `/main.typ`). Keep the

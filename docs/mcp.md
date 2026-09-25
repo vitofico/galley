@@ -217,7 +217,7 @@ The full trust boundaries are in [`security-model.md`](security-model.md).
 
 | What you see | What it means |
 | --- | --- |
-| `timed out waiting for /<file> in room …` | The room id is wrong, the file path does not exist, or the Galley tab is closed. |
+| `timed out waiting for /<file> in room …` on stderr, or `/<file> has not replicated …` from a tool | The room id is wrong, the file path does not exist, or the Galley tab is closed. The kernel keeps running, so the next call works once the file syncs. |
 | `no responder answered '<op>' within …ms` | Agent Access is not enabled in the tab, or you revoked and the room id changed. |
 | `the responder refused this request` | The browser declined. You rejected the confirmation, or named a project that is not in the library. |
 | `… has not granted file access for project …` | Grant it in Settings → Agent Access, per project. |
