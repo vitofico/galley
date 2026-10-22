@@ -56,6 +56,33 @@
       "reason": "Windows-dev-server-only and not applicable: `server.fs.deny` is bypassable via Windows alternate path forms (e.g. `\\\\?\\` / `8.3` short names), letting a request to a running `vite dev` server read files outside the allow-list. Galley consumes vite ONLY as a dev/build dependency (vitest + @vitejs/plugin-react); the runtime image ships prebuilt `apps/web/dist` served by Hono and never runs vite. The dev server is a localhost-only authoring convenience, and Galley dev + CI run on Linux/macOS (the bypass is specific to Windows path normalization). No 5.4.x backport exists — the fix first lands in vite 6.4.3 — so a real fix would require a vite 5->7 major toolchain bump for an advisory that cannot affect this project. Same applicability posture as GHSA-4w7w-66w2-5vf9 above. Clears when vitest/plugin-react pull a fixed vite.",
       "addedDate": "2026-06-20",
       "reviewBy": "2026-09-20"
+    },
+    {
+      "id": "GHSA-587h-7wmj-h5pm",
+      "npmId": 1242658,
+      "module": "vite",
+      "severity": "high",
+      "reason": "Windows-dev-server-only and not applicable: vite's bundled launch-editor checks `fs.existsSync()` before opening a file in an editor, and a crafted Windows path bypasses that check. It is reachable only through a running `vite dev` server's open-in-editor endpoint on Windows. vite is dev/build-only here (vitest + @vitejs/plugin-react); the runtime image never runs vite, and Galley dev + CI run on Linux/macOS. The fix lands in vite 6.4.4, so a real fix needs the same vite 5->7 major bump as GHSA-fx2h-pf6j-xcff. Clears when vitest/plugin-react pull a fixed vite.",
+      "addedDate": "2026-10-22",
+      "reviewBy": "2027-01-22"
+    },
+    {
+      "id": "GHSA-5gmw-xhrv-c9v3",
+      "npmId": 1241260,
+      "module": "tinypool",
+      "severity": "critical",
+      "reason": "Dev-only and not exploitable here: tinypool (vitest's worker pool) turns an existing Object.prototype pollution into code execution by passing inherited options such as `execArgv` to `new Worker()`. It is a gadget, not an entry point: it needs a separate prototype-pollution bug in the same process. tinypool runs only inside `vitest run` over Galley's own test code; the runtime image ships no vitest or tinypool. Every tinypool 1.x is affected and vitest 3 pins ^1.x, so the fix needs a vitest 3->4 major toolchain bump. Clears when vitest no longer pulls tinypool <2.1.2.",
+      "addedDate": "2026-10-22",
+      "reviewBy": "2027-01-22"
+    },
+    {
+      "id": "GHSA-85c8-ppgw-ccpr",
+      "npmId": 1241261,
+      "module": "tinypool",
+      "severity": "critical",
+      "reason": "Same gadget as GHSA-5gmw-xhrv-c9v3, through `pool.run()` reading `filename` from the prototype chain. Needs a separate prototype-pollution bug in the vitest process, which runs only Galley's own tests; nothing ships in the runtime image. Clears with the vitest 3->4 bump that brings tinypool >=2.1.2.",
+      "addedDate": "2026-10-22",
+      "reviewBy": "2027-01-22"
     }
   ]
 }
