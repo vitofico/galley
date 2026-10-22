@@ -69,7 +69,7 @@ re-surfaces everything that is still outstanding).
 ## Currently triaged advisories
 
 The triaged dependency advisories are all in the **dev toolchain** (vite / vitest /
-esbuild), none of which ship in the `galley-runtime` production image (it serves prebuilt
+esbuild / tinypool), none of which ship in the `galley-runtime` production image (it serves prebuilt
 `dist` via `tsx`, not vite/vitest):
 
 | Advisory | Module | Severity | Why triaged (not a runtime risk) |
@@ -77,6 +77,8 @@ esbuild), none of which ship in the `galley-runtime` production image (it serves
 | `GHSA-5xrq-8626-4rwp` (npm#1120126) | vitest | CRITICAL | Arbitrary file read **via the Vitest UI server**, and only when that UI/Browser-mode server is started **and** exposed (`--api.host`) or run on Windows. Galley runs Vitest headless in Docker (`pnpm test` = `vitest run`); the UI is never started, and the runtime image ships no vitest. Clears on the vitest 2→3 major bump. |
 | `GHSA-gv7w-rqvm-qjhr` | esbuild | HIGH | Unverified-integrity binary fetch in esbuild's **Deno** module-install path (RCE only if a Deno consumer points `NPM_CONFIG_REGISTRY` at a malicious registry). Galley consumes esbuild only transitively via vite/vitest under Node + pnpm with a locked registry; it never uses the Deno loader, and the runtime image ships prebuilt `dist` (no esbuild). Clears when vite/vitest pull a fixed esbuild. |
 | `GHSA-fx2h-pf6j-xcff` (npm#1120789) | vite | HIGH | `server.fs.deny` bypass via **Windows** alternate path forms against a running vite **dev** server. vite is dev/build-only here (vitest + plugin-react); the runtime image never runs vite, and Galley dev + CI run on Linux/macOS. No 5.4.x backport exists (fix first lands in vite 6.4.3), so a real fix needs a vite 5→7 major bump for a non-applicable advisory. Clears when vitest/plugin-react pull a fixed vite. |
+| `GHSA-587h-7wmj-h5pm` (npm#1242658) | vite | HIGH | vite's bundled launch-editor `fs.existsSync()` check is bypassable with a crafted **Windows** path, reachable only through a running vite **dev** server's open-in-editor endpoint. Same posture as `GHSA-fx2h-pf6j-xcff`: dev-only, Linux/macOS, fix first in vite 6.4.4. Clears when vitest/plugin-react pull a fixed vite. |
+| `GHSA-5gmw-xhrv-c9v3` (npm#1241260), `GHSA-85c8-ppgw-ccpr` (npm#1241261) | tinypool | CRITICAL | Prototype-pollution **gadgets**: tinypool (vitest's worker pool) turns an existing `Object.prototype` pollution into code execution via inherited `Worker` / `run()` options. It needs a separate pollution bug in the same process, which only runs Galley's own tests under `vitest run`; the runtime image ships no tinypool. All tinypool 1.x is affected and vitest 3 pins `^1.x`, so the fix is the vitest 3→4 major bump. |
 | `GHSA-67mh-4wv8-2f99` (npm#1102341) | esbuild | moderate | Dev-server CORS leak; reachable only via vite's **dev** server, which CI/production never run. Moderate ⇒ non-failing anyway. Clears at esbuild ≥ 0.25.0. |
 | `GHSA-4w7w-66w2-5vf9` (npm#1116229) | vite | moderate | Path traversal in vite's optimized-deps `.map` handling — only against a running vite **dev** server. Clears at vite ≥ 6.4.2. |
 
