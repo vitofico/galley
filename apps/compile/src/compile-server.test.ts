@@ -405,7 +405,7 @@ describe("apps/compile CORS allowlist (#22.2)", () => {
     render: async () => ({ ok: true, diagnostics: [], pages: [], durationMs: 0 }),
     export: async () => ({ ok: true, diagnostics: [], pdf: null }),
   };
-  const app = createCompileApp({ backend: fakeBackend, allowedOrigins: ["https://app.galley.dev"] });
+  const app = createCompileApp({ backend: fakeBackend, allowedOrigins: ["https://app.galleydocs.com"] });
 
   const preflight = (origin: string) =>
     app.request("/compile", {
@@ -414,12 +414,12 @@ describe("apps/compile CORS allowlist (#22.2)", () => {
     });
 
   it("echoes the allowed origin on a preflight", async () => {
-    const res = await preflight("https://app.galley.dev");
-    expect(res.headers.get("access-control-allow-origin")).toBe("https://app.galley.dev");
+    const res = await preflight("https://app.galleydocs.com");
+    expect(res.headers.get("access-control-allow-origin")).toBe("https://app.galleydocs.com");
   });
 
   it("does NOT grant a disallowed origin (no Access-Control-Allow-Origin)", async () => {
-    for (const origin of ["https://evil.example.com", "http://app.galley.dev", "https://app.galley.dev.evil.com", "null"]) {
+    for (const origin of ["https://evil.example.com", "http://app.galleydocs.com", "https://app.galleydocs.com.evil.com", "null"]) {
       const res = await preflight(origin);
       expect(res.headers.get("access-control-allow-origin")).not.toBe(origin);
       expect(res.headers.get("access-control-allow-origin")).toBeNull();
@@ -430,7 +430,7 @@ describe("apps/compile CORS allowlist (#22.2)", () => {
     const closed = createCompileApp({ backend: fakeBackend });
     const res = await closed.request("/compile", {
       method: "OPTIONS",
-      headers: { origin: "https://app.galley.dev", "access-control-request-method": "POST" },
+      headers: { origin: "https://app.galleydocs.com", "access-control-request-method": "POST" },
     });
     expect(res.headers.get("access-control-allow-origin")).toBeNull();
   });
