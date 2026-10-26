@@ -18,11 +18,11 @@
     "@galley/agent": "workspace:*",
     "@galley/collab": "workspace:*",
     "@galley/shared": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "tsx": "^4.19.0",
     "ws": "^8.18.0",
     "yjs": "^13.6.0",
-    "zod": "^3.23.8"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^20.16.0",
