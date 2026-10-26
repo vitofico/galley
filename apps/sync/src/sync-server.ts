@@ -602,16 +602,15 @@ export function startSyncServer(
     if (history && options.hostedStorage) {
       res.setHeader("cache-control", "no-store");
       const origin = req.headers.origin;
-      if (origin && allowedOrigins.includes(origin)) {
-        res.setHeader("access-control-allow-origin", origin);
+      const allowedOrigin = allowedOrigins.find(
+        (allowed) => allowed === origin,
+      );
+      if (allowedOrigin) {
+        res.setHeader("access-control-allow-origin", allowedOrigin);
         res.setHeader("access-control-allow-credentials", "true");
         res.setHeader("vary", "Origin");
       }
-      if (
-        req.method === "OPTIONS" &&
-        origin &&
-        allowedOrigins.includes(origin)
-      ) {
+      if (req.method === "OPTIONS" && allowedOrigin) {
         res.setHeader("access-control-allow-methods", "GET, POST");
         res.setHeader("access-control-allow-headers", "content-type");
         res.writeHead(204);
@@ -623,15 +622,14 @@ export function startSyncServer(
         const cap = options.capabilityRooms;
         const allowed =
           !retired.has(roomName) &&
-          (!origin || allowedOrigins.includes(origin)) &&
+          (!origin || Boolean(allowedOrigin)) &&
           (cap?.isCapabilityRoom(roomName)
             ? await cap.authorize(roomName)
             : await options.authorizeUpgrade?.({ room: roomName, req }));
         if (
           !allowed ||
           (req.method !== "GET" && req.method !== "POST") ||
-          (req.method === "POST" &&
-            (!origin || !allowedOrigins.includes(origin)))
+          (req.method === "POST" && !allowedOrigin)
         ) {
           res.writeHead(403);
           res.end();

@@ -181,6 +181,87 @@ it("stores verified bytes without another peer, restores after restart, serves o
     await rm(root, { recursive: true, force: true });
   }
 }, 15000);
+it("serves history CORS only for exact configured origins while retaining authentication", async () => {
+  const root = await mkdtemp(join(tmpdir(), "hosted-history-cors-"));
+  const origins = [origin, "https://other-editor.test"];
+  const quota = new AggregateStorageQuota({
+    dataDir: root,
+    persistDir: root,
+    policy: async () => ({
+      maxBytes: 1024 * 1024,
+      expiresAt: Date.now() + 60000,
+    }),
+  });
+  const server = await startSyncServer(0, {
+    hostedStorage: new FsHostedStorage(root, quota),
+    allowedOrigins: origins,
+    authorizeUpgrade: async ({ req }) => req.headers.cookie === "session=alice",
+  });
+  const url = `http://127.0.0.1:${server.port}/history/room`;
+  try {
+    for (const allowed of origins) {
+      const preflight = await fetch(url, {
+        method: "OPTIONS",
+        headers: { origin: allowed },
+      });
+      expect(preflight.status).toBe(204);
+      expect(preflight.headers.get("access-control-allow-origin")).toBe(
+        allowed,
+      );
+      expect(preflight.headers.get("access-control-allow-credentials")).toBe(
+        "true",
+      );
+      expect(preflight.headers.get("access-control-allow-methods")).toBe(
+        "GET, POST",
+      );
+      expect(preflight.headers.get("access-control-allow-headers")).toBe(
+        "content-type",
+      );
+      expect(preflight.headers.get("vary")).toBe("Origin");
+      const denied = await fetch(url, { headers: { origin: allowed } });
+      expect(denied.status).toBe(403);
+      const history = await fetch(url, {
+        headers: { origin: allowed, cookie: "session=alice" },
+      });
+      expect(history.status).toBe(200);
+      expect(history.headers.get("access-control-allow-origin")).toBe(allowed);
+      expect(await history.json()).toEqual([]);
+    }
+    for (const unlisted of [
+      "https://evil.test",
+      `${origin}.evil.test`,
+      "null",
+    ]) {
+      for (const method of ["GET", "POST", "OPTIONS"]) {
+        const denied = await fetch(url, {
+          method,
+          headers: { origin: unlisted, cookie: "session=alice" },
+        });
+        expect(denied.status).toBe(403);
+        expect(denied.headers.get("access-control-allow-origin")).toBeNull();
+        expect(
+          denied.headers.get("access-control-allow-credentials"),
+        ).toBeNull();
+      }
+    }
+    const sameOrigin = await fetch(url, {
+      headers: { cookie: "session=alice" },
+    });
+    expect(sameOrigin.status).toBe(200);
+    expect(sameOrigin.headers.get("access-control-allow-origin")).toBeNull();
+    expect(
+      (
+        await fetch(url, {
+          method: "POST",
+          headers: { cookie: "session=alice" },
+        })
+      ).status,
+    ).toBe(403);
+  } finally {
+    await server.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 it("rejects corrupt uploads and owner-budget overflow without acknowledging durable success", async () => {
   const root = await mkdtemp(join(tmpdir(), "hosted-deny-"));
   let server: SyncServerHandle | undefined;
