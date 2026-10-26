@@ -20,3 +20,9 @@ pnpm-store
 **/.vite
 **/test-results
 **/playwright-report
+# Local CI traces and reports.
+.ci-results
+# Local scanner SBOMs can describe older dependencies and mislead image scans.
+.security/out
+.claude
+.superpowers

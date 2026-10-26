@@ -109,7 +109,9 @@ let openProjectCalls = 0;
 /** Names passed to the create_project seam (F1) — asserted by the create test. */
 let createProjectNames: string[] = [];
 
-function baseDeps(over: Partial<ControlResponderMountDeps> = {}): ControlResponderMountDeps {
+function baseDeps(
+  over: Partial<ControlResponderMountDeps> = {},
+): ControlResponderMountDeps {
   const { joinControlRoom } = makeFakeLinkFactory();
   return {
     mintControlRoom: () => {
@@ -138,7 +140,12 @@ function baseDeps(over: Partial<ControlResponderMountDeps> = {}): ControlRespond
     // override it per-case to assert the registry / refusal / guardrail paths.
     openProjectForControl: async () => {
       openProjectCalls += 1;
-      return { room: "share-openproj00000000000000", syncUrl: "ws://127.0.0.1:1234", mainFile: "main.typ", grantId: A_GRANT };
+      return {
+        room: "share-openproj00000000000000",
+        syncUrl: "ws://127.0.0.1:1234",
+        mainFile: "main.typ",
+        grantId: A_GRANT,
+      };
     },
     joinControlRoom,
     // B2 (ADR-0026): a fake pairing-room join + a deterministic code minter so the
@@ -210,7 +217,9 @@ describe("control-responder-mount — default OFF / inert", () => {
   });
 });
 
-function mgr_room(mgr: ReturnType<typeof getControlResponderManager>): string | null {
+function mgr_room(
+  mgr: ReturnType<typeof getControlResponderManager>,
+): string | null {
   return mgr.getState().controlRoom;
 }
 
@@ -248,7 +257,11 @@ describe("control-responder-mount — drain loop answers via the core", () => {
     const { joinControlRoom, state } = makeFakeLinkFactory();
     const mgr = getControlResponderManager(baseDeps({ joinControlRoom }));
     mgr.enable();
-    const id = publishControlRequest(state.kernelHost, { op: "list_projects", params: {} }, REQUESTER);
+    const id = publishControlRequest(
+      state.kernelHost,
+      { op: "list_projects", params: {} },
+      REQUESTER,
+    );
     await flush();
     const resp = getControlResponse(state.kernelHost, id);
     expect(resp?.ok).toBe(true);
@@ -321,7 +334,9 @@ describe("control-responder-mount — open_project flows through the open seam (
     const mgr = getControlResponderManager(
       baseDeps({
         joinControlRoom,
-        openProjectForControl: async () => ({ refused: NO_OPEN_HANDLER_REFUSAL }),
+        openProjectForControl: async () => ({
+          refused: NO_OPEN_HANDLER_REFUSAL,
+        }),
       }),
     );
     mgr.enable();
@@ -333,7 +348,9 @@ describe("control-responder-mount — open_project flows through the open seam (
     await flush();
     const resp = getControlResponse(state.kernelHost, id);
     expect(resp?.ok).toBe(false);
-    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(NO_OPEN_HANDLER_REFUSAL);
+    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(
+      NO_OPEN_HANDLER_REFUSAL,
+    );
   });
 
   it("a REGISTERED handler is delegated to and its handoff is published as ok:true", async () => {
@@ -343,7 +360,12 @@ describe("control-responder-mount — open_project flows through the open seam (
     let seen: string | null = null;
     mgr.registerOpenProjectHandler(async (projectId) => {
       seen = projectId;
-      return { room: "share-fromhandler0000000000", syncUrl: "ws://127.0.0.1:1234", mainFile: "main.typ", grantId: A_GRANT };
+      return {
+        room: "share-fromhandler0000000000",
+        syncUrl: "ws://127.0.0.1:1234",
+        mainFile: "main.typ",
+        grantId: A_GRANT,
+      };
     });
     const id = publishControlRequest(
       state.kernelHost,
@@ -372,7 +394,9 @@ describe("control-responder-mount — open_project flows through the open seam (
     // Register only AFTER enable — proving the seam did not capture a handler at
     // enable() time but reads the live slot when the request arrives.
     mgr.registerOpenProjectHandler(async () => ({ refused: "first handler" }));
-    mgr.registerOpenProjectHandler(async () => ({ refused: "second handler wins" }));
+    mgr.registerOpenProjectHandler(async () => ({
+      refused: "second handler wins",
+    }));
     const id = publishControlRequest(
       state.kernelHost,
       { op: "open_project", params: { projectId: "proj-1" } },
@@ -380,14 +404,18 @@ describe("control-responder-mount — open_project flows through the open seam (
     );
     await flush();
     const resp = getControlResponse(state.kernelHost, id);
-    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe("second handler wins");
+    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(
+      "second handler wins",
+    );
   });
 
   it("a STALE unregister (token mismatch) does NOT clobber a newer handler", async () => {
     const { joinControlRoom, state } = makeFakeLinkFactory();
     const mgr = getControlResponderManager(baseDeps({ joinControlRoom }));
     mgr.enable();
-    const unregisterStale = mgr.registerOpenProjectHandler(async () => ({ refused: "stale handler" }));
+    const unregisterStale = mgr.registerOpenProjectHandler(async () => ({
+      refused: "stale handler",
+    }));
     // A newer mount registers, superseding the first registration's token.
     mgr.registerOpenProjectHandler(async () => ({ refused: "live handler" }));
     // The stale unmount fires AFTER the newer register — it must be a no-op.
@@ -400,7 +428,9 @@ describe("control-responder-mount — open_project flows through the open seam (
     await flush();
     const resp = getControlResponse(state.kernelHost, id);
     // Still the live handler — the stale unregister did not clear the slot.
-    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe("live handler");
+    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(
+      "live handler",
+    );
   });
 
   it("the matching unregister DOES clear the slot (falls back to the no-handler refusal)", async () => {
@@ -408,11 +438,15 @@ describe("control-responder-mount — open_project flows through the open seam (
     const mgr = getControlResponderManager(
       baseDeps({
         joinControlRoom,
-        openProjectForControl: async () => ({ refused: NO_OPEN_HANDLER_REFUSAL }),
+        openProjectForControl: async () => ({
+          refused: NO_OPEN_HANDLER_REFUSAL,
+        }),
       }),
     );
     mgr.enable();
-    const unregister = mgr.registerOpenProjectHandler(async () => ({ refused: "live handler" }));
+    const unregister = mgr.registerOpenProjectHandler(async () => ({
+      refused: "live handler",
+    }));
     unregister(); // the live registration retracts itself
     const id = publishControlRequest(
       state.kernelHost,
@@ -421,14 +455,19 @@ describe("control-responder-mount — open_project flows through the open seam (
     );
     await flush();
     const resp = getControlResponse(state.kernelHost, id);
-    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(NO_OPEN_HANDLER_REFUSAL);
+    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(
+      NO_OPEN_HANDLER_REFUSAL,
+    );
   });
 });
 
 describe("control-responder-mount — ADR-0024 §3 idempotent open_project reuse end-to-end", () => {
   /** A handler built from the REAL gate core, with injectable consent + reuse seams. */
   function reuseHandler(over: {
-    tryReuseGrant?: (id: string, isRequestLive: () => boolean) => Promise<OpenedProject | null>;
+    tryReuseGrant?: (
+      id: string,
+      isRequestLive: () => boolean,
+    ) => Promise<OpenedProject | null>;
     onConsent?: () => void;
   }) {
     const handoff: OpenedProject = {
@@ -447,7 +486,9 @@ describe("control-responder-mount — ADR-0024 §3 idempotent open_project reuse
         return "approve";
       },
       getEnsureShared: () => async () => handoff,
-      ...(over.tryReuseGrant !== undefined ? { tryReuseGrant: over.tryReuseGrant } : {}),
+      ...(over.tryReuseGrant !== undefined
+        ? { tryReuseGrant: over.tryReuseGrant }
+        : {}),
     });
   }
 
@@ -463,7 +504,10 @@ describe("control-responder-mount — ADR-0024 §3 idempotent open_project reuse
     };
     let consentPrompts = 0;
     mgr.registerOpenProjectHandler(
-      reuseHandler({ tryReuseGrant: async () => reused, onConsent: () => (consentPrompts += 1) }),
+      reuseHandler({
+        tryReuseGrant: async () => reused,
+        onConsent: () => (consentPrompts += 1),
+      }),
     );
     const id = publishControlRequest(
       state.kernelHost,
@@ -490,7 +534,10 @@ describe("control-responder-mount — ADR-0024 §3 idempotent open_project reuse
     mgr.enable();
     let consentPrompts = 0;
     mgr.registerOpenProjectHandler(
-      reuseHandler({ tryReuseGrant: async () => null, onConsent: () => (consentPrompts += 1) }),
+      reuseHandler({
+        tryReuseGrant: async () => null,
+        onConsent: () => (consentPrompts += 1),
+      }),
     );
     const id = publishControlRequest(
       state.kernelHost,
@@ -606,7 +653,12 @@ describe("control-responder-mount — GUARDRAIL #5: a withdrawn open_project doe
     });
     mgr.registerOpenProjectHandler(async () => {
       await gate;
-      return { room: "share-slowconsent0000000000", syncUrl: "ws://127.0.0.1:1234", mainFile: "main.typ", grantId: A_GRANT };
+      return {
+        room: "share-slowconsent0000000000",
+        syncUrl: "ws://127.0.0.1:1234",
+        mainFile: "main.typ",
+        grantId: A_GRANT,
+      };
     });
 
     const id = publishControlRequest(
@@ -618,7 +670,9 @@ describe("control-responder-mount — GUARDRAIL #5: a withdrawn open_project doe
 
     // The kernel withdraws the request on its own timeout while consent is pending.
     withdrawControlRequest(state.kernelHost, id, REQUESTER);
-    expect(readControlRequests(state.kernelHost).some((r) => r.id === id)).toBe(false);
+    expect(readControlRequests(state.kernelHost).some((r) => r.id === id)).toBe(
+      false,
+    );
 
     // Now the human "approves" (handler resolves) — but the request is gone.
     release();
@@ -698,9 +752,15 @@ describe("control-responder-mount — SEC-16.3a: the request-scoped liveness pro
     // after the await; the share-upgrade (the mint) runs ONLY if still live.
     mgr.registerOpenProjectHandler(async (_projectId, isRequestLive) => {
       await gate; // consent pending
-      if (!isRequestLive()) return { refused: "the agent withdrew this request" };
+      if (!isRequestLive())
+        return { refused: "the agent withdrew this request" };
       roomsMinted += 1;
-      return { room: "share-shouldnotmint0000000000", syncUrl: "ws://127.0.0.1:1234", mainFile: "main.typ", grantId: A_GRANT };
+      return {
+        room: "share-shouldnotmint0000000000",
+        syncUrl: "ws://127.0.0.1:1234",
+        mainFile: "main.typ",
+        grantId: A_GRANT,
+      };
     });
 
     const id = publishControlRequest(
@@ -775,39 +835,57 @@ describe("control-responder-mount — revoke / re-enable", () => {
     const mgr = getControlResponderManager(baseDeps({ joinControlRoom }));
     mgr.enable();
     mgr.disable();
-    const id = publishControlRequest(state.kernelHost, { op: "list_projects", params: {} }, REQUESTER);
+    const id = publishControlRequest(
+      state.kernelHost,
+      { op: "list_projects", params: {} },
+      REQUESTER,
+    );
     await flush();
     expect(getControlResponse(state.kernelHost, id)).toBeUndefined();
     // sanity: the request is sitting unanswered in the (now-detached) doc
-    expect(readControlRequests(state.kernelHost).some((r) => r.id === id)).toBe(true);
+    expect(readControlRequests(state.kernelHost).some((r) => r.id === id)).toBe(
+      true,
+    );
   });
 });
 
 describe("control-responder-mount — H1: the answered cache is bounded (DoS lever)", () => {
-  it("repeated request→answer→withdraw cycles do NOT grow retained ids without bound", { timeout: 30_000 }, async () => {
-    const { joinControlRoom, state } = makeFakeLinkFactory();
-    const mgr = getControlResponderManager(baseDeps({ joinControlRoom }));
-    mgr.enable();
+  it(
+    "repeated request→answer→withdraw cycles do NOT grow retained ids without bound",
+    { timeout: 30_000 },
+    async () => {
+      const { joinControlRoom, state } = makeFakeLinkFactory();
+      const mgr = getControlResponderManager(baseDeps({ joinControlRoom }));
+      mgr.enable();
 
-    // Drive more cycles than the cap: each cycle is a fresh CSPRNG id (as a
-    // real kernel mints), answered, then withdrawn (so the mailbox prunes it).
-    // cap + a full read-window proves the FIFO bound; staying near the cap
-    // keeps the test fast now that every answer awaits a real HMAC sign.
-    const cycles = ANSWERED_CACHE_CAP + CONTROL_LIMITS.maxReadRequests;
-    for (let i = 0; i < cycles; i++) {
-      const id = publishControlRequest(
-        state.kernelHost,
-        { op: "list_projects", params: {} },
-        REQUESTER,
+      // Drive more cycles than the cap: each cycle is a fresh CSPRNG id (as a
+      // real kernel mints), answered, then withdrawn (so the mailbox prunes it).
+      // cap + a full read-window proves the FIFO bound; staying near the cap
+      // keeps the test fast now that every answer awaits a real HMAC sign.
+      const cycles = ANSWERED_CACHE_CAP + CONTROL_LIMITS.maxReadRequests;
+      for (let i = 0; i < cycles; i++) {
+        const id = publishControlRequest(
+          state.kernelHost,
+          { op: "list_projects", params: {} },
+          REQUESTER,
+        );
+        // WebCrypto runs on the worker pool; a fixed number of timer turns is
+        // not a completion signal when other suites load the CI runner.
+        await expect
+          .poll(() => getControlResponse(state.kernelHost, id)?.ok, {
+            interval: 1,
+            timeout: 5_000,
+          })
+          .toBe(true);
+        withdrawControlRequest(state.kernelHost, id, REQUESTER);
+      }
+
+      // The side cache stayed bounded even though the mailbox saw cycles≫cap ids.
+      expect(__answeredCacheSizeForTests(mgr)).toBeLessThanOrEqual(
+        ANSWERED_CACHE_CAP,
       );
-      await flush();
-      expect(getControlResponse(state.kernelHost, id)?.ok).toBe(true);
-      withdrawControlRequest(state.kernelHost, id, REQUESTER);
-    }
-
-    // The side cache stayed bounded even though the mailbox saw cycles≫cap ids.
-    expect(__answeredCacheSizeForTests(mgr)).toBeLessThanOrEqual(ANSWERED_CACHE_CAP);
-  });
+    },
+  );
 
   it("still answers a single pending request exactly once (eviction is harmless)", async () => {
     const { joinControlRoom, state } = makeFakeLinkFactory();
@@ -820,7 +898,10 @@ describe("control-responder-mount — H1: the answered cache is bounded (DoS lev
       REQUESTER,
     );
     await flush();
-    const first = getControlResponse(state.kernelHost, id) as Extract<ControlResponse, { ok: true }>;
+    const first = getControlResponse(state.kernelHost, id) as Extract<
+      ControlResponse,
+      { ok: true }
+    >;
     const firstRespondedAt = first.respondedAt;
     expect(first.ok).toBe(true);
 
@@ -839,7 +920,10 @@ describe("control-responder-mount — H1: the answered cache is bounded (DoS lev
       await flush();
       withdrawControlRequest(state.kernelHost, filler, REQUESTER);
     }
-    const again = getControlResponse(state.kernelHost, id) as Extract<ControlResponse, { ok: true }>;
+    const again = getControlResponse(state.kernelHost, id) as Extract<
+      ControlResponse,
+      { ok: true }
+    >;
     expect(again.respondedAt).toBe(firstRespondedAt); // never re-answered
   });
 });
@@ -859,7 +943,11 @@ describe("control-responder-mount — H2: a bad response never wedges the pass",
     );
     mgr.enable();
 
-    const bad = publishControlRequest(state.kernelHost, { op: "list_projects", params: {} }, REQUESTER);
+    const bad = publishControlRequest(
+      state.kernelHost,
+      { op: "list_projects", params: {} },
+      REQUESTER,
+    );
     await flush();
     const badResp = getControlResponse(state.kernelHost, bad);
     // The pass did NOT silently drop it: it got a small fail response.
@@ -907,7 +995,9 @@ const VERSION_TREE: { path: string; text: string }[] = [
 ];
 
 /** A manager wired with a known fake project + an inspectable consent store. */
-function makeToolHarness(over: Partial<ControlResponderMountDeps> = {}): ToolHarness {
+function makeToolHarness(
+  over: Partial<ControlResponderMountDeps> = {},
+): ToolHarness {
   const { joinControlRoom, state } = makeFakeLinkFactory();
   const store = makeMemoryStore();
   const resolverCalls: string[] = [];
@@ -948,13 +1038,20 @@ describe("control-responder-mount — tool ops are HARD-GATED on per-project con
     expect(resp?.ok).toBe(false);
     const error = (resp as Extract<ControlResponse, { ok: false }>).error;
     expect(error).toBe(CONTENT_CONSENT_REQUIRED_ERROR);
-    for (const text of ALL_FILE_TEXTS) expect(JSON.stringify(resp)).not.toContain(text.slice(0, 8));
+    for (const text of ALL_FILE_TEXTS)
+      expect(JSON.stringify(resp)).not.toContain(text.slice(0, 8));
   });
 
   it("pre-consent, the resolver is NEVER called — no IO, no membership probe", async () => {
     const h = makeToolHarness();
-    await publishAndAwait(h.state, "read_file", { projectId: "proj-1", path: "/main.typ" });
-    await publishAndAwait(h.state, "search_project", { projectId: "proj-1", query: "Hello" });
+    await publishAndAwait(h.state, "read_file", {
+      projectId: "proj-1",
+      path: "/main.typ",
+    });
+    await publishAndAwait(h.state, "search_project", {
+      projectId: "proj-1",
+      query: "Hello",
+    });
     expect(h.resolverCalls).toEqual([]);
   });
 
@@ -977,7 +1074,9 @@ describe("control-responder-mount — tool ops are HARD-GATED on per-project con
 
   it("a tool op WITHOUT a projectId is refused with the static param error", async () => {
     const h = makeToolHarness();
-    const resp = await publishAndAwait(h.state, "read_file", { path: "/main.typ" });
+    const resp = await publishAndAwait(h.state, "read_file", {
+      path: "/main.typ",
+    });
     expect(resp?.ok).toBe(false);
     expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(
       TOOL_PROJECT_ID_REQUIRED_ERROR,
@@ -1010,7 +1109,9 @@ describe("control-responder-mount — granted tool ops answer via the registry a
       query: "Hello",
     });
     expect(resp?.ok).toBe(true);
-    const result = (resp as Extract<ControlResponse, { ok: true }>).result as { text: string };
+    const result = (resp as Extract<ControlResponse, { ok: true }>).result as {
+      text: string;
+    };
     expect(result.text).toContain("/main.typ:2:");
     expect(result.text).toContain("Hello galley world");
   });
@@ -1018,9 +1119,13 @@ describe("control-responder-mount — granted tool ops answer via the registry a
   it("list_files lists the visible paths", async () => {
     const h = makeToolHarness();
     grantContentAccess(h.store, "proj-1");
-    const resp = await publishAndAwait(h.state, "list_files", { projectId: "proj-1" });
+    const resp = await publishAndAwait(h.state, "list_files", {
+      projectId: "proj-1",
+    });
     expect(resp?.ok).toBe(true);
-    const result = (resp as Extract<ControlResponse, { ok: true }>).result as { text: string };
+    const result = (resp as Extract<ControlResponse, { ok: true }>).result as {
+      text: string;
+    };
     expect(result.text).toContain("/main.typ");
     expect(result.text).toContain("/notes.typ");
   });
@@ -1028,9 +1133,13 @@ describe("control-responder-mount — granted tool ops answer via the registry a
   it("read_document maps to the project's MAIN file", async () => {
     const h = makeToolHarness();
     grantContentAccess(h.store, "proj-1");
-    const resp = await publishAndAwait(h.state, "read_document", { projectId: "proj-1" });
+    const resp = await publishAndAwait(h.state, "read_document", {
+      projectId: "proj-1",
+    });
     expect(resp?.ok).toBe(true);
-    const result = (resp as Extract<ControlResponse, { ok: true }>).result as { text: string };
+    const result = (resp as Extract<ControlResponse, { ok: true }>).result as {
+      text: string;
+    };
     expect(result.text).toContain("= Title");
   });
 
@@ -1041,9 +1150,13 @@ describe("control-responder-mount — granted tool ops answer via the registry a
     // ProjectApp handler, the seam returns the static no-open-handler refusal.
     const h = makeToolHarness();
     grantContentAccess(h.store, "proj-1");
-    const resp = await publishAndAwait(h.state, "compile", { projectId: "proj-1" });
+    const resp = await publishAndAwait(h.state, "compile", {
+      projectId: "proj-1",
+    });
     expect(resp?.ok).toBe(false);
-    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(NO_OPEN_HANDLER_REFUSAL);
+    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(
+      NO_OPEN_HANDLER_REFUSAL,
+    );
   });
 
   it("seams are resolved PER REQUEST (the resolver runs once per granted request)", async () => {
@@ -1062,7 +1175,9 @@ describe("control-responder-mount — granted tool ops answer via the registry a
       path: "/main.typ",
     });
     expect(resp?.ok).toBe(false);
-    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(TOOL_FAILED_ERROR);
+    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(
+      TOOL_FAILED_ERROR,
+    );
   });
 
   it("a THROWING resolver is refused generically (fail-closed, loop not wedged)", async () => {
@@ -1094,9 +1209,13 @@ describe("control-responder-mount — compile is CONTENT-CONSENT gated, browser-
       handlerCalls += 1;
       return { ok: true, pageCount: 1, diagnostics: [] };
     });
-    const resp = await publishAndAwait(h.state, "compile", { projectId: "proj-1" });
+    const resp = await publishAndAwait(h.state, "compile", {
+      projectId: "proj-1",
+    });
     expect(resp?.ok).toBe(false);
-    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(CONTENT_CONSENT_REQUIRED_ERROR);
+    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(
+      CONTENT_CONSENT_REQUIRED_ERROR,
+    );
     // The gate fired BEFORE any handler call.
     expect(handlerCalls).toBe(0);
   });
@@ -1109,11 +1228,19 @@ describe("control-responder-mount — compile is CONTENT-CONSENT gated, browser-
         ? {
             ok: false,
             pageCount: 4,
-            diagnostics: [{ severity: "error", message: "unknown variable: x", path: "/main.typ" }],
+            diagnostics: [
+              {
+                severity: "error",
+                message: "unknown variable: x",
+                path: "/main.typ",
+              },
+            ],
           }
         : null,
     );
-    const resp = await publishAndAwait(h.state, "compile", { projectId: "proj-1" });
+    const resp = await publishAndAwait(h.state, "compile", {
+      projectId: "proj-1",
+    });
     expect(resp?.ok).toBe(true);
     const result = (resp as Extract<ControlResponse, { ok: true }>).result as {
       ok: boolean;
@@ -1130,9 +1257,13 @@ describe("control-responder-mount — compile is CONTENT-CONSENT gated, browser-
   it("granted but NO registered handler → the no-open-handler refusal", async () => {
     const h = makeToolHarness();
     grantContentAccess(h.store, "proj-1");
-    const resp = await publishAndAwait(h.state, "compile", { projectId: "proj-1" });
+    const resp = await publishAndAwait(h.state, "compile", {
+      projectId: "proj-1",
+    });
     expect(resp?.ok).toBe(false);
-    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(NO_OPEN_HANDLER_REFUSAL);
+    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(
+      NO_OPEN_HANDLER_REFUSAL,
+    );
   });
 
   it("token-guarded unregister: a STALE unregister does not clear the live handler", async () => {
@@ -1151,7 +1282,9 @@ describe("control-responder-mount — compile is CONTENT-CONSENT gated, browser-
     }));
     // The stale unregister must be a no-op (its token was superseded).
     unregisterStale();
-    const resp = await publishAndAwait(h.state, "compile", { projectId: "proj-1" });
+    const resp = await publishAndAwait(h.state, "compile", {
+      projectId: "proj-1",
+    });
     expect(resp?.ok).toBe(true);
     const result = (resp as Extract<ControlResponse, { ok: true }>).result as {
       pageCount: number | null;
@@ -1167,10 +1300,18 @@ describe("control-responder-mount — compile is CONTENT-CONSENT gated, browser-
     // there — it reaches the dedicated answerCompileRequest path instead.
     const h = makeToolHarness();
     grantContentAccess(h.store, "proj-1");
-    h.mgr.registerCompileHandler(async () => ({ ok: true, pageCount: 7, diagnostics: [] }));
-    const resp = await publishAndAwait(h.state, "compile", { projectId: "proj-1" });
+    h.mgr.registerCompileHandler(async () => ({
+      ok: true,
+      pageCount: 7,
+      diagnostics: [],
+    }));
+    const resp = await publishAndAwait(h.state, "compile", {
+      projectId: "proj-1",
+    });
     expect(resp?.ok).toBe(true);
-    const result = (resp as Extract<ControlResponse, { ok: true }>).result as { pageCount: number | null };
+    const result = (resp as Extract<ControlResponse, { ok: true }>).result as {
+      pageCount: number | null;
+    };
     expect(result.pageCount).toBe(7);
     // The registry adapter resolver was never consulted for compile.
     expect(h.resolverCalls).toEqual([]);
@@ -1232,7 +1373,8 @@ describe("control-responder-mount — version file reads are CONTENT-CONSENT gat
       { path: "/main.typ", size: VERSION_TREE[0]!.text.length },
       { path: "/old.typ", size: VERSION_TREE[1]!.text.length },
     ]);
-    for (const f of VERSION_TREE) expect(JSON.stringify(resp)).not.toContain(f.text.slice(0, 8));
+    for (const f of VERSION_TREE)
+      expect(JSON.stringify(resp)).not.toContain(f.text.slice(0, 8));
   });
 
   it("granted: read_version_file returns one file's text at that version", async () => {
@@ -1262,7 +1404,9 @@ describe("control-responder-mount — version file reads are CONTENT-CONSENT gat
 
   it("a version op WITHOUT a projectId is refused with the static param error", async () => {
     const h = makeToolHarness();
-    const resp = await publishAndAwait(h.state, "list_version_files", { versionId: "v1" });
+    const resp = await publishAndAwait(h.state, "list_version_files", {
+      versionId: "v1",
+    });
     expect(resp?.ok).toBe(false);
     expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(
       TOOL_PROJECT_ID_REQUIRED_ERROR,
@@ -1282,7 +1426,9 @@ describe("control-responder-mount — version file reads are CONTENT-CONSENT gat
       path: "/main.typ",
     });
     expect(resp?.ok).toBe(false);
-    expect((resp as Extract<ControlResponse, { ok: false }>).error).not.toContain("secret");
+    expect(
+      (resp as Extract<ControlResponse, { ok: false }>).error,
+    ).not.toContain("secret");
     const next = await publishAndAwait(h.state, "list_projects", {});
     expect(next?.ok).toBe(true);
   });
@@ -1299,7 +1445,9 @@ describe("control-responder-mount — mutating ops and grant minting are impossi
     expect(resp?.ok).toBe(false);
     // propose_edit is NOT a tool op here (only readonly entries route), so it
     // falls through to the metadata core's unknown-op refusal.
-    expect((resp as Extract<ControlResponse, { ok: false }>).error).toMatch(/unsupported op/);
+    expect((resp as Extract<ControlResponse, { ok: false }>).error).toMatch(
+      /unsupported op/,
+    );
   });
 
   it("NO request shape can mint a grant — grants are browser-UI-only", async () => {
@@ -1307,14 +1455,19 @@ describe("control-responder-mount — mutating ops and grant minting are impossi
     expect(readContentGrants(h.store)).toEqual([]);
     // A made-up grant op, a tool op with grant-shaped params, and a metadata op
     // with grant-shaped params: all leave the grant set EMPTY.
-    await publishAndAwait(h.state, "grant_content_access", { projectId: "proj-1" });
+    await publishAndAwait(h.state, "grant_content_access", {
+      projectId: "proj-1",
+    });
     await publishAndAwait(h.state, "read_file", {
       projectId: "proj-1",
       path: "/main.typ",
       grant: true,
       consent: "granted",
     });
-    await publishAndAwait(h.state, "list_versions", { projectId: "proj-1", grant: true });
+    await publishAndAwait(h.state, "list_versions", {
+      projectId: "proj-1",
+      grant: true,
+    });
     expect(readContentGrants(h.store)).toEqual([]);
     expect(isContentGranted(h.store, "proj-1")).toBe(false);
   });
@@ -1327,8 +1480,12 @@ describe("control-responder-mount — mutating ops and grant minting are impossi
       path: "/notes.typ",
     });
     expect(resp?.ok).toBe(true);
-    const requestsJson = JSON.stringify(h.state.kernelHost.doc.getMap("mcpControlRequests").toJSON());
-    const responsesJson = JSON.stringify(h.state.kernelHost.doc.getMap("mcpControlResponses").toJSON());
+    const requestsJson = JSON.stringify(
+      h.state.kernelHost.doc.getMap("mcpControlRequests").toJSON(),
+    );
+    const responsesJson = JSON.stringify(
+      h.state.kernelHost.doc.getMap("mcpControlResponses").toJSON(),
+    );
     for (const blob of [requestsJson, responsesJson]) {
       expect(blob).not.toContain(AGENT_CONTENT_GRANTS_KEY);
       expect(blob).not.toContain("contentGrants");
@@ -1370,7 +1527,10 @@ describe("control-responder-mount — revocation (#1 slice 1)", () => {
   it("construction WITHOUT a resumable session sweeps stale grants (orphan-grant safety)", () => {
     const store = makeMemoryStore();
     // Grants but NO capability blob → orphans → swept to default-zero.
-    store.setItem(AGENT_CONTENT_GRANTS_KEY, JSON.stringify(["proj-1", "proj-2"]));
+    store.setItem(
+      AGENT_CONTENT_GRANTS_KEY,
+      JSON.stringify(["proj-1", "proj-2"]),
+    );
     getControlResponderManager(baseDeps({ sessionStore: store }));
     expect(readContentGrants(store)).toEqual([]);
   });
@@ -1388,7 +1548,9 @@ describe("control-responder-mount — revocation (#1 slice 1)", () => {
       path: "/main.typ",
     });
     expect(resp?.ok).toBe(false);
-    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(TOOL_FAILED_ERROR);
+    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(
+      TOOL_FAILED_ERROR,
+    );
   });
 });
 
@@ -1399,7 +1561,10 @@ describe("control-responder-mount — cross-reload persistence (resume)", () => 
   function seedSession(store: ReturnType<typeof makeMemoryStore>): void {
     store.setItem(
       AGENT_ACCESS_SESSION_KEY,
-      JSON.stringify({ controlRoom: RESUME_ROOM, responseKey: bytesToBase64Url(RESUME_KEY) }),
+      JSON.stringify({
+        controlRoom: RESUME_ROOM,
+        responseKey: bytesToBase64Url(RESUME_KEY),
+      }),
     );
   }
 
@@ -1409,7 +1574,10 @@ describe("control-responder-mount — cross-reload persistence (resume)", () => 
     mgr.enable();
     const raw = store.getItem(AGENT_ACCESS_SESSION_KEY);
     expect(raw).not.toBeNull();
-    const blob = JSON.parse(raw!) as { controlRoom: string; responseKey: string };
+    const blob = JSON.parse(raw!) as {
+      controlRoom: string;
+      responseKey: string;
+    };
     expect(blob.controlRoom).toBe(mintedRooms[0]);
     const key = base64UrlToBytes(blob.responseKey);
     expect(key).not.toBeNull();
@@ -1420,7 +1588,9 @@ describe("control-responder-mount — cross-reload persistence (resume)", () => 
     const store = makeMemoryStore();
     seedSession(store);
     const { joinControlRoom, state } = makeFakeLinkFactory();
-    const mgr = getControlResponderManager(baseDeps({ joinControlRoom, sessionStore: store }));
+    const mgr = getControlResponderManager(
+      baseDeps({ joinControlRoom, sessionStore: store }),
+    );
     // Live again WITHOUT enable() and WITHOUT minting a fresh room.
     expect(mgr.isEnabled()).toBe(true);
     expect(state.joinCount).toBe(1);
@@ -1430,7 +1600,11 @@ describe("control-responder-mount — cross-reload persistence (resume)", () => 
     // its durable store), so NO fresh code is minted and no command is shown.
     expect(mgr.getState().pairingCommand).toBeNull();
     // The resumed responder answers.
-    const id = publishControlRequest(state.kernelHost, { op: "list_projects", params: {} }, REQUESTER);
+    const id = publishControlRequest(
+      state.kernelHost,
+      { op: "list_projects", params: {} },
+      REQUESTER,
+    );
     await flush();
     expect(getControlResponse(state.kernelHost, id)?.ok).toBe(true);
   });
@@ -1446,9 +1620,14 @@ describe("control-responder-mount — cross-reload persistence (resume)", () => 
   it("a MALFORMED blob (bad room / missing key) does NOT resume and is cleared", () => {
     const store = makeMemoryStore();
     // "share-stale" is too short for isCapabilityRoomId; and there is no key.
-    store.setItem(AGENT_ACCESS_SESSION_KEY, JSON.stringify({ controlRoom: "share-stale", syncUrl: "ws://x" }));
+    store.setItem(
+      AGENT_ACCESS_SESSION_KEY,
+      JSON.stringify({ controlRoom: "share-stale", syncUrl: "ws://x" }),
+    );
     const { joinControlRoom, state } = makeFakeLinkFactory();
-    const mgr = getControlResponderManager(baseDeps({ joinControlRoom, sessionStore: store }));
+    const mgr = getControlResponderManager(
+      baseDeps({ joinControlRoom, sessionStore: store }),
+    );
     expect(mgr.isEnabled()).toBe(false);
     expect(state.joinCount).toBe(0);
     expect(store.getItem(AGENT_ACCESS_SESSION_KEY)).toBeNull();
@@ -1464,7 +1643,9 @@ describe("control-responder-mount — cross-reload persistence (resume)", () => 
     // A fresh manager over the same (now-cleared) store does NOT resume.
     __resetControlResponderManagerForTests();
     const { joinControlRoom, state } = makeFakeLinkFactory();
-    const mgr2 = getControlResponderManager(baseDeps({ joinControlRoom, sessionStore: store }));
+    const mgr2 = getControlResponderManager(
+      baseDeps({ joinControlRoom, sessionStore: store }),
+    );
     expect(mgr2.isEnabled()).toBe(false);
     expect(state.joinCount).toBe(0);
   });
@@ -1488,7 +1669,9 @@ import {
  * (which carries only the one-time code), but via the test-only accessor — the
  * value the sealed handshake delivers to the kernel.
  */
-function pairingKey(mgr: ReturnType<typeof getControlResponderManager>): Uint8Array {
+function pairingKey(
+  mgr: ReturnType<typeof getControlResponderManager>,
+): Uint8Array {
   const key = __responseKeyForTests(mgr);
   expect(key, "live session has a response key").not.toBeNull();
   expect(key!.length).toBe(32);
@@ -1502,7 +1685,9 @@ describe("control-responder-mount — response signing (HIGH-1)", () => {
     expect(keyText.length).toBeGreaterThanOrEqual(43);
     // B2 (ADR-0026): the surfaced command carries ONLY the one-time code, never the key.
     expect(h.mgr.getState().pairingCommand ?? "").not.toContain(keyText);
-    expect(h.mgr.getState().pairingCommand ?? "").not.toContain("--response-key");
+    expect(h.mgr.getState().pairingCommand ?? "").not.toContain(
+      "--response-key",
+    );
     const resp = await publishAndAwait(h.state, "list_projects", {});
     expect(resp?.ok).toBe(true);
     // The control-room doc never contains the key — in the maps or anywhere in the state.
@@ -1529,7 +1714,10 @@ describe("control-responder-mount — response signing (HIGH-1)", () => {
       const resp = await publishAndAwait(h.state, c.op, c.params);
       expect(resp, `${c.op} answered`).toBeDefined();
       expect(resp!.sig, `${c.op} response is signed`).toBeDefined();
-      const expected = await hmacControlResponse(key, controlResponseSigningString(resp!));
+      const expected = await hmacControlResponse(
+        key,
+        controlResponseSigningString(resp!),
+      );
       expect(resp!.sig).toBe(expected);
     }
   });
@@ -1554,10 +1742,15 @@ describe("control-responder-mount — response signing (HIGH-1)", () => {
 
     const final = getControlResponse(h.state.kernelHost, id);
     expect(final?.ok).toBe(true);
-    const result = (final as Extract<ControlResponse, { ok: true }>).result as { text: string };
+    const result = (final as Extract<ControlResponse, { ok: true }>).result as {
+      text: string;
+    };
     expect(result.text).toContain("alpha beta gamma"); // the REAL file, not the forgery
     expect(result.text).not.toContain("FORGED");
-    const expected = await hmacControlResponse(key, controlResponseSigningString(final!));
+    const expected = await hmacControlResponse(
+      key,
+      controlResponseSigningString(final!),
+    );
     expect(final!.sig).toBe(expected);
   });
 
@@ -1575,8 +1768,13 @@ describe("control-responder-mount — response signing (HIGH-1)", () => {
 
 describe("control-responder-mount — pairing-command --compile-url (F4)", () => {
   it("buildPairingCommand carries the one-time code, no secret (B2, ADR-0026)", () => {
-    const cmd = buildPairingCommand("ws://127.0.0.1:1234", "pairCode0aaaaaaaaaaaa");
-    expect(cmd).toBe("galley-mcp --sync ws://127.0.0.1:1234 --pairing-code pairCode0aaaaaaaaaaaa");
+    const cmd = buildPairingCommand(
+      "ws://127.0.0.1:1234",
+      "pairCode0aaaaaaaaaaaa",
+    );
+    expect(cmd).toBe(
+      "galley-mcp --sync ws://127.0.0.1:1234 --pairing-code pairCode0aaaaaaaaaaaa",
+    );
     expect(cmd).not.toContain("--compile-url");
     expect(cmd).not.toContain("--control-room");
     expect(cmd).not.toContain("--response-key");
@@ -1588,17 +1786,29 @@ describe("control-responder-mount — pairing-command --compile-url (F4)", () =>
       "pairCode0aaaaaaaaaaaa",
       "http://127.0.0.1:3001/compile",
     );
-    expect(cmd).toContain("--pairing-code pairCode0aaaaaaaaaaaa --compile-url http://127.0.0.1:3001/compile");
+    expect(cmd).toContain(
+      "--pairing-code pairCode0aaaaaaaaaaaa --compile-url http://127.0.0.1:3001/compile",
+    );
   });
 
   it("loopbackCompileUrl passes loopback hosts and rejects everything else", () => {
     // Loopback → returned verbatim (the kernel accepts these).
-    expect(loopbackCompileUrl("http://127.0.0.1:3001/compile")).toBe("http://127.0.0.1:3001/compile");
-    expect(loopbackCompileUrl("http://localhost:3001/compile")).toBe("http://localhost:3001/compile");
-    expect(loopbackCompileUrl("http://[::1]:3001/compile")).toBe("http://[::1]:3001/compile");
-    expect(loopbackCompileUrl("http://127.5.6.7/compile")).toBe("http://127.5.6.7/compile");
+    expect(loopbackCompileUrl("http://127.0.0.1:3001/compile")).toBe(
+      "http://127.0.0.1:3001/compile",
+    );
+    expect(loopbackCompileUrl("http://localhost:3001/compile")).toBe(
+      "http://localhost:3001/compile",
+    );
+    expect(loopbackCompileUrl("http://[::1]:3001/compile")).toBe(
+      "http://[::1]:3001/compile",
+    );
+    expect(loopbackCompileUrl("http://127.5.6.7/compile")).toBe(
+      "http://127.5.6.7/compile",
+    );
     // Non-loopback → null (the kernel would refuse to POST the document there).
-    expect(loopbackCompileUrl("https://compile.example.com/compile")).toBeNull();
+    expect(
+      loopbackCompileUrl("https://compile.example.com/compile"),
+    ).toBeNull();
     expect(loopbackCompileUrl("http://10.0.0.5:3001/compile")).toBeNull();
     // Absent / malformed → null.
     expect(loopbackCompileUrl(null)).toBeNull();
@@ -1610,10 +1820,15 @@ describe("control-responder-mount — pairing-command --compile-url (F4)", () =>
   it("getState folds a loopback compile endpoint into the pairing command", () => {
     const { joinControlRoom } = makeFakeLinkFactory();
     const mgr = getControlResponderManager(
-      baseDeps({ joinControlRoom, resolveKernelCompileUrl: () => "http://127.0.0.1:3001/compile" }),
+      baseDeps({
+        joinControlRoom,
+        resolveKernelCompileUrl: () => "http://127.0.0.1:3001/compile",
+      }),
     );
     mgr.enable();
-    expect(mgr.getState().pairingCommand).toContain("--compile-url http://127.0.0.1:3001/compile");
+    expect(mgr.getState().pairingCommand).toContain(
+      "--compile-url http://127.0.0.1:3001/compile",
+    );
   });
 
   it("getState leaves the command compile-less when no loopback endpoint resolves", () => {
@@ -1651,7 +1866,12 @@ describe("control-responder-mount — A1 blob-terminal auth (§1)", () => {
       shareRoom: "share-aaaaaaaaaaaaaaaaaaaa",
       grantId: A_GRANT,
     };
-    mgr.recordGrant({ ...scope, mainFile: "/main.typ", mode: "ask", grantedAt: Date.now() });
+    mgr.recordGrant({
+      ...scope,
+      mainFile: "/main.typ",
+      mode: "ask",
+      grantedAt: Date.now(),
+    });
 
     const auth = mgr.getBlobTerminalAuth();
     expect(auth).not.toBeNull();
@@ -1662,10 +1882,30 @@ describe("control-responder-mount — A1 blob-terminal auth (§1)", () => {
     const mac = await kernel.terminalSigner("complete", "exp-1", hash, 3, null);
     expect(mac).toBeDefined();
     // The browser's verifier ACCEPTS the kernel's MAC (cross-derivation works) …
-    expect(await auth!.terminalVerifier("complete", "exp-1", hash, 3, null, mac)).toBe(true);
+    expect(
+      await auth!.terminalVerifier("complete", "exp-1", hash, 3, null, mac),
+    ).toBe(true);
     // … and REJECTS an unsigned / wrong MAC (fails closed).
-    expect(await auth!.terminalVerifier("complete", "exp-1", hash, 3, null, undefined)).toBe(false);
-    expect(await auth!.terminalVerifier("complete", "exp-1", hash, 3, null, "not-a-real-mac")).toBe(false);
+    expect(
+      await auth!.terminalVerifier(
+        "complete",
+        "exp-1",
+        hash,
+        3,
+        null,
+        undefined,
+      ),
+    ).toBe(false);
+    expect(
+      await auth!.terminalVerifier(
+        "complete",
+        "exp-1",
+        hash,
+        3,
+        null,
+        "not-a-real-mac",
+      ),
+    ).toBe(false);
   });
 
   it("buildBlobTerminalAuthForScope works from an explicit scope (fresh-mint share path) and is null without a session key", async () => {
@@ -1695,8 +1935,23 @@ describe("control-responder-mount — A1 blob-terminal auth (§1)", () => {
     expect(auth).not.toBeNull();
     // It derives the SAME key as the kernel's signer for that scope.
     const kernel = buildBlobTerminalAuth(key, scope);
-    const mac = await kernel.terminalSigner("complete", "exp-9", "b".repeat(64), 5, null);
-    expect(await auth!.terminalVerifier("complete", "exp-9", "b".repeat(64), 5, null, mac)).toBe(true);
+    const mac = await kernel.terminalSigner(
+      "complete",
+      "exp-9",
+      "b".repeat(64),
+      5,
+      null,
+    );
+    expect(
+      await auth!.terminalVerifier(
+        "complete",
+        "exp-9",
+        "b".repeat(64),
+        5,
+        null,
+        mac,
+      ),
+    ).toBe(true);
   });
 });
 
@@ -1706,10 +1961,19 @@ describe("control-responder-mount — expect_blob is consent-gated + wired to th
   it("without a grant, expect_blob gets the STATIC consent-required refusal (no reservation)", async () => {
     const h = makeToolHarness();
     let reserveCalled = false;
-    h.mgr.registerExpectBlobHandler(async () => { reserveCalled = true; return true; });
-    const resp = await publishAndAwait(h.state, "expect_blob", { projectId: "proj-1", hash: HASH, size: 100 });
+    h.mgr.registerExpectBlobHandler(async () => {
+      reserveCalled = true;
+      return true;
+    });
+    const resp = await publishAndAwait(h.state, "expect_blob", {
+      projectId: "proj-1",
+      hash: HASH,
+      size: 100,
+    });
     expect(resp?.ok).toBe(false);
-    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(CONTENT_CONSENT_REQUIRED_ERROR);
+    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(
+      CONTENT_CONSENT_REQUIRED_ERROR,
+    );
     expect(reserveCalled).toBe(false);
   });
 
@@ -1717,10 +1981,19 @@ describe("control-responder-mount — expect_blob is consent-gated + wired to th
     const h = makeToolHarness();
     grantContentAccess(h.store, "proj-1");
     const calls: { hash: string; size: number }[] = [];
-    h.mgr.registerExpectBlobHandler(async (_pid, hash, size) => { calls.push({ hash, size }); return true; });
-    const resp = await publishAndAwait(h.state, "expect_blob", { projectId: "proj-1", hash: HASH, size: 100 });
+    h.mgr.registerExpectBlobHandler(async (_pid, hash, size) => {
+      calls.push({ hash, size });
+      return true;
+    });
+    const resp = await publishAndAwait(h.state, "expect_blob", {
+      projectId: "proj-1",
+      hash: HASH,
+      size: 100,
+    });
     expect(resp?.ok).toBe(true);
-    expect((resp as Extract<ControlResponse, { ok: true }>).result).toEqual({ reserved: true });
+    expect((resp as Extract<ControlResponse, { ok: true }>).result).toEqual({
+      reserved: true,
+    });
     expect(calls).toEqual([{ hash: HASH, size: 100 }]);
   });
 
@@ -1728,15 +2001,25 @@ describe("control-responder-mount — expect_blob is consent-gated + wired to th
     const h = makeToolHarness();
     grantContentAccess(h.store, "proj-1");
     h.mgr.registerExpectBlobHandler(async () => false);
-    const resp = await publishAndAwait(h.state, "expect_blob", { projectId: "proj-1", hash: HASH, size: 100 });
+    const resp = await publishAndAwait(h.state, "expect_blob", {
+      projectId: "proj-1",
+      hash: HASH,
+      size: 100,
+    });
     expect(resp?.ok).toBe(true);
-    expect((resp as Extract<ControlResponse, { ok: true }>).result).toEqual({ reserved: false });
+    expect((resp as Extract<ControlResponse, { ok: true }>).result).toEqual({
+      reserved: false,
+    });
   });
 
   it("granted but NO handler registered → unknown-project refusal (fail closed)", async () => {
     const h = makeToolHarness();
     grantContentAccess(h.store, "proj-1");
-    const resp = await publishAndAwait(h.state, "expect_blob", { projectId: "proj-1", hash: HASH, size: 100 });
+    const resp = await publishAndAwait(h.state, "expect_blob", {
+      projectId: "proj-1",
+      hash: HASH,
+      size: 100,
+    });
     expect(resp?.ok).toBe(false);
   });
 });
@@ -1747,10 +2030,18 @@ describe("control-responder-mount — release_blob is consent-gated + wired (A2/
   it("without a grant, release_blob gets the consent-required refusal (no release)", async () => {
     const h = makeToolHarness();
     let released = false;
-    h.mgr.registerReleaseBlobHandler(async () => { released = true; return true; });
-    const resp = await publishAndAwait(h.state, "release_blob", { projectId: "proj-1", hashes: [{ hash: HASH, size: 1 }] });
+    h.mgr.registerReleaseBlobHandler(async () => {
+      released = true;
+      return true;
+    });
+    const resp = await publishAndAwait(h.state, "release_blob", {
+      projectId: "proj-1",
+      hashes: [{ hash: HASH, size: 1 }],
+    });
     expect(resp?.ok).toBe(false);
-    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(CONTENT_CONSENT_REQUIRED_ERROR);
+    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(
+      CONTENT_CONSENT_REQUIRED_ERROR,
+    );
     expect(released).toBe(false);
   });
 
@@ -1758,10 +2049,18 @@ describe("control-responder-mount — release_blob is consent-gated + wired (A2/
     const h = makeToolHarness();
     grantContentAccess(h.store, "proj-1");
     const calls: { hash: string; size: number }[][] = [];
-    h.mgr.registerReleaseBlobHandler(async (_pid, hashes) => { calls.push(hashes); return true; });
-    const resp = await publishAndAwait(h.state, "release_blob", { projectId: "proj-1", hashes: [{ hash: HASH, size: 7 }] });
+    h.mgr.registerReleaseBlobHandler(async (_pid, hashes) => {
+      calls.push(hashes);
+      return true;
+    });
+    const resp = await publishAndAwait(h.state, "release_blob", {
+      projectId: "proj-1",
+      hashes: [{ hash: HASH, size: 7 }],
+    });
     expect(resp?.ok).toBe(true);
-    expect((resp as Extract<ControlResponse, { ok: true }>).result).toEqual({ released: true });
+    expect((resp as Extract<ControlResponse, { ok: true }>).result).toEqual({
+      released: true,
+    });
     expect(calls[0]).toEqual([{ hash: HASH, size: 7 }]);
   });
 });
@@ -1770,7 +2069,11 @@ describe("control-responder-mount — F13 headless attach end-to-end (ADR-0024 �
   /** Record a grant whose scope matches the manager's LIVE control room + relay. */
   function recordLiveGrant(
     mgr: ReturnType<typeof getControlResponderManager>,
-    over: { persistentAccess?: boolean; projectId?: string; shareRoom?: string } = {},
+    over: {
+      persistentAccess?: boolean;
+      projectId?: string;
+      shareRoom?: string;
+    } = {},
   ): void {
     const controlRoom = mgr.getState().controlRoom!;
     mgr.recordGrant({
@@ -1791,7 +2094,12 @@ describe("control-responder-mount — F13 headless attach end-to-end (ADR-0024 �
     const mgr = getControlResponderManager(
       // No registered open handler AND the no-handler deps fallback: without headless
       // attach this would be NO_OPEN_HANDLER_REFUSAL.
-      baseDeps({ joinControlRoom, openProjectForControl: async () => ({ refused: NO_OPEN_HANDLER_REFUSAL }) }),
+      baseDeps({
+        joinControlRoom,
+        openProjectForControl: async () => ({
+          refused: NO_OPEN_HANDLER_REFUSAL,
+        }),
+      }),
     );
     mgr.enable();
     recordLiveGrant(mgr, { persistentAccess: true, projectId: "proj-bg" });
@@ -1815,7 +2123,12 @@ describe("control-responder-mount — F13 headless attach end-to-end (ADR-0024 �
   it("a grant WITHOUT persistentAccess does NOT headless-attach (falls through to NO_OPEN_HANDLER)", async () => {
     const { joinControlRoom, state } = makeFakeLinkFactory();
     const mgr = getControlResponderManager(
-      baseDeps({ joinControlRoom, openProjectForControl: async () => ({ refused: NO_OPEN_HANDLER_REFUSAL }) }),
+      baseDeps({
+        joinControlRoom,
+        openProjectForControl: async () => ({
+          refused: NO_OPEN_HANDLER_REFUSAL,
+        }),
+      }),
     );
     mgr.enable();
     recordLiveGrant(mgr, { persistentAccess: false, projectId: "proj-bg" });
@@ -1827,13 +2140,20 @@ describe("control-responder-mount — F13 headless attach end-to-end (ADR-0024 �
     await flush();
     const resp = getControlResponse(state.kernelHost, id);
     expect(resp?.ok).toBe(false);
-    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(NO_OPEN_HANDLER_REFUSAL);
+    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(
+      NO_OPEN_HANDLER_REFUSAL,
+    );
   });
 
   it("headless attach is scoped: a request for a DIFFERENT project than the grant does not attach", async () => {
     const { joinControlRoom, state } = makeFakeLinkFactory();
     const mgr = getControlResponderManager(
-      baseDeps({ joinControlRoom, openProjectForControl: async () => ({ refused: NO_OPEN_HANDLER_REFUSAL }) }),
+      baseDeps({
+        joinControlRoom,
+        openProjectForControl: async () => ({
+          refused: NO_OPEN_HANDLER_REFUSAL,
+        }),
+      }),
     );
     mgr.enable();
     recordLiveGrant(mgr, { persistentAccess: true, projectId: "proj-bg" });
@@ -1845,13 +2165,20 @@ describe("control-responder-mount — F13 headless attach end-to-end (ADR-0024 �
     await flush();
     const resp = getControlResponse(state.kernelHost, id);
     expect(resp?.ok).toBe(false);
-    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(NO_OPEN_HANDLER_REFUSAL);
+    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(
+      NO_OPEN_HANDLER_REFUSAL,
+    );
   });
 
   it("Revoke (clearActiveGrant) tears down standing access: a later open_project no longer attaches", async () => {
     const { joinControlRoom, state } = makeFakeLinkFactory();
     const mgr = getControlResponderManager(
-      baseDeps({ joinControlRoom, openProjectForControl: async () => ({ refused: NO_OPEN_HANDLER_REFUSAL }) }),
+      baseDeps({
+        joinControlRoom,
+        openProjectForControl: async () => ({
+          refused: NO_OPEN_HANDLER_REFUSAL,
+        }),
+      }),
     );
     mgr.enable();
     recordLiveGrant(mgr, { persistentAccess: true, projectId: "proj-bg" });
@@ -1866,6 +2193,8 @@ describe("control-responder-mount — F13 headless attach end-to-end (ADR-0024 �
     await flush();
     const resp = getControlResponse(state.kernelHost, id);
     expect(resp?.ok).toBe(false);
-    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(NO_OPEN_HANDLER_REFUSAL);
+    expect((resp as Extract<ControlResponse, { ok: false }>).error).toBe(
+      NO_OPEN_HANDLER_REFUSAL,
+    );
   });
 });

@@ -10,9 +10,16 @@
 //     /fonts/. Pinned to the typst-assets version matching typst.ts 0.7 (Typst
 //     0.13). Both public/*.wasm and public/fonts/ are gitignored + regenerated.
 import { createRequire } from "node:module";
-import { copyFileSync, mkdirSync, existsSync, writeFileSync, readFileSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  existsSync,
+  writeFileSync,
+  readFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { download } from "./download.mjs";
 
 const require = createRequire(import.meta.url);
 const publicDir = join(dirname(fileURLToPath(import.meta.url)), "..", "public");
@@ -29,7 +36,8 @@ console.log("copied typst WASM assets to apps/web/public/");
 
 // The default "text" font set typst.ts loads via `preloadFontAssets({assets:['text']})`.
 // Keep this list in sync with typst.ts's internal `_textFonts` for the pinned version.
-const FONT_BASE = "https://cdn.jsdelivr.net/gh/typst/typst-assets@v0.13.1/files/fonts/";
+const FONT_BASE =
+  "https://cdn.jsdelivr.net/gh/typst/typst-assets@v0.13.1/files/fonts/";
 const TEXT_FONTS = [
   "DejaVuSansMono-Bold.ttf",
   "DejaVuSansMono-BoldOblique.ttf",
@@ -57,7 +65,8 @@ const TEXT_FONTS = [
 // time (network available, like `pnpm install`), then served locally from
 // /fonts/ — never fetched at runtime. The `name`-table family is "Inter", so
 // `#set text(font: "Inter")` just works on both compile paths (no aliasing).
-const INTER_BASE = "https://cdn.jsdelivr.net/npm/@expo-google-fonts/inter@0.2.3/";
+const INTER_BASE =
+  "https://cdn.jsdelivr.net/npm/@expo-google-fonts/inter@0.2.3/";
 const SANS_FONTS = ["Inter_400Regular.ttf", "Inter_700Bold.ttf"];
 
 const ALL_FONTS = [
@@ -68,16 +77,20 @@ const ALL_FONTS = [
 const fontsDir = join(publicDir, "fonts");
 mkdirSync(fontsDir, { recursive: true });
 
-const missing = ALL_FONTS.filter(({ file }) => !existsSync(join(fontsDir, file)));
+const missing = ALL_FONTS.filter(
+  ({ file }) => !existsSync(join(fontsDir, file)),
+);
 if (missing.length === 0) {
-  console.log(`fonts already present in apps/web/public/fonts/ (${ALL_FONTS.length} files)`);
+  console.log(
+    `fonts already present in apps/web/public/fonts/ (${ALL_FONTS.length} files)`,
+  );
 } else {
-  console.log(`downloading ${missing.length} font(s) to apps/web/public/fonts/ …`);
+  console.log(
+    `downloading ${missing.length} font(s) to apps/web/public/fonts/ …`,
+  );
   await Promise.all(
     missing.map(async ({ file, base }) => {
-      const res = await fetch(base + file);
-      if (!res.ok) throw new Error(`failed to fetch font ${file}: HTTP ${res.status}`);
-      writeFileSync(join(fontsDir, file), new Uint8Array(await res.arrayBuffer()));
+      writeFileSync(join(fontsDir, file), await download(base + file));
     }),
   );
   console.log(`downloaded ${missing.length} font(s)`);
@@ -108,13 +121,15 @@ const FAMILY_NAME_ID = 1;
 function decodeName(buf, off, length, platformId) {
   if (platformId === 1) return buf.toString("latin1", off, off + length);
   let s = "";
-  for (let i = 0; i + 1 < length; i += 2) s += String.fromCharCode(buf.readUInt16BE(off + i));
+  for (let i = 0; i + 1 < length; i += 2)
+    s += String.fromCharCode(buf.readUInt16BE(off + i));
   return s;
 }
 function encodeName(str, platformId) {
   if (platformId === 1) return Buffer.from(str, "latin1");
   const b = Buffer.alloc(str.length * 2);
-  for (let i = 0; i < str.length; i++) b.writeUInt16BE(str.charCodeAt(i), i * 2);
+  for (let i = 0; i < str.length; i++)
+    b.writeUInt16BE(str.charCodeAt(i), i * 2);
   return b;
 }
 
@@ -125,7 +140,8 @@ function encodeName(str, platformId) {
  * record/string offsets never move. Returns the number of records rewritten.
  */
 function aliasFamilyInPlace(buf, from, to) {
-  if (from.length !== to.length) throw new Error(`alias must preserve length: "${from}" → "${to}"`);
+  if (from.length !== to.length)
+    throw new Error(`alias must preserve length: "${from}" → "${to}"`);
   const numTables = buf.readUInt16BE(4);
   let nameOff = -1;
   let nameLen = 0;
@@ -159,7 +175,12 @@ function aliasFamilyInPlace(buf, from, to) {
 
 const FAMILY_ALIASES = [
   {
-    files: ["NewCM10-Bold.otf", "NewCM10-BoldItalic.otf", "NewCM10-Italic.otf", "NewCM10-Regular.otf"],
+    files: [
+      "NewCM10-Bold.otf",
+      "NewCM10-BoldItalic.otf",
+      "NewCM10-Italic.otf",
+      "NewCM10-Regular.otf",
+    ],
     from: "NewComputerModern10",
     to: "New Computer Modern",
   },

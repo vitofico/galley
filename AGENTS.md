@@ -18,15 +18,15 @@ Reject step. See [`docs/vision.md`](docs/vision.md).
 
 ## Start here
 
-| Read | For |
-| --- | --- |
-| [`docs/vision.md`](docs/vision.md) | Why, principles, honest definitions, non-goals |
-| [`docs/architecture.md`](docs/architecture.md) | Package boundaries, worker model, source-of-truth rules |
-| [`docs/roadmap.md`](docs/roadmap.md) | What's built, what's gated on config, future directions |
-| [`docs/agent-loop.md`](docs/agent-loop.md) | The core loop (the thing you're building) |
-| [`docs/editing-and-diff.md`](docs/editing-and-diff.md) | Search/replace + Accept/Reject |
-| [`docs/compiler.md`](docs/compiler.md) · [`docs/providers.md`](docs/providers.md) | Compile + model abstraction |
-| [`docs/decisions/`](docs/decisions) | Why key decisions were made (ADRs) |
+| Read                                                                              | For                                                     |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| [`docs/vision.md`](docs/vision.md)                                                | Why, principles, honest definitions, non-goals          |
+| [`docs/architecture.md`](docs/architecture.md)                                    | Package boundaries, worker model, source-of-truth rules |
+| [`docs/roadmap.md`](docs/roadmap.md)                                              | What's built, what's gated on config, future directions |
+| [`docs/agent-loop.md`](docs/agent-loop.md)                                        | The core loop (the thing you're building)               |
+| [`docs/editing-and-diff.md`](docs/editing-and-diff.md)                            | Search/replace + Accept/Reject                          |
+| [`docs/compiler.md`](docs/compiler.md) · [`docs/providers.md`](docs/providers.md) | Compile + model abstraction                             |
+| [`docs/decisions/`](docs/decisions)                                               | Why key decisions were made (ADRs)                      |
 
 ## Non-negotiable invariants
 
@@ -35,12 +35,12 @@ These are architecture, not preference. Don't violate them without a new ADR.
 1. **Human-in-the-loop is mandatory.** No in-app agent edit reaches the live
    document without an explicit user **Accept**; the in-app loop never auto-applies.
    (External MCP agents may be granted opt-in, off-by-default, signed + checkpointed
-   + revertable auto-accept that drives this same Accept path —
-   [ADR-0023](docs/decisions/ADR-0023-mcp-auto-accept-provenance.md).)
+   - revertable auto-accept that drives this same Accept path —
+     [ADR-0023](docs/decisions/ADR-0023-mcp-auto-accept-provenance.md).)
 2. **Scratch isolation.** The agent loop operates on a scratch copy and has **no
    handle to live document state.** Concurrent user typing must never corrupt a
    run.
-3. **Conflict-aware Accept.** On Accept, re-match edit blocks against *current*
+3. **Conflict-aware Accept.** On Accept, re-match edit blocks against _current_
    live source; surface conflicts, never clobber.
 4. **Framework-agnostic core.** `@galley/compiler` and `@galley/agent` must not
    import React/DOM/app-state. `@galley/shared` is **types only.**
@@ -67,6 +67,10 @@ client-supplied URLs → no SSRF); never log bodies or keys; stateless.
 ## Working conventions
 
 - **TypeScript-first** monorepo, **pnpm** workspaces. Node ≥ 20.
+- Before submission, run `scripts/check-ci` for the full Docker gate and
+  dependency audit. `scripts/check-ci unit` is for iteration; it does not cover
+  PostgreSQL or browser acceptance. UI/compiler changes also run
+  `scripts/check-ci cross` for Firefox/WebKit smoke.
 - Keep `shared` to literal cross-package types. If a type needs a dependency,
   it belongs in a concrete package.
 - **Test the loop with fakes.** `runAgent` takes an injected model + compiler;

@@ -14,5 +14,10 @@ export default defineConfig({
     include: ["packages/*/src/**/*.test.ts", "apps/*/src/**/*.test.ts"],
     exclude: ["**/node_modules/**", "**/dist/**", "**/e2e/**"],
     environment: "node",
+    // The suite exercises real sockets, filesystem writes and WebCrypto. A
+    // worker per visible Docker CPU starves those operations on shared runners.
+    maxWorkers: 2,
+    testTimeout: 15_000,
+    hookTimeout: 15_000,
   },
 });

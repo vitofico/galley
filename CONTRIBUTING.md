@@ -33,8 +33,22 @@ Per-package scripts live in each `package.json`. The canonical green-gate runs
 the **full** suite (typecheck + unit + web build + Playwright e2e) in Docker:
 
 ```bash
-docker compose -f docker-compose.test.yml run --rm --build test
+scripts/check-ci
 ```
+
+This matches the hosted checks and also runs the dependency audit. Use
+`scripts/check-ci unit` for fast iteration, `full` for the release gate, `cross`
+for Firefox/WebKit smoke, or `audit` for the security scan. Each run builds the
+current source, isolates its Docker project and image tags, and removes its own
+containers and PostgreSQL volume. Browser failure traces are copied to
+`.ci-results/test-results/`. Runtime-image scanning and Kubernetes validation
+remain separate checks. CDN font downloads have bounded retries; tests do not.
+Dependency audit JSON is retained under `.ci-results/security/`.
+The image commands call `pnpm ci:unit` and `pnpm ci:full`, so the local and
+hosted gates use the same task definitions.
+Unit tests use at most two workers and a 15-second per-test budget to keep real
+filesystem, socket and WebCrypto work reliable on shared machines. Assertions
+still fail immediately; there is no automatic test retry.
 
 Pass `--build`: plain `run` reuses a cached image and would silently test **stale**
 code after a change. And use `run`, **not** `up --exit-code-from test`: `up` starts
@@ -63,8 +77,8 @@ warnings and hints are advisory.
 
 ## CI
 
-- **`.github/workflows/ci.yml`** — every branch push / PR: ast-grep + typecheck
-  on the host, plus the unit green-gate in Docker.
+- **`.github/workflows/ci.yml`** — every PR: ast-grep + typecheck
+  on the host, plus the full release green-gate in Docker, before merge.
 - **`.github/workflows/release.yml`** — on merge to `main`: the full green-gate,
   then a [CalVer](scripts/calver.mjs) tag + GitHub release and a runtime image
   published to GHCR.
@@ -106,7 +120,7 @@ it with a new one.
 - Write clear, present-tense commit messages describing the change and its _why_.
 - Keep PRs scoped to one focused change where possible.
 - Make sure the Docker green-gate (`docker compose -f docker-compose.test.yml run
-  --rm --build test`) passes before requesting review — it is the authoritative
+--rm --build test`) passes before requesting review — it is the authoritative
   check.
 
 ## License & CLA
@@ -118,4 +132,4 @@ Contributions require agreeing to the **Contributor License Agreement**
 ([`CLA.md`](CLA.md)) — it licenses your contribution to the project (including
 the right to dual-license, which keeps the open-core hosted offering viable)
 while your code stays available to everyone under the AGPL. State in your first
-PR: *"I have read and agree to the Galley CLA (CLA.md), version 1.0."*
+PR: _"I have read and agree to the Galley CLA (CLA.md), version 1.0."_

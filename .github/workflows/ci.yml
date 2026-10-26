@@ -1,15 +1,12 @@
 name: CI
 
-# Fast feedback on every branch push and pull request. `main` is covered by
-# release.yml. Static checks run on the host; the test suite runs in Docker
+# Feedback on every pull request. Branch iteration uses scripts/check-ci;
+# `main` is covered by release.yml. Static checks run on the host; tests use Docker
 # because that is the canonical green-gate (host Vitest is intentionally not
 # supported — see docker-compose.test.yml).
 
 on:
   pull_request:
-  push:
-    branches-ignore:
-      - main
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -42,14 +39,25 @@ jobs:
         run: pnpm -r typecheck
 
   unit:
+    # Preserve the status-check name used by existing branch protection.
     name: Typecheck + unit (Docker)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Run the unit green-gate
-        run: docker compose -f docker-compose.test.yml run --build unit
+      # Exercise the release gate before merge, including PostgreSQL and Chromium.
+      - name: Run the full green-gate
+        run: scripts/check-ci full
+
+      - name: Upload browser failure traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: chromium-test-results
+          path: .ci-results/
+          if-no-files-found: ignore
 
   cross-browser-smoke:
     name: Cross-browser smoke (Firefox + WebKit)
@@ -73,10 +81,7 @@ jobs:
       # `--entrypoint sh` overrides the image's default green-gate CMD so ONLY the
       # cross-browser script runs here.
       - name: Build bundle + run Firefox/WebKit smoke
-        run: >
-          docker compose -f docker-compose.test.yml run --rm --build
-          --entrypoint sh test -lc
-          "pnpm --filter @galley/web build && pnpm --filter @galley/web e2e:cross"
+        run: scripts/check-ci cross
 
   k8s-manifests:
     name: Validate k8s manifests (offline)
