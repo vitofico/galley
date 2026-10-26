@@ -77,7 +77,7 @@ warnings and hints are advisory.
 
 ## CI
 
-- **`.github/workflows/ci.yml`** — every branch push / PR: ast-grep + typecheck
+- **`.github/workflows/ci.yml`** — every PR: ast-grep + typecheck
   on the host, plus the full release green-gate in Docker, before merge.
 - **`.github/workflows/release.yml`** — on merge to `main`: the full green-gate,
   then a [CalVer](scripts/calver.mjs) tag + GitHub release and a runtime image
