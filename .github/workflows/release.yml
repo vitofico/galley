@@ -34,7 +34,7 @@ jobs:
         # `run`, NOT `up --exit-code-from test`: the `up` form starts every
         # service and aborts the whole stack when the slim `unit` service
         # exits first, killing the e2e container mid-run (SIGTERM/143).
-        run: docker compose -f docker-compose.test.yml run --rm --build test
+        run: scripts/check-ci full
 
   release:
     name: Tag, release & publish image

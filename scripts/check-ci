@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Container checks shared by local submission, pull requests and releases.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+MODE="${1:-all}"
+case "$MODE" in
+  all|unit|full|cross|audit) ;;
+  --help|-h)
+    echo 'Usage: scripts/check-ci [all|unit|full|cross|audit]'
+    echo 'Requires Docker. Default: structural lint, full PostgreSQL/unit/Chromium gate and dependency audit.'
+    echo 'cross runs Firefox/WebKit smoke; runtime-image/security scanners and k8s validation are separate.'
+    exit 0 ;;
+  *) echo 'Usage: scripts/check-ci [all|unit|full|cross|audit]' >&2; exit 2 ;;
+esac
+PROJECT="galley-check-$$"
+export IMAGE_SUFFIX="-$PROJECT"
+ARTIFACTS="${CI_CHECK_ARTIFACTS:-$ROOT/.ci-results}"
+mkdir -p "$ARTIFACTS"
+compose=(docker compose -p "$PROJECT" -f docker-compose.test.yml)
+cleanup() {
+  status=$?
+  if [[ "$MODE" == full || "$MODE" == all || "$MODE" == cross ]]; then
+    docker cp "$PROJECT-run:/app/apps/web/test-results" "$ARTIFACTS/" >/dev/null 2>&1 || true
+  fi
+  if [[ "$MODE" == all || "$MODE" == audit ]]; then
+    docker cp "$PROJECT-run:/app/.security/out" "$ARTIFACTS/security" >/dev/null 2>&1 || true
+  fi
+  "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
+  docker image rm "galley-test-$PROJECT" "galley-unit-$PROJECT" >/dev/null 2>&1 || true
+  exit "$status"
+}
+trap cleanup EXIT
+
+case "$MODE" in
+  all) "${compose[@]}" run --build --name "$PROJECT-run" --entrypoint sh test -lc \
+    'bash scripts/security-scan.sh && pnpm ci:full' ;;
+  unit) "${compose[@]}" run --build --rm unit ;;
+  full) "${compose[@]}" run --build --name "$PROJECT-run" test ;;
+  cross) "${compose[@]}" run --build --name "$PROJECT-run" --entrypoint sh test -lc \
+    'pnpm --filter @galley/web build && pnpm --filter @galley/web e2e:cross' ;;
+  audit) "${compose[@]}" run --build --name "$PROJECT-run" --entrypoint bash unit scripts/security-scan.sh ;;
+esac

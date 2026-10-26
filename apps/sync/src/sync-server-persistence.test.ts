@@ -34,7 +34,9 @@ const settle = { timeout: 4000, interval: 20 };
 /** A CollabConnection wired to the server over a real ws socket. */
 function client(handle: SyncServerHandle, room: string, doc: CollabDocument) {
   const url = `ws://127.0.0.1:${handle.port}/${room}`;
-  const transport = new WebSocketTransport(() => new WS(url) as unknown as WebSocketLike);
+  const transport = new WebSocketTransport(
+    () => new WS(url) as unknown as WebSocketLike,
+  );
   return new CollabConnection(doc, transport, { author: HUMAN });
 }
 
@@ -74,15 +76,23 @@ async function makeDir(): Promise<string> {
 }
 
 /** Restore a store's persisted log for `room` into a fresh doc's source text. */
-async function persistedSource(store: CrdtStore, room: string): Promise<string> {
-  return new CollabDocument("", restoreDoc(await store.loadUpdates(room))).getSource();
+async function persistedSource(
+  store: CrdtStore,
+  room: string,
+): Promise<string> {
+  return new CollabDocument(
+    "",
+    restoreDoc(await store.loadUpdates(room)),
+  ).getSource();
 }
 
 describe("sync server — CRDT persistence (B1.3, integration)", () => {
   it("relay crash/restart loses no state: appends alone rebuild the room on a NEW instance", async () => {
     const dir = await makeDir();
     // Relay A holds the live session…
-    const serverA = await startSyncServer(0, { crdtStore: new FsCrdtStore(dir) });
+    const serverA = await startSyncServer(0, {
+      crdtStore: new FsCrdtStore(dir),
+    });
     const aDoc = new CollabDocument("draft v1\n");
     const a = client(serverA, "proj-restart", aDoc);
     try {
@@ -96,19 +106,26 @@ describe("sync server — CRDT persistence (B1.3, integration)", () => {
       const probe = new FsCrdtStore(dir);
       await vi.waitFor(async () => {
         const rebuilt = restoreDoc(await probe.loadUpdates("proj-restart"));
-        expect(new CollabDocument("", rebuilt).getSource()).toBe("draft v1\nmore\n");
+        expect(new CollabDocument("", rebuilt).getSource()).toBe(
+          "draft v1\nmore\n",
+        );
         expect(snapshotDoc(rebuilt)).toEqual(snapshotDoc(aDoc.doc));
       }, settle);
 
       // "Kill" relay A mid-session: it is simply never closed before B reads —
       // no flush, no compact, exactly what a crash leaves behind. A NEW relay
       // over the same store must serve the full state to a fresh client.
-      const serverB = await startSyncServer(0, { crdtStore: new FsCrdtStore(dir) });
+      const serverB = await startSyncServer(0, {
+        crdtStore: new FsCrdtStore(dir),
+      });
       const bDoc = new CollabDocument();
       const b = client(serverB, "proj-restart", bDoc);
       try {
         b.connect();
-        await vi.waitFor(() => expect(bDoc.getSource()).toBe("draft v1\nmore\n"), settle);
+        await vi.waitFor(
+          () => expect(bDoc.getSource()).toBe("draft v1\nmore\n"),
+          settle,
+        );
         b.destroy();
       } finally {
         await serverB.close();
@@ -122,13 +139,21 @@ describe("sync server — CRDT persistence (B1.3, integration)", () => {
 
   it("reap-then-rejoin: a room reaped while empty reloads its state from the store", async () => {
     const dir = await makeDir();
-    const server = await startSyncServer(0, { crdtStore: new FsCrdtStore(dir) });
+    const store = new FsCrdtStore(dir);
+    const server = await startSyncServer(0, { crdtStore: store });
     try {
       const aDoc = new CollabDocument("keep me\n");
       const a = client(server, "proj-reap", aDoc);
       a.connect();
       await vi.waitFor(() => expect(server.roomCount()).toBe(1), settle);
       aDoc.transact((t) => t.insert(t.length, "and me\n"), HUMAN);
+
+      // roomCount only proves the socket joined, not that its updates arrived.
+      await vi.waitFor(async () => {
+        expect(await persistedSource(store, "proj-reap")).toBe(
+          "keep me\nand me\n",
+        );
+      }, settle);
 
       a.disconnect(); // last peer leaves → the relay reaps the room (frees the doc)
       await vi.waitFor(() => expect(server.roomCount()).toBe(0), settle);
@@ -137,7 +162,10 @@ describe("sync server — CRDT persistence (B1.3, integration)", () => {
       const bDoc = new CollabDocument();
       const b = client(server, "proj-reap", bDoc);
       b.connect();
-      await vi.waitFor(() => expect(bDoc.getSource()).toBe("keep me\nand me\n"), settle);
+      await vi.waitFor(
+        () => expect(bDoc.getSource()).toBe("keep me\nand me\n"),
+        settle,
+      );
 
       a.destroy();
       b.destroy();
@@ -149,13 +177,19 @@ describe("sync server — CRDT persistence (B1.3, integration)", () => {
 
   it("reap compacts the room's log to ONE snapshot (storage stays bounded)", async () => {
     const dir = await makeDir();
-    const server = await startSyncServer(0, { crdtStore: new FsCrdtStore(dir) });
+    const store = new FsCrdtStore(dir);
+    const server = await startSyncServer(0, { crdtStore: store });
     try {
       const aDoc = new CollabDocument("0");
       const a = client(server, "proj-compact", aDoc);
       a.connect();
       await vi.waitFor(() => expect(server.roomCount()).toBe(1), settle);
-      for (const ch of ["1", "2", "3"]) aDoc.transact((t) => t.insert(t.length, ch), HUMAN);
+      for (const ch of ["1", "2", "3"])
+        aDoc.transact((t) => t.insert(t.length, ch), HUMAN);
+
+      await vi.waitFor(async () => {
+        expect(await persistedSource(store, "proj-compact")).toBe("0123");
+      }, settle);
 
       a.disconnect();
       await vi.waitFor(() => expect(server.roomCount()).toBe(0), settle);
@@ -165,7 +199,9 @@ describe("sync server — CRDT persistence (B1.3, integration)", () => {
       await vi.waitFor(async () => {
         const loaded = await probe.loadUpdates("proj-compact");
         expect(loaded.length).toBe(1);
-        expect(new CollabDocument("", restoreDoc(loaded)).getSource()).toBe("0123");
+        expect(new CollabDocument("", restoreDoc(loaded)).getSource()).toBe(
+          "0123",
+        );
       }, settle);
 
       a.destroy();
@@ -177,7 +213,9 @@ describe("sync server — CRDT persistence (B1.3, integration)", () => {
 
   it("close() compacts AND awaits the write — the store is flushed the moment it resolves", async () => {
     const dir = await makeDir();
-    const server = await startSyncServer(0, { crdtStore: new FsCrdtStore(dir) });
+    const server = await startSyncServer(0, {
+      crdtStore: new FsCrdtStore(dir),
+    });
     const aDoc = new CollabDocument("seed\n");
     const bDoc = new CollabDocument();
     const a = client(server, "proj-shutdown", aDoc);
@@ -188,7 +226,10 @@ describe("sync server — CRDT persistence (B1.3, integration)", () => {
       aDoc.transact((t) => t.insert(t.length, "tail\n"), HUMAN);
       // B converging proves the relay has RECEIVED every update (so the flush,
       // not test timing, is what makes them durable below).
-      await vi.waitFor(() => expect(bDoc.getSource()).toBe("seed\ntail\n"), settle);
+      await vi.waitFor(
+        () => expect(bDoc.getSource()).toBe("seed\ntail\n"),
+        settle,
+      );
 
       await server.close();
 
@@ -197,7 +238,9 @@ describe("sync server — CRDT persistence (B1.3, integration)", () => {
       const probe = new FsCrdtStore(dir);
       const loaded = await probe.loadUpdates("proj-shutdown");
       expect(loaded.length).toBe(1);
-      expect(new CollabDocument("", restoreDoc(loaded)).getSource()).toBe("seed\ntail\n");
+      expect(new CollabDocument("", restoreDoc(loaded)).getSource()).toBe(
+        "seed\ntail\n",
+      );
     } finally {
       a.destroy();
       b.destroy();
@@ -278,7 +321,9 @@ describe("sync server — CRDT persistence (load barrier + append seam)", () => 
       aDoc.transact((t) => t.insert(t.length, "there\n"), HUMAN);
 
       await vi.waitFor(() => {
-        expect(new CollabDocument("", restoreDoc(appended)).getSource()).toBe("hi\nthere\n");
+        expect(new CollabDocument("", restoreDoc(appended)).getSource()).toBe(
+          "hi\nthere\n",
+        );
       }, settle);
       a.destroy();
     } finally {
@@ -336,7 +381,9 @@ describe("sync server — CRDT persistence (load barrier + append seam)", () => 
       expect(server.roomCount()).toBe(1);
       // …and the failure is logged with a FIXED message (no room id leaked).
       await vi.waitFor(() => {
-        expect(errorSpy).toHaveBeenCalledWith("[galley/sync] failed to persist a CRDT update");
+        expect(errorSpy).toHaveBeenCalledWith(
+          "[galley/sync] failed to persist a CRDT update",
+        );
       }, settle);
 
       a.destroy();
@@ -361,7 +408,9 @@ describe("sync server — CRDT persistence (load barrier + append seam)", () => 
     const server = await startSyncServer(0, { crdtStore: store });
     try {
       const ws = await openWs(server, "room-badload");
-      const code = await new Promise<number>((resolve) => ws.on("close", (c) => resolve(c)));
+      const code = await new Promise<number>((resolve) =>
+        ws.on("close", (c) => resolve(c)),
+      );
       expect(code).toBe(1013); // "try again later" — never an empty doc a client could re-seed
       // The failed room is reaped, so a later join RETRIES the load fresh.
       await vi.waitFor(() => expect(server.roomCount()).toBe(0), settle);

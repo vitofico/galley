@@ -19,7 +19,9 @@
     "test:watch": "vitest",
     "typecheck": "pnpm -r typecheck",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "ci:unit": "pnpm lint:ast && node --test apps/web/scripts/download.test.mjs && pnpm typecheck && pnpm test",
+    "ci:full": "pnpm ci:unit && pnpm --filter @galley/web build && pnpm --filter @galley/web e2e"
   },
   "devDependencies": {
     "@ast-grep/cli": "0.39.5",

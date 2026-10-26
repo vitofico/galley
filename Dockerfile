@@ -71,7 +71,7 @@ RUN pnpm --filter @galley/web copy-wasm
 # Lightweight typecheck + unit run on the slim image, for quick iteration:
 #   docker compose -f docker-compose.test.yml run --build unit
 FROM source AS unit
-CMD ["sh", "-lc", "pnpm typecheck && pnpm test"]
+CMD ["pnpm", "ci:unit"]
 
 # --- green-gate (full suite incl. e2e) ---------------------------------------
 # `docker compose -f docker-compose.test.yml up --build --exit-code-from test`
@@ -107,7 +107,7 @@ COPY . .
 # must stage here or those tests fail "No fonts in .../public/fonts". Mirrors the
 # `source` stage; network is available at build, never at test/runtime.
 RUN pnpm --filter @galley/web copy-wasm
-CMD ["sh", "-lc", "pnpm typecheck && pnpm test && pnpm --filter @galley/web build && pnpm --filter @galley/web e2e"]
+CMD ["pnpm", "ci:full"]
 
 # --- runtime (run, not just build/test) --------------------------------------
 # The self-host runtime image (roadmap #5, ADR-0017). Builds the workspace once
