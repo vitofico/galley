@@ -8,7 +8,9 @@ import { skipDemoSeed } from "./app-helpers.js";
  * from a fresh browser context (no projects) per Playwright's default isolation,
  * with the one-time Einstein demo seed skipped so the counts are deterministic.
  */
-test("tags, search, and archive organize the library (#12.4)", async ({ page }) => {
+test("tags, search, and archive organize the library (#12.4)", async ({
+  page,
+}) => {
   await skipDemoSeed(page);
   await page.goto("/library");
   await expect(page.getByTestId("library")).toBeVisible();
@@ -25,7 +27,11 @@ test("tags, search, and archive organize the library (#12.4)", async ({ page }) 
   await expect(page.getByTestId("project-card")).toHaveCount(2);
 
   // Tag the Relativity card with "physics".
-  const relCard = page.locator('[data-testid="project-card"][data-project-id]', { hasText: "Relativity" });
+  const relCard = page.locator(
+    '[data-testid="project-card"][data-project-id]',
+    { hasText: "Relativity" },
+  );
+  await relCard.getByTestId("project-menu").click();
   await relCard.getByTestId("add-tag-input").fill("physics");
   await relCard.getByTestId("add-tag-input").press("Enter");
   await expect(relCard.getByTestId("project-tag")).toHaveText(/physics/);
@@ -47,7 +53,11 @@ test("tags, search, and archive organize the library (#12.4)", async ({ page }) 
   await expect(page.getByTestId("project-card")).toHaveCount(2);
 
   // Archive Chemistry → it disappears from the default view (soft-delete, not destroy).
-  const chemCard = page.locator('[data-testid="project-card"][data-project-id]', { hasText: "Chemistry" });
+  const chemCard = page.locator(
+    '[data-testid="project-card"][data-project-id]',
+    { hasText: "Chemistry" },
+  );
+  await chemCard.getByTestId("project-menu").click();
   await chemCard.getByTestId("archive-project").click();
   await expect(page.getByTestId("project-card")).toHaveCount(1);
   await expect(page.getByTestId("project-card")).toContainText("Relativity");
@@ -55,9 +65,14 @@ test("tags, search, and archive organize the library (#12.4)", async ({ page }) 
   // Show archived → Chemistry returns, marked archived, with an Unarchive action.
   await page.getByTestId("show-archived").check();
   await expect(page.getByTestId("project-card")).toHaveCount(2);
-  const archived = page.locator('[data-testid="project-card"][data-archived="true"]');
+  const archived = page.locator(
+    '[data-testid="project-card"][data-archived="true"]',
+  );
   await expect(archived).toHaveCount(1);
   await expect(archived).toContainText("Chemistry");
+  await archived.getByTestId("project-menu").click();
   await archived.getByTestId("archive-project").click(); // Unarchive
-  await expect(page.locator('[data-testid="project-card"][data-archived="true"]')).toHaveCount(0);
+  await expect(
+    page.locator('[data-testid="project-card"][data-archived="true"]'),
+  ).toHaveCount(0);
 });

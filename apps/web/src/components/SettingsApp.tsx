@@ -41,7 +41,18 @@ import {
   STORAGE_KEY as THEME_KEY,
   type ThemeMode,
 } from "../theme.js";
-import { applySkin, resolveInitialSkin, setSkin, SKIN_STORAGE_KEY, type Skin } from "../skin.js";
+import {
+  applySkin,
+  resolveInitialSkin,
+  setSkin,
+  SKIN_STORAGE_KEY,
+  type Skin,
+} from "../skin.js";
+import {
+  readBackgroundStyle,
+  setBackgroundStyle,
+  type BackgroundStyle,
+} from "../background-style.js";
 import { useEditorPrefs } from "../use-editor-prefs.js";
 import { EditorPrefs } from "./EditorPrefs.js";
 import { CompilerModeToggle } from "./CompilerModeToggle.js";
@@ -83,7 +94,8 @@ function GithubConnectSettings() {
   const [busy, setBusy] = useState<null | "validate">(null);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
+  const errorText = (err: unknown) =>
+    err instanceof Error ? err.message : String(err);
 
   const validate = async () => {
     if (busy) return;
@@ -94,7 +106,10 @@ function GithubConnectSettings() {
       const { login } = await validateToken(draft);
       setTokenDraft(""); // write-only: the secret never lingers in component state
       if (!saveGithubConnection({ token: draft, login })) {
-        setNote({ ok: false, text: "Could not save the connection in this browser." });
+        setNote({
+          ok: false,
+          text: "Could not save the connection in this browser.",
+        });
         return;
       }
       setView(loadRedactedGithubConnection());
@@ -111,15 +126,19 @@ function GithubConnectSettings() {
     clearGithubConnection();
     setView(null);
     setTokenDraft("");
-    setNote({ ok: true, text: "Disconnected — the token was removed from this browser." });
+    setNote({
+      ok: true,
+      text: "Disconnected — the token was removed from this browser.",
+    });
   };
 
   return (
     <>
       <p className="settings-card-lead">
-        Connect a GitHub account here, then choose the target repository in each project’s
-        Git panel — every project keeps its own. The token is stored in this browser only and
-        is sent to <code>api.github.com</code> directly — never to any Galley server.
+        Connect a GitHub account here, then choose the target repository in each
+        project’s Git panel — every project keeps its own. The token is stored
+        in this browser only and is sent to <code>api.github.com</code> directly
+        — never to any Galley server.
       </p>
       {view === null ? (
         <>
@@ -147,16 +166,17 @@ function GithubConnectSettings() {
             </button>
           </div>
           <p className="settings-note">
-            Use a classic token with the <code>repo</code> scope, or a fine-grained token
-            with <strong>Contents: read &amp; write</strong> on the target repository
-            (creating a repository from a project’s Git panel needs the classic{" "}
-            <code>repo</code> scope).
+            Use a classic token with the <code>repo</code> scope, or a
+            fine-grained token with <strong>Contents: read &amp; write</strong>{" "}
+            on the target repository (creating a repository from a project’s Git
+            panel needs the classic <code>repo</code> scope).
           </p>
         </>
       ) : (
         <>
           <p className="settings-github-connected">
-            Connected as <strong data-testid="github-login">{view.login}</strong>.{" "}
+            Connected as{" "}
+            <strong data-testid="github-login">{view.login}</strong>.{" "}
             <button
               type="button"
               className="settings-secondary"
@@ -167,9 +187,9 @@ function GithubConnectSettings() {
             </button>
           </p>
           <p className="settings-note">
-            Choose which repository each project pushes to from its Git panel — pushing replaces
-            the branch contents with that project’s current files (one-way; Galley never fetches
-            from GitHub in this version).
+            Choose which repository each project pushes to from its Git panel —
+            pushing replaces the branch contents with that project’s current
+            files (one-way; Galley never fetches from GitHub in this version).
           </p>
         </>
       )}
@@ -214,6 +234,12 @@ function initialTheme(): ThemeMode {
 }
 
 export function SettingsApp() {
+  const [backgroundStyle, setBackgroundState] =
+    useState<BackgroundStyle>(readBackgroundStyle);
+  const chooseBackground = (style: BackgroundStyle) => {
+    setBackgroundStyle(style);
+    setBackgroundState(style);
+  };
   // --- Appearance: the pressed state and the applied attribute resolve from
   // the SAME initial read, so they agree from the first paint.
   const [themeMode, setThemeMode] = useState<ThemeMode>(initialTheme);
@@ -239,17 +265,25 @@ export function SettingsApp() {
     // but blur who owns the side effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const chooseSkin = (next: Skin) => { setSkin(next); setSkinState(next); };
+  const chooseSkin = (next: Skin) => {
+    setSkin(next);
+    setSkinState(next);
+  };
 
   // --- Editor: the persisted prefs pair (same hook the shells use).
   const [prefs, setPrefs] = useEditorPrefs();
 
   // --- Compile: the RESOLVED trusted server URL, read-only (#5 Slice 5 — the
   // deploy injects it via VITE_GALLEY_COMPILE_URL; it is config, not a setting).
-  const serverUrl = useMemo(() => resolveServerCompileUrl(readServerUrlInputs()), []);
+  const serverUrl = useMemo(
+    () => resolveServerCompileUrl(readServerUrlInputs()),
+    [],
+  );
 
   // --- AI provider: shared persistence with every shell (provider-storage.ts).
-  const [provider, setProvider] = useState<ProviderConfig | null>(() => loadStoredProvider());
+  const [provider, setProvider] = useState<ProviderConfig | null>(() =>
+    loadStoredProvider(),
+  );
   const [providerNote, setProviderNote] = useState<string | null>(null);
 
   // --- Identity: LocalProfile.displayName (feeds presence + attribution).
@@ -303,20 +337,28 @@ export function SettingsApp() {
         <header className="settings-header">
           <h1 className="settings-title">Settings</h1>
           <p className="settings-subtitle">
-            Preferences for this browser — they apply everywhere you write, not to any one
-            project. Project things (sharing, git remotes) live with each project.
+            Preferences for this browser — they apply everywhere you write, not
+            to any one project. Project things (sharing, git remotes) live with
+            each project.
           </p>
-          <p className="settings-optional-lead" data-testid="settings-optional-lead">
-            Nothing here is required. Galley writes and typesets fully offline in this
-            browser — connect an AI provider or a GitHub account only when you want those
-            features.
+          <p
+            className="settings-optional-lead"
+            data-testid="settings-optional-lead"
+          >
+            Nothing here is required. Galley writes and typesets fully offline
+            in this browser — connect an AI provider or a GitHub account only
+            when you want those features.
           </p>
         </header>
 
         <div className="settings-layout">
           <nav className="settings-nav" aria-label="Settings sections">
             {SETTINGS_SECTIONS.map((s) => (
-              <a key={s.id} href={`#${s.id}`} data-testid={`settings-nav-${s.id}`}>
+              <a
+                key={s.id}
+                href={`#${s.id}`}
+                data-testid={`settings-nav-${s.id}`}
+              >
                 {s.label}
               </a>
             ))}
@@ -332,13 +374,13 @@ export function SettingsApp() {
             >
               <h2 className="settings-card-title">Identity</h2>
               <p className="settings-card-lead">
-                The name collaborators see — in presence, the share roster, and per-file
-                attribution.
+                The name collaborators see — in presence, the share roster, and
+                per-file attribution.
                 {authUser && (
                   <>
                     {" "}
-                    Started from your signed-in account — change it here to override what
-                    collaborators see.
+                    Started from your signed-in account — change it here to
+                    override what collaborators see.
                   </>
                 )}
               </p>
@@ -372,8 +414,9 @@ export function SettingsApp() {
                   data-testid="settings-display-name-saved"
                   role="status"
                 >
-                  Saved. It takes effect the next time you join or share a live session —
-                  peers already in a room keep seeing your old name until then.
+                  Saved. It takes effect the next time you join or share a live
+                  session — peers already in a room keep seeing your old name
+                  until then.
                 </p>
               )}
             </section>
@@ -387,8 +430,8 @@ export function SettingsApp() {
             >
               <h2 className="settings-card-title">AI provider</h2>
               <p className="settings-card-lead">
-                The model behind the agent panel — it drafts, edits, and explains
-                right in your document. Right now it uses{" "}
+                The model behind the agent panel — it drafts, edits, and
+                explains right in your document. Right now it uses{" "}
                 <strong data-testid="settings-provider-current">
                   {provider ? provider.label : "Demo (offline)"}
                 </strong>
@@ -431,11 +474,46 @@ export function SettingsApp() {
             >
               <h2 className="settings-card-title">Appearance</h2>
               <p className="settings-card-lead">
-                The chrome theme and colour identity. The rendered page stays paper in both
-                theme modes — only the desk around it changes.
+                The chrome theme and colour identity. The rendered page stays
+                paper in both theme modes — only the desk around it changes.
               </p>
-              <h3 className="settings-subhead">Style</h3>
-              <div className="settings-theme-choice" role="group" aria-label="Style">
+              <h3 className="settings-subhead">Background style</h3>
+              <div
+                className="settings-theme-choice"
+                role="group"
+                aria-label="Background style"
+              >
+                {(["plain", "artwork"] as const).map((style) => (
+                  <button
+                    key={style}
+                    type="button"
+                    className="settings-theme-option settings-background-option"
+                    data-testid={`settings-background-${style}`}
+                    aria-pressed={backgroundStyle === style}
+                    onClick={() => chooseBackground(style)}
+                  >
+                    <span
+                      className="background-preview"
+                      data-style={style}
+                      aria-hidden="true"
+                    />
+                    <span className="settings-theme-name">
+                      {style === "plain" ? "Plain" : "Artwork"}
+                    </span>
+                    <span className="settings-theme-desc">
+                      {style === "plain"
+                        ? "Quiet, solid surfaces"
+                        : "Paper layers and printed ink"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <h3 className="settings-subhead">Colour style</h3>
+              <div
+                className="settings-theme-choice"
+                role="group"
+                aria-label="Style"
+              >
                 <button
                   type="button"
                   className="settings-theme-option"
@@ -444,7 +522,9 @@ export function SettingsApp() {
                   onClick={() => chooseSkin("studio")}
                 >
                   <span className="settings-theme-name">Studio</span>
-                  <span className="settings-theme-desc">Tangerine on white — the Galley signature</span>
+                  <span className="settings-theme-desc">
+                    Tangerine on white — the Galley signature
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -454,11 +534,17 @@ export function SettingsApp() {
                   onClick={() => chooseSkin("press")}
                 >
                   <span className="settings-theme-name">Press</span>
-                  <span className="settings-theme-desc">Gold on warm paper — the editorial press</span>
+                  <span className="settings-theme-desc">
+                    Gold on warm paper — the editorial press
+                  </span>
                 </button>
               </div>
               <h3 className="settings-subhead">Theme</h3>
-              <div className="settings-theme-choice" role="group" aria-label="Theme">
+              <div
+                className="settings-theme-choice"
+                role="group"
+                aria-label="Theme"
+              >
                 <button
                   type="button"
                   className="settings-theme-option"
@@ -485,7 +571,8 @@ export function SettingsApp() {
                 </button>
               </div>
               <p className="settings-note">
-                Also one keystroke away anywhere: <kbd>⌘J</kbd> toggles the theme.
+                Also one keystroke away anywhere: <kbd>⌘J</kbd> toggles the
+                theme.
               </p>
             </section>
 
@@ -500,10 +587,16 @@ export function SettingsApp() {
               <p className="settings-card-lead">
                 How the source editor renders, on every document on this device.
               </p>
-              <EditorPrefs embedded prefs={prefs} onChange={setPrefs} open onClose={() => {}} />
+              <EditorPrefs
+                embedded
+                prefs={prefs}
+                onChange={setPrefs}
+                open
+                onClose={() => {}}
+              />
               <p className="settings-note">
-                Saved immediately; an editor that is already open picks the change up when you
-                return to it.
+                Saved immediately; an editor that is already open picks the
+                change up when you return to it.
               </p>
             </section>
 
@@ -516,9 +609,10 @@ export function SettingsApp() {
             >
               <h2 className="settings-card-title">Compile</h2>
               <p className="settings-card-lead">
-                Where the preview typesets. <strong>Local</strong> never leaves this browser;{" "}
-                <strong>Server</strong> sends the document to the configured compile service;{" "}
-                <strong>Auto</strong> prefers local and falls back to the server once, visibly.
+                Where the preview typesets. <strong>Local</strong> never leaves
+                this browser; <strong>Server</strong> sends the document to the
+                configured compile service; <strong>Auto</strong> prefers local
+                and falls back to the server once, visibly.
               </p>
               <CompilerModeToggle />
               <dl className="settings-kv">
@@ -528,21 +622,28 @@ export function SettingsApp() {
                 </dd>
               </dl>
               <p className="settings-note">
-                The server address is injected by the deployment, not editable here. Without
-                one, Server and Auto stay safely on the local compiler. Live compile status
-                shows in the editor’s status chip.
+                The server address is injected by the deployment, not editable
+                here. Without one, Server and Auto stay safely on the local
+                compiler. Live compile status shows in the editor’s status chip.
               </p>
               {serverUrl == null && (
-                <p className="settings-note" data-testid="settings-compile-hint">
+                <p
+                  className="settings-note"
+                  data-testid="settings-compile-hint"
+                >
                   Self-hosting? Server compile is opt-in — the default{" "}
-                  <code>docker compose up</code> ships no compile service. To enable it, run{" "}
+                  <code>docker compose up</code> ships no compile service. To
+                  enable it, run{" "}
                   <code>
-                    docker compose -f docker-compose.yml -f docker-compose.compile.yml --profile
-                    compile up --build
+                    docker compose -f docker-compose.yml -f
+                    docker-compose.compile.yml --profile compile up --build
                   </code>{" "}
                   (the overlay pre-sets <code>GALLEY_COMPILE_URL</code> to{" "}
                   <code>http://127.0.0.1:3001/compile</code>), then reload. See{" "}
-                  <strong>docs/self-host.md → Enabling server-side compile</strong>.
+                  <strong>
+                    docs/self-host.md → Enabling server-side compile
+                  </strong>
+                  .
                 </p>
               )}
             </section>

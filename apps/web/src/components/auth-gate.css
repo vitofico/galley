@@ -5,14 +5,6 @@
  * hairline border, the vermilion proof-rule keyline along the bottom edge).
  */
 
-/* ---------- The checking state (one /auth/me round-trip) --------------------
-   Deliberately invisible: the SAME paper the body already paints, so there is
-   nothing to flash before either the sign-in card or the app appears. */
-.auth-gate-checking {
-  min-height: 100vh;
-  background: var(--paper);
-}
-
 /* ---------- The sign-in screen ---------------------------------------------- */
 .auth-shell {
   min-height: 100vh;
@@ -20,8 +12,12 @@
   place-items: center;
   padding: 1.5rem;
   /* The press bed: the same quiet radial wash the preview pane sits on. */
-  background:
-    radial-gradient(120% 80% at 50% 0%, var(--paper-raised), var(--paper)) fixed;
+  background: radial-gradient(
+      120% 80% at 50% 0%,
+      var(--paper-raised),
+      var(--paper)
+    )
+    fixed;
 }
 
 .auth-card {
@@ -84,7 +80,9 @@
   border: none;
   border-radius: var(--radius-pill);
   cursor: pointer;
-  transition: background 140ms ease, transform 80ms ease;
+  transition:
+    background 140ms ease,
+    transform 80ms ease;
 }
 .auth-signin-btn:hover {
   background: var(--accent-deep);
@@ -170,7 +168,9 @@
   border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
   border-radius: var(--radius-pill);
   cursor: pointer;
-  transition: background 140ms ease, border-color 140ms ease;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease;
 }
 .account-signout-btn:hover:not(:disabled) {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
@@ -189,7 +189,9 @@
   border: 1px solid var(--line-strong, #dcdde2);
   border-radius: var(--radius-pill);
   cursor: pointer;
-  transition: background 140ms ease, border-color 140ms ease;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease;
 }
 .account-action-btn:hover {
   background: color-mix(in srgb, var(--ink) 8%, transparent);

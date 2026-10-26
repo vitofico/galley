@@ -4,11 +4,26 @@ import { isAuthEnabled } from "./auth-gate.js";
 import { AuthGate } from "./components/AuthGate.js";
 import { getControlResponderManager } from "./control-responder-mount.js";
 import { AgentBackgroundHosts } from "./components/AgentBackgroundHosts.js";
-import { currentRoute, homeShowsEditor, subscribeToRoute, type Route } from "./router.js";
+import {
+  currentRoute,
+  homeShowsEditor,
+  subscribeToRoute,
+  type Route,
+} from "./router.js";
 import { applySkin, resolveInitialSkin, SKIN_STORAGE_KEY } from "./skin.js";
-import { applyTheme, resolveInitialTheme, STORAGE_KEY as THEME_STORAGE_KEY } from "./theme.js";
+import {
+  applyBackgroundStyle,
+  readBackgroundStyle,
+} from "./background-style.js";
+import { BrandLoading } from "./components/BrandLoading.js";
+import {
+  applyTheme,
+  resolveInitialTheme,
+  STORAGE_KEY as THEME_STORAGE_KEY,
+} from "./theme.js";
 import "./styles.css";
 import "./theme.css";
+import "./brand-background.css";
 
 // Reflect the stored skin + mode onto <html> SYNCHRONOUSLY, before the first
 // React render — so the top-level surfaces the router never owns (the auth
@@ -27,8 +42,11 @@ try {
   const prefersDark =
     typeof window.matchMedia === "function" &&
     window.matchMedia("(prefers-color-scheme: dark)").matches;
-  applyTheme(resolveInitialTheme({ stored: readStored(THEME_STORAGE_KEY), prefersDark }));
+  applyTheme(
+    resolveInitialTheme({ stored: readStored(THEME_STORAGE_KEY), prefersDark }),
+  );
   applySkin(resolveInitialSkin({ stored: readStored(SKIN_STORAGE_KEY) }));
+  applyBackgroundStyle(readBackgroundStyle());
 } catch {
   /* a DOM-less or storage-less context: theming is best-effort, never fatal */
 }
@@ -36,10 +54,18 @@ try {
 // Route components are lazy-loaded so only the booted route's app code is in the
 // first chunk (L5-P3): the library dashboard, the project/join shells, and the
 // settings surface each become their own chunk behind a dynamic import.
-const LibraryRoot = lazy(() => import("./library-root.js").then((m) => ({ default: m.LibraryRoot })));
-const UnifiedRoot = lazy(() => import("./unified-root.js").then((m) => ({ default: m.UnifiedRoot })));
-const JoinRoot = lazy(() => import("./join-root.js").then((m) => ({ default: m.JoinRoot })));
-const SettingsRoot = lazy(() => import("./settings-root.js").then((m) => ({ default: m.SettingsRoot })));
+const LibraryRoot = lazy(() =>
+  import("./library-root.js").then((m) => ({ default: m.LibraryRoot })),
+);
+const UnifiedRoot = lazy(() =>
+  import("./unified-root.js").then((m) => ({ default: m.UnifiedRoot })),
+);
+const JoinRoot = lazy(() =>
+  import("./join-root.js").then((m) => ({ default: m.JoinRoot })),
+);
+const SettingsRoot = lazy(() =>
+  import("./settings-root.js").then((m) => ({ default: m.SettingsRoot })),
+);
 
 const root = document.getElementById("root");
 if (!root) throw new Error("missing #root");
@@ -108,7 +134,7 @@ const authEnabled = isAuthEnabled(
 );
 
 // Suspense covers the brief dynamic-import of the chosen route chunk. The
-// fallback is empty (the shells render their own loading state once mounted).
+// The shared print treatment is visible only while the actual route chunk loads.
 createRoot(root).render(
   <StrictMode>
     {/* F13: the headless agent-apply host lives ABOVE the router so it survives the
@@ -117,6 +143,8 @@ createRoot(root).render(
         Mounted outside the AuthGate so it keeps applying regardless of the shown
         route; it renders nothing. */}
     <AgentBackgroundHosts />
-    <Suspense fallback={null}>{authEnabled ? <AuthGate>{view}</AuthGate> : view}</Suspense>
+    <Suspense fallback={<BrandLoading />}>
+      {authEnabled ? <AuthGate>{view}</AuthGate> : view}
+    </Suspense>
   </StrictMode>,
 );

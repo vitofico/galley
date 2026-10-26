@@ -40,10 +40,18 @@ import { randomBytes as nodeRandomBytes, randomUUID } from "node:crypto";
 const SHOTS = ".ui-shots";
 
 async function settle(page: import("@playwright/test").Page) {
-  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, { timeout: 60_000 });
+  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, {
+    timeout: 60_000,
+  });
 }
-async function setTheme(page: import("@playwright/test").Page, theme: "light" | "dark") {
-  await page.evaluate((t) => document.documentElement.setAttribute("data-theme", t), theme);
+async function setTheme(
+  page: import("@playwright/test").Page,
+  theme: "light" | "dark",
+) {
+  await page.evaluate(
+    (t) => document.documentElement.setAttribute("data-theme", t),
+    theme,
+  );
 }
 /**
  * Kill CSS transitions/animations so a theme flip is INSTANT and the screenshot
@@ -53,7 +61,8 @@ async function setTheme(page: import("@playwright/test").Page, theme: "light" | 
  */
 async function freeze(page: import("@playwright/test").Page) {
   await page.addStyleTag({
-    content: "*,*::before,*::after{transition:none!important;animation:none!important;}",
+    content:
+      "*,*::before,*::after{transition:none!important;animation:none!important;}",
   });
 }
 
@@ -64,7 +73,10 @@ for (const theme of ["light", "dark"] as const) {
     await setTheme(page, theme);
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/editor-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/editor-${theme}.png`,
+      fullPage: true,
+    });
   });
 
   // Styles: the Style Library overlay on a NON-conforming doc (blank starter) —
@@ -80,27 +92,38 @@ for (const theme of ["light", "dark"] as const) {
     await setTheme(page, theme);
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/style-library-blocked-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/style-library-blocked-${theme}.png`,
+      fullPage: true,
+    });
   });
 
   // Styles: the SWITCHABLE state — a styleable doc (canonical `doc` import) so
   // Apply is enabled. Also functionally exercises the in-browser apply path.
-  test(`capture: style library switchable + apply (${theme})`, async ({ page }) => {
+  test(`capture: style library switchable + apply (${theme})`, async ({
+    page,
+  }) => {
     await gotoEditor(page, { id: `style-cap-${theme}` });
     await settle(page);
     const editor = page.locator(".cm-content");
     await editor.click();
     await page.keyboard.press("ControlOrMeta+a");
     await page.keyboard.press("Delete");
-    await editor.pressSequentially('#import "/style.typ": doc, accent, ink, ink-soft, rule');
+    await editor.pressSequentially(
+      '#import "/style.typ": doc, accent, ink, ink-soft, rule',
+    );
     await page.keyboard.press("Escape");
     await page.keyboard.press("Enter");
-    await editor.pressSequentially('#show: doc.with(title: "Styled document", author: "A. Author")');
+    await editor.pressSequentially(
+      '#show: doc.with(title: "Styled document", author: "A. Author")',
+    );
     await page.keyboard.press("Escape");
     await page.keyboard.press("Enter");
     await editor.pressSequentially("= Introduction");
     await page.keyboard.press("Enter");
-    await editor.pressSequentially("A paragraph of body text to show the style.");
+    await editor.pressSequentially(
+      "A paragraph of body text to show the style.",
+    );
     await page.keyboard.press("ControlOrMeta+k");
     await page.getByTestId("command-palette-input").fill("Change style");
     await page.getByTestId("command-palette-item").first().click();
@@ -109,7 +132,10 @@ for (const theme of ["light", "dark"] as const) {
     await setTheme(page, theme);
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/style-library-switchable-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/style-library-switchable-${theme}.png`,
+      fullPage: true,
+    });
     // Apply "Modern" and capture the re-rendered preview (functional check).
     await page.getByTestId("style-card").filter({ hasText: "Modern" }).click();
     await page.getByTestId("style-apply").click();
@@ -117,7 +143,10 @@ for (const theme of ["light", "dark"] as const) {
     await settle(page);
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/style-applied-modern-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/style-applied-modern-${theme}.png`,
+      fullPage: true,
+    });
   });
 
   test(`capture: editor, files collapsed (${theme})`, async ({ page }) => {
@@ -133,7 +162,10 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.getByTestId("project-files")).toHaveCount(0);
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/editor-files-collapsed-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/editor-files-collapsed-${theme}.png`,
+      fullPage: true,
+    });
   });
 
   test(`capture: library (${theme})`, async ({ page }) => {
@@ -142,7 +174,10 @@ for (const theme of ["light", "dark"] as const) {
     await setTheme(page, theme);
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/library-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/library-${theme}.png`,
+      fullPage: true,
+    });
   });
 
   // The "+" create tile expanded into its inline name field.
@@ -154,7 +189,10 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.getByTestId("new-project-name")).toBeVisible();
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/library-new-tile-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/library-new-tile-${theme}.png`,
+      fullPage: true,
+    });
   });
 
   // The inline destructive delete confirm on a card.
@@ -165,13 +203,19 @@ for (const theme of ["light", "dark"] as const) {
     await page.getByTestId("new-project-tile").click();
     await page.getByTestId("new-project-name").fill("Doomed Draft");
     await page.getByTestId("create-project").click();
-    const card = page.locator('[data-testid="project-card"]', { hasText: "Doomed Draft" });
+    const card = page.locator('[data-testid="project-card"]', {
+      hasText: "Doomed Draft",
+    });
     await expect(card).toBeVisible();
+    await card.getByTestId("project-menu").click();
     await card.getByTestId("delete-project").click();
     await expect(card.getByTestId("delete-confirm")).toBeVisible();
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/library-delete-confirm-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/library-delete-confirm-${theme}.png`,
+      fullPage: true,
+    });
   });
 }
 
@@ -206,7 +250,10 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.getByTestId("citation-result")).toBeVisible();
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/citation-panel-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/citation-panel-${theme}.png`,
+      fullPage: true,
+    });
   });
 }
 
@@ -226,7 +273,10 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.getByTestId("search-result").first()).toBeVisible();
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/in-doc-search-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/in-doc-search-${theme}.png`,
+      fullPage: true,
+    });
   });
 }
 
@@ -242,10 +292,15 @@ for (const theme of ["light", "dark"] as const) {
     await page.keyboard.press("ControlOrMeta+a");
     await page.keyboard.press("ControlOrMeta+Shift+e");
     await expect(page.getByTestId("revise-selection-prompt")).toBeVisible();
-    await page.getByTestId("revise-selection-input").fill("make this more concise");
+    await page
+      .getByTestId("revise-selection-input")
+      .fill("make this more concise");
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/revise-selection-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/revise-selection-${theme}.png`,
+      fullPage: true,
+    });
   });
 }
 
@@ -262,7 +317,10 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.getByTestId("insert-reference-picker")).toBeVisible();
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/insert-reference-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/insert-reference-${theme}.png`,
+      fullPage: true,
+    });
   });
 }
 
@@ -274,13 +332,18 @@ for (const theme of ["light", "dark"] as const) {
     await setTheme(page, theme);
     // Drive a run (demo model) to a pending proposal, then open the Refine input.
     await page.getByTestId("agent-send").click();
-    await expect(page.getByTestId("diff-review")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("diff-review")).toBeVisible({
+      timeout: 30_000,
+    });
     await page.getByTestId("refine-proposal").click();
     await expect(page.getByTestId("refine-input")).toBeVisible();
     await page.getByTestId("refine-input").fill("make it more concise");
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/refine-proposal-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/refine-proposal-${theme}.png`,
+      fullPage: true,
+    });
   });
 }
 
@@ -302,7 +365,10 @@ for (const theme of ["light", "dark"] as const) {
     ).toBeVisible();
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/folder-tree-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/folder-tree-${theme}.png`,
+      fullPage: true,
+    });
   });
 }
 
@@ -315,9 +381,19 @@ for (const theme of ["light", "dark"] as const) {
     // longer nudges).
     await page.addInitScript(() => {
       const nav = navigator as unknown as { storage?: Record<string, unknown> };
-      if (!nav.storage) Object.defineProperty(nav, "storage", { configurable: true, value: {} });
-      Object.defineProperty(nav.storage, "persist", { configurable: true, value: async () => false });
-      Object.defineProperty(nav.storage, "persisted", { configurable: true, value: async () => false });
+      if (!nav.storage)
+        Object.defineProperty(nav, "storage", {
+          configurable: true,
+          value: {},
+        });
+      Object.defineProperty(nav.storage, "persist", {
+        configurable: true,
+        value: async () => false,
+      });
+      Object.defineProperty(nav.storage, "persisted", {
+        configurable: true,
+        value: async () => false,
+      });
       Object.defineProperty(nav.storage, "estimate", {
         configurable: true,
         value: async () => ({ usage: 950, quota: 1_000 }),
@@ -329,7 +405,10 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.getByTestId("durability-notice")).toBeVisible();
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/durability-nudge-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/durability-nudge-${theme}.png`,
+      fullPage: true,
+    });
   });
 }
 
@@ -346,10 +425,15 @@ for (const theme of ["light", "dark"] as const) {
     await page.getByTestId("citation-library-source-zotero").click();
     await expect(page.getByTestId("citation-zotero-body")).toBeVisible();
     await page.getByTestId("citation-zotero-id").fill("475425");
-    await page.getByTestId("citation-zotero-key").fill("a1b2c3d4e5f6g7h8i9j0k1l2");
+    await page
+      .getByTestId("citation-zotero-key")
+      .fill("a1b2c3d4e5f6g7h8i9j0k1l2");
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/citation-zotero-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/citation-zotero-${theme}.png`,
+      fullPage: true,
+    });
   });
 
   test(`capture: citation Mendeley connect (${theme})`, async ({ page }) => {
@@ -362,10 +446,15 @@ for (const theme of ["light", "dark"] as const) {
     await page.getByTestId("citation-mode-library").click();
     await page.getByTestId("citation-library-source-mendeley").click();
     await expect(page.getByTestId("citation-mendeley-body")).toBeVisible();
-    await page.getByTestId("citation-mendeley-token").fill("a1b2c3d4e5f6g7h8i9j0k1l2");
+    await page
+      .getByTestId("citation-mendeley-token")
+      .fill("a1b2c3d4e5f6g7h8i9j0k1l2");
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/citation-mendeley-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/citation-mendeley-${theme}.png`,
+      fullPage: true,
+    });
   });
 
   test(`capture: import project zip (${theme})`, async ({ page }) => {
@@ -377,7 +466,10 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.getByTestId("project-import-panel")).toBeVisible();
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/import-project-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/import-project-${theme}.png`,
+      fullPage: true,
+    });
   });
 }
 
@@ -387,10 +479,15 @@ test("capture: compile-mode server unavailable (light)", async ({ page }) => {
   // #19.3: the toggle lives in the status chip's popover.
   await page.getByTestId("status-chip").click();
   await page.getByTestId("compiler-mode-server").click();
-  await expect(page.getByTestId("compiler-mode-server-unavailable")).toBeVisible();
+  await expect(
+    page.getByTestId("compiler-mode-server-unavailable"),
+  ).toBeVisible();
   await freeze(page);
   await page.waitForTimeout(150);
-  await page.screenshot({ path: `${SHOTS}/compiler-mode-server-unavailable.png`, fullPage: true });
+  await page.screenshot({
+    path: `${SHOTS}/compiler-mode-server-unavailable.png`,
+    fullPage: true,
+  });
 });
 
 // #19.3 consolidation surfaces: the status-chip popover and the Export menu.
@@ -403,7 +500,10 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.getByTestId("status-popover")).toBeVisible();
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/status-popover-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/status-popover-${theme}.png`,
+      fullPage: true,
+    });
   });
 
   test(`capture: export menu (${theme})`, async ({ page }) => {
@@ -414,7 +514,10 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.getByTestId("export-menu")).toBeVisible();
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/export-menu-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/export-menu-${theme}.png`,
+      fullPage: true,
+    });
   });
 
   // The per-project GitHub push target (2026-06-15 split): the Git panel now owns
@@ -440,7 +543,10 @@ for (const theme of ["light", "dark"] as const) {
     await setTheme(page, theme);
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/git-github-target-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/git-github-target-${theme}.png`,
+      fullPage: true,
+    });
   });
 
   // The destination chooser — the unconfigured entry point of the unified panel.
@@ -452,7 +558,10 @@ for (const theme of ["light", "dark"] as const) {
     await setTheme(page, theme);
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/git-dest-chooser-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/git-dest-chooser-${theme}.png`,
+      fullPage: true,
+    });
   });
 
   // The generic "Other git host" sub-flow (URL / branch / token form).
@@ -465,7 +574,10 @@ for (const theme of ["light", "dark"] as const) {
     await setTheme(page, theme);
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/git-generic-form-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/git-generic-form-${theme}.png`,
+      fullPage: true,
+    });
   });
 }
 
@@ -474,11 +586,16 @@ for (const theme of ["light", "dark"] as const) {
 for (const theme of ["light", "dark"] as const) {
   test(`capture: join name prompt (${theme})`, async ({ page }) => {
     await page.goto("/join/capture-room");
-    await expect(page.getByTestId("join-name-prompt")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("join-name-prompt")).toBeVisible({
+      timeout: 30_000,
+    });
     await setTheme(page, theme);
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/join-prompt-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/join-prompt-${theme}.png`,
+      fullPage: true,
+    });
   });
 
   test(`capture: main-deleted notice (${theme})`, async ({ page }) => {
@@ -496,11 +613,16 @@ for (const theme of ["light", "dark"] as const) {
     // is also the only state where "Pick new main" means anything.
     await page.getByTestId("new-file-path").fill("/chapter.typ");
     await page.getByTestId("add-file").click();
-    await page.locator('[data-testid="delete-file"][data-path="/main.typ"]').click();
+    await page
+      .locator('[data-testid="delete-file"][data-path="/main.typ"]')
+      .click();
     await expect(page.getByTestId("main-deleted-notice")).toBeVisible();
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/main-deleted-notice-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/main-deleted-notice-${theme}.png`,
+      fullPage: true,
+    });
   });
 }
 
@@ -514,10 +636,15 @@ test("capture: stale-render banner (light)", async ({ page }) => {
   await editor.click();
   await page.keyboard.press("ControlOrMeta+a");
   await page.keyboard.type("= Title\n#let x =");
-  await expect(page.getByTestId("preview-stale-notice")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("preview-stale-notice")).toBeVisible({
+    timeout: 30_000,
+  });
   await freeze(page);
   await page.waitForTimeout(150);
-  await page.screenshot({ path: `${SHOTS}/stale-render-banner.png`, fullPage: true });
+  await page.screenshot({
+    path: `${SHOTS}/stale-render-banner.png`,
+    fullPage: true,
+  });
 });
 
 // L10 — the project-name pill's hover/focus "click to rename" affordance
@@ -529,7 +656,10 @@ test("capture: project-name rename affordance (light)", async ({ page }) => {
   await freeze(page);
   await page.waitForTimeout(150);
   await page.getByTestId("project-name").hover();
-  await page.screenshot({ path: `${SHOTS}/rename-affordance.png`, fullPage: true });
+  await page.screenshot({
+    path: `${SHOTS}/rename-affordance.png`,
+    fullPage: true,
+  });
 });
 
 test("capture: focus mode (light)", async ({ page }) => {
@@ -551,7 +681,10 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.getByTestId("template-picker")).toBeVisible();
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/template-picker-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/template-picker-${theme}.png`,
+      fullPage: true,
+    });
   });
 }
 
@@ -566,7 +699,10 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.getByTestId("command-palette")).toBeVisible();
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/command-palette-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/command-palette-${theme}.png`,
+      fullPage: true,
+    });
   });
 
   test(`capture: share popover (${theme})`, async ({ page }) => {
@@ -577,7 +713,10 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.getByTestId("share-popover")).toBeVisible();
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/share-popover-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/share-popover-${theme}.png`,
+      fullPage: true,
+    });
   });
 
   test(`capture: history dock (${theme})`, async ({ page }) => {
@@ -588,9 +727,11 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.getByTestId("history-panel")).toBeVisible();
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/history-dock-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/history-dock-${theme}.png`,
+      fullPage: true,
+    });
   });
-
 }
 
 // #19.7: the unified /settings surface (the editor-prefs dock's successor) —
@@ -599,14 +740,19 @@ for (const theme of ["light", "dark"] as const) {
 for (const theme of ["light", "dark"] as const) {
   test(`capture: settings page (${theme})`, async ({ page }) => {
     await page.goto("/settings");
-    await expect(page.getByTestId("settings-page")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("settings-page")).toBeVisible({
+      timeout: 30_000,
+    });
     if (theme === "dark") {
       await page.getByTestId("settings-theme-dark").click();
       await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     }
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/settings-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/settings-${theme}.png`,
+      fullPage: true,
+    });
   });
 }
 
@@ -615,17 +761,24 @@ for (const theme of ["light", "dark"] as const) {
 for (const theme of ["light", "dark"] as const) {
   test(`capture: agent access enabled (${theme})`, async ({ page }) => {
     await page.goto("/settings");
-    await expect(page.getByTestId("settings-page")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("settings-page")).toBeVisible({
+      timeout: 30_000,
+    });
     if (theme === "dark") {
       await page.getByTestId("settings-theme-dark").click();
       await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     }
     await page.getByTestId("agent-access-enable").click();
     await expect(page.getByTestId("agent-access-pairing")).toBeVisible();
-    await page.getByTestId("settings-section-agent-access").scrollIntoViewIfNeeded();
+    await page
+      .getByTestId("settings-section-agent-access")
+      .scrollIntoViewIfNeeded();
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/agent-access-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/agent-access-${theme}.png`,
+      fullPage: true,
+    });
   });
 }
 
@@ -635,7 +788,9 @@ for (const theme of ["light", "dark"] as const) {
 // exactly like the e2e, so the shot is the genuine rendered modal, not a mock.
 {
   const HERE = fileURLToPath(import.meta.url);
-  const requireFromMcp = createRequire(resolve(HERE, "../../../mcp/package.json"));
+  const requireFromMcp = createRequire(
+    resolve(HERE, "../../../mcp/package.json"),
+  );
   const { WebSocket: WS } = requireFromMcp("ws") as {
     WebSocket: new (url: string) => WebSocketLike;
   };
@@ -651,10 +806,15 @@ for (const theme of ["light", "dark"] as const) {
       const consentProject = `/p/agent-consent-cap-${theme}`;
       await suppressCoachOverlay(page);
       await page.goto(`/settings?from=${encodeURIComponent(consentProject)}`);
-      await expect(page.getByTestId("settings-page")).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId("settings-page")).toBeVisible({
+        timeout: 30_000,
+      });
       if (theme === "dark") {
         await page.getByTestId("settings-theme-dark").click();
-        await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+        await expect(page.locator("html")).toHaveAttribute(
+          "data-theme",
+          "dark",
+        );
       }
       await page.getByTestId("agent-access-enable").click();
       const pairing = page.getByTestId("agent-access-pairing");
@@ -674,7 +834,10 @@ for (const theme of ["light", "dark"] as const) {
       const pairConn = new CollabConnection(
         pairDoc,
         new WebSocketTransport(
-          () => new WS(`${syncUrl.replace(/\/+$/, "")}/${encodeURIComponent(pairingRoom)}`),
+          () =>
+            new WS(
+              `${syncUrl.replace(/\/+$/, "")}/${encodeURIComponent(pairingRoom)}`,
+            ),
         ),
         { author: KERNEL_AUTHOR },
       );
@@ -695,12 +858,23 @@ for (const theme of ["light", "dark"] as const) {
         });
         publishControlRequest(
           pairHost,
-          { op: "pairing_claim", params: { ephPub: bytesToBase64Url(ephPub), nonce: nonceB64, claimMac } },
+          {
+            op: "pairing_claim",
+            params: {
+              ephPub: bytesToBase64Url(ephPub),
+              nonce: nonceB64,
+              claimMac,
+            },
+          },
           KERNEL_AUTHOR,
           pid,
         );
-        const resp = await awaitControlResponse(pairHost, pid, { timeoutMs: 30_000 });
-        const { bEphPub, sealed } = (resp as Extract<ControlResponse, { ok: true }>).result as {
+        const resp = await awaitControlResponse(pairHost, pid, {
+          timeoutMs: 30_000,
+        });
+        const { bEphPub, sealed } = (
+          resp as Extract<ControlResponse, { ok: true }>
+        ).result as {
           bEphPub: string;
           sealed: { iv: string; ct: string };
         };
@@ -710,7 +884,11 @@ for (const theme of ["light", "dark"] as const) {
           codeSecret,
           nonce,
         );
-        const opened = await openPairingPayload(sealKey, sealed, { nonce: nonceB64, requestId: pid, pairingRoom });
+        const opened = await openPairingPayload(sealKey, sealed, {
+          nonce: nonceB64,
+          requestId: pid,
+          pairingRoom,
+        });
         controlRoom = opened!.controlRoom;
       } finally {
         pairConn.destroy();
@@ -729,7 +907,11 @@ for (const theme of ["light", "dark"] as const) {
       const host: DocHost = { doc: doc.doc };
       try {
         // Discover the open project's id (list_projects), then ask to open it.
-        const lpId = publishControlRequest(host, { op: "list_projects", params: {} }, KERNEL_AUTHOR);
+        const lpId = publishControlRequest(
+          host,
+          { op: "list_projects", params: {} },
+          KERNEL_AUTHOR,
+        );
         let projectId = "";
         await expect
           .poll(
@@ -744,11 +926,20 @@ for (const theme of ["light", "dark"] as const) {
             { timeout: 30_000 },
           )
           .not.toBe("");
-        publishControlRequest(host, { op: "open_project", params: { projectId } }, KERNEL_AUTHOR);
-        await expect(page.getByTestId("agent-open-consent")).toBeVisible({ timeout: 30_000 });
+        publishControlRequest(
+          host,
+          { op: "open_project", params: { projectId } },
+          KERNEL_AUTHOR,
+        );
+        await expect(page.getByTestId("agent-open-consent")).toBeVisible({
+          timeout: 30_000,
+        });
         await freeze(page);
         await page.waitForTimeout(150);
-        await page.screenshot({ path: `${SHOTS}/agent-open-consent-${theme}.png`, fullPage: true });
+        await page.screenshot({
+          path: `${SHOTS}/agent-open-consent-${theme}.png`,
+          fullPage: true,
+        });
       } finally {
         connection.destroy();
         doc.destroy();
@@ -773,7 +964,10 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.getByTestId("instructions-panel")).toBeVisible();
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/instructions-panel-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/instructions-panel-${theme}.png`,
+      fullPage: true,
+    });
   });
 }
 
@@ -790,14 +984,19 @@ for (const theme of ["light", "dark"] as const) {
     await expect(input).toBeFocused();
     await input.fill("project instructions");
     await page.keyboard.press("Enter");
-    await page.getByTestId("instructions-textarea").fill(
-      'Write tersely.\n\n## Constraints\n\nmax-words: 120\nrequired-section: "Introduction"\nforbidden-word: "utilize"',
-    );
+    await page
+      .getByTestId("instructions-textarea")
+      .fill(
+        'Write tersely.\n\n## Constraints\n\nmax-words: 120\nrequired-section: "Introduction"\nforbidden-word: "utilize"',
+      );
     await page.getByTestId("instructions-save").click();
     await expect(page.getByTestId("writing-goals")).toBeVisible();
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/writing-goals-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/writing-goals-${theme}.png`,
+      fullPage: true,
+    });
   });
 }
 
@@ -810,7 +1009,9 @@ for (const theme of ["light", "dark"] as const) {
 // ──────────────────────────────────────────────────────────────────────────
 {
   const HERE2 = fileURLToPath(import.meta.url);
-  const requireFromMcp2 = createRequire(resolve(HERE2, "../../../mcp/package.json"));
+  const requireFromMcp2 = createRequire(
+    resolve(HERE2, "../../../mcp/package.json"),
+  );
   const { WebSocket: WS2 } = requireFromMcp2("ws") as {
     WebSocket: new (url: string) => WebSocketLike;
   };
@@ -834,24 +1035,31 @@ for (const theme of ["light", "dark"] as const) {
     };
   }
 
-  function mainFileText(project: CollabProject): { path: string; text: string } | undefined {
+  function mainFileText(
+    project: CollabProject,
+  ): { path: string; text: string } | undefined {
     const mainId = project.mainFileId();
     if (!mainId) return undefined;
     const file = project.getFile(mainId);
-    return file && !file.deleted ? { path: file.path, text: file.text } : undefined;
+    return file && !file.deleted
+      ? { path: file.path, text: file.text }
+      : undefined;
   }
 
   async function shareFromUi(
     page: import("@playwright/test").Page,
   ): Promise<{ syncUrl: string; room: string }> {
     await page.goto("/?seed=einstein");
-    await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, { timeout: 60_000 });
+    await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, {
+      timeout: 60_000,
+    });
     await page.getByTestId("share-button").click();
     const linkInput = page.getByTestId("share-link");
     await expect(linkInput).toBeVisible({ timeout: 30_000 });
     const shareUrl = new URL(await linkInput.inputValue());
     const room = decodeURIComponent(shareUrl.pathname.split("/").pop() ?? "");
-    const syncUrl = shareUrl.searchParams.get("sync") ?? `ws://${shareUrl.hostname}:1234`;
+    const syncUrl =
+      shareUrl.searchParams.get("sync") ?? `ws://${shareUrl.hostname}:1234`;
     // Close the share popover so its topbar overlay doesn't sit over the review pane.
     await page.keyboard.press("Escape");
     await expect(linkInput).toHaveCount(0, { timeout: 30_000 });
@@ -865,12 +1073,16 @@ for (const theme of ["light", "dark"] as const) {
   //    "Add image · mime · size" pointer summary). A multi-op set renders as the
   //    single inline McpFileProposals card (one atomic Accept-all).
   for (const theme of ["light", "dark"] as const) {
-    test(`capture: mcp file proposal with binary (${theme})`, async ({ page }) => {
+    test(`capture: mcp file proposal with binary (${theme})`, async ({
+      page,
+    }) => {
       const { syncUrl, room } = await shareFromUi(page);
       const peer = joinAsNodePeer(syncUrl, room);
       try {
         await expect
-          .poll(() => mainFileText(peer.project)?.text ?? "", { timeout: 30_000 })
+          .poll(() => mainFileText(peer.project)?.text ?? "", {
+            timeout: 30_000,
+          })
           .toContain("Annus Mirabilis");
         const main = mainFileText(peer.project)!;
         const proposedMain = `${main.text}\n#image("figures/diagram.png")\n`;
@@ -888,7 +1100,12 @@ for (const theme of ["light", "dark"] as const) {
                 baseText: "",
                 proposedText: "",
                 blocks: [],
-                binaryAsset: { type: "binary", hash: FAKE_HASH, size: 48_213, mime: "image/png" },
+                binaryAsset: {
+                  type: "binary",
+                  hash: FAKE_HASH,
+                  size: 48_213,
+                  mime: "image/png",
+                },
               },
               {
                 kind: "edit",
@@ -921,20 +1138,31 @@ for (const theme of ["light", "dark"] as const) {
   // 2. A propose-only RESTORE proposal — a `propose_files` set titled `Restore to "…"`
   //    bundling many create / edit / delete ops (what a version-restore proposes).
   for (const theme of ["light", "dark"] as const) {
-    test(`capture: mcp restore-version proposal (${theme})`, async ({ page }) => {
+    test(`capture: mcp restore-version proposal (${theme})`, async ({
+      page,
+    }) => {
       const { syncUrl, room } = await shareFromUi(page);
       const peer = joinAsNodePeer(syncUrl, room);
       try {
         await expect
-          .poll(() => mainFileText(peer.project)?.text ?? "", { timeout: 30_000 })
+          .poll(() => mainFileText(peer.project)?.text ?? "", {
+            timeout: 30_000,
+          })
           .toContain("Annus Mirabilis");
         const main = mainFileText(peer.project)!;
         // Seed two files the restore would touch (an edit target + a delete target).
-        peer.project.create("/chapters/old.typ", "= Old draft\nStale prose.\n", MCP_AUTHOR);
+        peer.project.create(
+          "/chapters/old.typ",
+          "= Old draft\nStale prose.\n",
+          MCP_AUTHOR,
+        );
         peer.project.create("/scratch.typ", "throwaway\n", MCP_AUTHOR);
         await expect
           .poll(
-            () => peer.project.snapshot().files.some((f) => !f.deleted && f.path === "/scratch.typ"),
+            () =>
+              peer.project
+                .snapshot()
+                .files.some((f) => !f.deleted && f.path === "/scratch.typ"),
             { timeout: 30_000 },
           )
           .toBe(true);
@@ -963,7 +1191,9 @@ for (const theme of ["light", "dark"] as const) {
                 path: "/chapters/old.typ",
                 baseText: "= Old draft\nStale prose.\n",
                 proposedText: "= Old draft\nRestored prose.\n",
-                blocks: [{ search: "Stale prose.", replace: "Restored prose." }],
+                blocks: [
+                  { search: "Stale prose.", replace: "Restored prose." },
+                ],
               },
               {
                 kind: "delete",
@@ -977,7 +1207,9 @@ for (const theme of ["light", "dark"] as const) {
           MCP_AUTHOR,
         );
         // The pending-review pane auto-opens on the empty→pending edge (editors).
-        await expect(page.getByTestId("mcp-file-proposal")).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByTestId("mcp-file-proposal")).toBeVisible({
+          timeout: 30_000,
+        });
         await expect(page.getByTestId("file-proposal-op")).toHaveCount(4);
         await setTheme(page, theme);
         await freeze(page);
@@ -1024,14 +1256,18 @@ for (const theme of ["light", "dark"] as const) {
       const peer = joinAsNodePeer(syncUrl, room);
       try {
         await expect
-          .poll(() => mainFileText(peer.project)?.text ?? "", { timeout: 30_000 })
+          .poll(() => mainFileText(peer.project)?.text ?? "", {
+            timeout: 30_000,
+          })
           .toContain("Annus Mirabilis");
         const main = mainFileText(peer.project)!;
         await seedRun(peer, `run-${Date.now()}`, main);
         // The pending-review pane auto-opens on the empty→pending edge (editors).
         const card = page.getByTestId("run-review-card");
         await expect(card).toHaveCount(1, { timeout: 30_000 });
-        await expect(card.getByTestId("run-review-count")).toHaveText(/3 changes/);
+        await expect(card.getByTestId("run-review-count")).toHaveText(
+          /3 changes/,
+        );
         await setTheme(page, theme);
         await freeze(page);
         await page.waitForTimeout(150);
@@ -1049,7 +1285,9 @@ for (const theme of ["light", "dark"] as const) {
       const peer = joinAsNodePeer(syncUrl, room);
       try {
         await expect
-          .poll(() => mainFileText(peer.project)?.text ?? "", { timeout: 30_000 })
+          .poll(() => mainFileText(peer.project)?.text ?? "", {
+            timeout: 30_000,
+          })
           .toContain("Annus Mirabilis");
         const main = mainFileText(peer.project)!;
         await seedRun(peer, `run-${Date.now()}`, main);
@@ -1091,7 +1329,10 @@ for (const theme of ["light", "dark"] as const) {
       await expect(card.getByTestId("run-review-streaming")).toBeVisible();
       await freeze(page);
       await page.waitForTimeout(150);
-      await page.screenshot({ path: `${SHOTS}/run-review-streaming.png`, fullPage: true });
+      await page.screenshot({
+        path: `${SHOTS}/run-review-streaming.png`,
+        fullPage: true,
+      });
     } finally {
       peer.destroy();
     }
@@ -1114,7 +1355,10 @@ for (const theme of ["light", "dark"] as const) {
     await expect(panel.getByTestId("agent-auto-killswitch")).toBeVisible();
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/agent-access-panel-auto-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/agent-access-panel-auto-${theme}.png`,
+      fullPage: true,
+    });
   });
 }
 
@@ -1137,7 +1381,9 @@ for (const theme of ["light", "dark"] as const) {
     await editor.getByText("writing", { exact: false }).first().dblclick();
     await expect(page.getByTestId("comment-add")).toBeVisible();
     await page.getByTestId("comment-add").click();
-    await page.getByTestId("comment-create-input").fill("Is this the final title?");
+    await page
+      .getByTestId("comment-create-input")
+      .fill("Is this the final title?");
     await page.getByTestId("comment-create-submit").click();
     await page.locator(".cm-comment-gutter-marker").click();
     await expect(page.getByTestId("comment-thread-card")).toBeVisible();
@@ -1145,7 +1391,10 @@ for (const theme of ["light", "dark"] as const) {
     await page.getByTestId("comment-reply-submit").click();
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/comment-thread-card-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/comment-thread-card-${theme}.png`,
+      fullPage: true,
+    });
   });
 
   test(`capture: comments overview (${theme})`, async ({ page }) => {
@@ -1163,13 +1412,18 @@ for (const theme of ["light", "dark"] as const) {
     await editor.getByText("writing", { exact: false }).first().dblclick();
     await expect(page.getByTestId("comment-add")).toBeVisible();
     await page.getByTestId("comment-add").click();
-    await page.getByTestId("comment-create-input").fill("Pick a stronger title.");
+    await page
+      .getByTestId("comment-create-input")
+      .fill("Pick a stronger title.");
     await page.getByTestId("comment-create-submit").click();
     await page.getByTestId("comments-toggle").click();
     await expect(page.getByTestId("comments-overview")).toBeVisible();
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/comments-overview-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/comments-overview-${theme}.png`,
+      fullPage: true,
+    });
   });
 }
 
@@ -1179,7 +1433,9 @@ for (const theme of ["light", "dark"] as const) {
  * Captures the preview pane (the cover is the most striking transform) for
  * Academic (the demo's bespoke default) → Modern → Minimal. Light theme only.
  */
-test("capture: Einstein desk restyled (academic → modern → minimal)", async ({ page }) => {
+test("capture: Einstein desk restyled (academic → modern → minimal)", async ({
+  page,
+}) => {
   async function applyStyle(name: string) {
     await page.keyboard.press("ControlOrMeta+k");
     await page.getByTestId("command-palette-input").fill("Change style");
@@ -1220,7 +1476,9 @@ test("capture: Einstein desk restyled (academic → modern → minimal)", async 
  * transient-storage banner are honest in the product but pure noise in a still
  * image, and the banner also steals a strip of the editor's height.
  */
-test("capture: README hero (seeded manuscript, full workspace)", async ({ page }) => {
+test("capture: README hero (seeded manuscript, full workspace)", async ({
+  page,
+}) => {
   await page.goto("/?seed=einstein");
   await settle(page);
   for (const id of ["first-run-dismiss", "transient-storage-dismiss"]) {
@@ -1240,7 +1498,9 @@ const CAPTURE_PNG = Buffer.from(
   "base64",
 );
 for (const theme of ["light", "dark"] as const) {
-  test(`capture: files pane with an image + preview (${theme})`, async ({ page }) => {
+  test(`capture: files pane with an image + preview (${theme})`, async ({
+    page,
+  }) => {
     await gotoEditor(page, { id: `capture-binary-${theme}` });
     await settle(page);
     await openFilesDock(page);
@@ -1250,19 +1510,31 @@ for (const theme of ["light", "dark"] as const) {
       buffer: CAPTURE_PNG,
     });
     await expect(
-      page.locator('[data-testid="project-binary-file"][data-path="/diagram.png"]'),
+      page.locator(
+        '[data-testid="project-binary-file"][data-path="/diagram.png"]',
+      ),
     ).toBeVisible({ timeout: 30_000 });
 
     await setTheme(page, theme);
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/files-pane-with-image-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/files-pane-with-image-${theme}.png`,
+      fullPage: true,
+    });
 
     // Open the preview modal and capture it.
-    await page.locator('[data-testid="project-binary-file"][data-path="/diagram.png"]').click();
-    await expect(page.getByTestId("binary-preview")).toBeVisible({ timeout: 30_000 });
+    await page
+      .locator('[data-testid="project-binary-file"][data-path="/diagram.png"]')
+      .click();
+    await expect(page.getByTestId("binary-preview")).toBeVisible({
+      timeout: 30_000,
+    });
     await freeze(page);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: `${SHOTS}/binary-preview-${theme}.png`, fullPage: true });
+    await page.screenshot({
+      path: `${SHOTS}/binary-preview-${theme}.png`,
+      fullPage: true,
+    });
   });
 }
