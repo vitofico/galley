@@ -1,0 +1,93 @@
+.hosted-runs {
+  border-top: 1px solid var(--chrome-border, #ddd);
+  padding: 1rem;
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+.hosted-runs p {
+  line-height: 1.5;
+  margin: 0.6rem 0;
+}
+.hosted-runs-heading {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: space-between;
+}
+.hosted-runs label {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.7rem 0;
+}
+.hosted-runs input,
+.hosted-runs textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  padding: 0.5rem;
+  border: 1px solid var(--chrome-border, #ccc);
+  border-radius: 6px;
+  background: var(--paper, white);
+  color: inherit;
+}
+.hosted-runs button,
+.hosted-consent button {
+  font: inherit;
+  margin: 0.25rem 0.4rem 0.25rem 0;
+  padding: 0.45rem 0.65rem;
+  cursor: pointer;
+  border: 1px solid var(--chrome-border, #ccc);
+  border-radius: 6px;
+  background: var(--paper, white);
+  color: inherit;
+}
+.hosted-runs a {
+  color: var(--accent-deep);
+}
+.hosted-runs button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.hosted-runs summary {
+  cursor: pointer;
+  padding: 0.4rem 0;
+}
+.hosted-runs-error {
+  color: var(--danger, #a62424);
+}
+.hosted-run-list {
+  list-style: none;
+  padding: 0;
+}
+.hosted-run-list li {
+  border-top: 1px solid var(--border, #ddd);
+  padding: 0.65rem 0;
+}
+.hosted-run-list small {
+  display: block;
+  margin-top: 0.3rem;
+}
+.hosted-consent {
+  box-sizing: border-box;
+  width: min(38rem, 100%);
+  max-height: calc(100vh - 3rem);
+  overflow: auto;
+  color: var(--ink);
+  line-height: 1.5;
+}
+.hosted-consent h2,
+.hosted-consent p {
+  margin: 0.2rem 0;
+}
+.hosted-consent button:last-child {
+  background: var(--accent-deep);
+  color: var(--paper, #fff);
+}
+.hosted-consent pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 14rem;
+  overflow: auto;
+  border: 1px solid var(--border, #ddd);
+  padding: 0.7rem;
+}

@@ -23,12 +23,29 @@ import {
   type BlobSendHandle,
   type BlobTerminalSigner,
   type BlobTerminalVerifier,
+  type SchedulerLike,
 } from "@galley/collab";
 
 /** The websocket subprotocol that selects the relay's blob channel. */
 export const BLOB_SUBPROTOCOL = "galley-blob-v1";
+export const HOSTED_BLOB_SUBPROTOCOL = "galley-hosted-blob-v1";
+export function hostedStorageEnabled(
+  config: unknown = (globalThis as { __GALLEY_CONFIG__?: unknown })
+    .__GALLEY_CONFIG__,
+): boolean {
+  return (
+    typeof config === "object" &&
+    config !== null &&
+    (config as { hostedStorage?: unknown }).hostedStorage === true
+  );
+}
 
 export interface BlobChannelDeps {
+  onHostedStorageError?: () => void;
+  /** Timer seam for bounded hosted-upload busy backoff. */
+  hostedRetryScheduler?: SchedulerLike;
+  hosted?: boolean;
+  hostedSocketFactory?: (url: string) => WebSocketLike;
   /**
    * Injectable blob socket factory (tests). Defaults to a browser `WebSocket`
    * requesting the `galley-blob-v1` subprotocol. The URL is the SAME room URL the
@@ -70,6 +87,8 @@ export interface BlobChannelDeps {
 }
 
 export interface BlobChannelSession {
+  /** Optional durable server acknowledgement, separate from peer MAC completion. */
+  persist?(bytes: Uint8Array, hash: string, mime: string): Promise<void>;
   /**
    * Push a content-addressed blob to the room's other peers. The caller supplies
    * the already-computed `hash` (it hashed to mint the `BinaryAsset`) + `mime`.
@@ -81,7 +100,12 @@ export interface BlobChannelSession {
    * descriptor + bytes travel on different sockets, so the id is the only stable
    * correlator). Omitted ⇒ the transport mints one, exactly as before.
    */
-  send(bytes: Uint8Array, hash: string, mime: string, opts?: { transferId?: string }): BlobSendHandle;
+  send(
+    bytes: Uint8Array,
+    hash: string,
+    mime: string,
+    opts?: { transferId?: string },
+  ): BlobSendHandle;
   /**
    * Reserve inbound capacity for a transfer arriving under `transferId` whose hash
    * is not yet known (A1 export channel pull, symmetric with the kernel side).
@@ -136,11 +160,14 @@ export function createBlobChannelSession(
   const url = `${syncUrl.replace(/\/+$/, "")}/${encodeURIComponent(room)}`;
   const makeSocket =
     deps.socketFactory ??
-    ((u: string) => new WebSocket(u, BLOB_SUBPROTOCOL) as unknown as WebSocketLike);
+    ((u: string) =>
+      new WebSocket(u, BLOB_SUBPROTOCOL) as unknown as WebSocketLike);
 
   const transport = new BlobTransport(() => makeSocket(url), {
     ...(deps.terminalSigner ? { terminalSigner: deps.terminalSigner } : {}),
-    ...(deps.terminalVerifier ? { terminalVerifier: deps.terminalVerifier } : {}),
+    ...(deps.terminalVerifier
+      ? { terminalVerifier: deps.terminalVerifier }
+      : {}),
     onBlob: async (blob: ReceivedBlob) => {
       // The transport already VERIFIED sha256 + size before delivering. Store
       // under the verified hash; PersistentBlobStore re-hashes on put (dedup) and
@@ -157,6 +184,86 @@ export function createBlobChannelSession(
     },
   });
 
+  const hosted =
+    (deps.hosted ?? hostedStorageEnabled())
+      ? new BlobTransport(
+          () =>
+            deps.hostedSocketFactory?.(url) ??
+            (new WebSocket(
+              url,
+              HOSTED_BLOB_SUBPROTOCOL,
+            ) as unknown as WebSocketLike),
+          {
+            requestRetryMs: 500,
+            onBlob: async (blob) => {
+              await store.put(blob.bytes, { mime: blob.mime });
+              try {
+                deps.onInboundStored?.(blob.hash, blob.size);
+              } catch {
+                /* delivery hook */
+              }
+            },
+          },
+        )
+      : undefined;
+
+  const retryDelays = [250, 500, 1000, 2000, 2000, 2000, 2000] as const;
+  const retryScheduler = deps.hostedRetryScheduler ?? {
+    setTimeout: (fn: () => void, ms: number) => globalThis.setTimeout(fn, ms),
+    clearTimeout: (timer: unknown) =>
+      globalThis.clearTimeout(timer as ReturnType<typeof setTimeout>),
+  };
+  const pendingRetries = new Map<unknown, () => void>();
+  let destroyed = false;
+  const destroyedError = () => new Error("blob channel destroyed");
+  function waitToRetry(ms: number): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const timer = retryScheduler.setTimeout(() => {
+        pendingRetries.delete(timer);
+        if (destroyed) reject(destroyedError());
+        else resolve();
+      }, ms);
+      pendingRetries.set(timer, () => reject(destroyedError()));
+    });
+  }
+  const persist = hosted
+    ? async (bytes: Uint8Array, hash: string, mime: string): Promise<void> => {
+        if (destroyed) throw destroyedError();
+        // The caller may reuse its buffer after submission; every retry must retain
+        // the same content-addressed payload as the first attempt.
+        const snapshot = bytes.slice();
+        try {
+          for (let attempt = 0; ; attempt++) {
+            if (destroyed) throw destroyedError();
+            try {
+              await hosted.send(snapshot, hash, mime).done;
+              return;
+            } catch (error) {
+              if (destroyed) throw destroyedError();
+              // Only the trusted hosted channel's explicit admission contention is
+              // transient. Quota, storage, disconnect and verification errors stay terminal.
+              if (
+                !(error instanceof Error) ||
+                error.message !== "receiver aborted: Hosted storage busy" ||
+                attempt >= retryDelays.length
+              )
+                throw error;
+              await waitToRetry(retryDelays[attempt]!);
+            }
+          }
+        } catch (error) {
+          if (!destroyed) {
+            try {
+              deps.onHostedStorageError?.();
+            } catch {
+              /* observer hook */
+            }
+          }
+          throw error;
+        }
+      }
+    : undefined;
+
   // A1 §1: the channel is "authenticated" iff a terminal VERIFIER is wired — only
   // then does the SENDER reject a forged COMPLETE. The export path requires this.
   const authenticated = deps.terminalVerifier !== undefined;
@@ -166,14 +273,18 @@ export function createBlobChannelSession(
   return {
     authenticated,
     terminalScopeId,
+    ...(persist ? { persist } : {}),
     send(bytes, hash, mime, opts) {
       return transport.send(bytes, hash, mime, opts ?? {});
     },
     expect(hash, size) {
-      return transport.expect(hash, size);
+      const accepted = transport.expect(hash, size);
+      if (accepted) hosted?.request(hash, size);
+      return accepted;
     },
     unexpect(hash, size) {
       transport.unexpect(hash, size);
+      hosted?.unexpect(hash, size);
     },
     expectTransfer(transferId, maxBytes) {
       return transport.expectTransfer(transferId, maxBytes);
@@ -182,10 +293,19 @@ export function createBlobChannelSession(
       transport.unexpectTransfer(transferId);
     },
     connect() {
+      if (destroyed) return;
       transport.connect();
+      hosted?.connect();
     },
     destroy() {
+      destroyed = true;
+      for (const [timer, cancel] of pendingRetries) {
+        retryScheduler.clearTimeout(timer);
+        cancel();
+      }
+      pendingRetries.clear();
       transport.disconnect();
+      hosted?.disconnect();
     },
   };
 }

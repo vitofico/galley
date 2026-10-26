@@ -59,6 +59,7 @@ import {
   resolveThreadRange,
   SINGLE_FILE_ID,
   type CollabConnection,
+  type CollabProject,
   type Presence,
   type ProposalRecord,
   type FileProposalRecord,
@@ -96,7 +97,11 @@ import {
   SHARE_CONNECT_TIMEOUT_MS,
   type RosterPeer,
 } from "./components/share-popover.js";
-import { joinPhaseOnTimeout, joinSyncCue, type JoinSyncPhase } from "./join-sync.js";
+import {
+  joinPhaseOnTimeout,
+  joinSyncCue,
+  type JoinSyncPhase,
+} from "./join-sync.js";
 import {
   applyAcceptedFileAsAgent,
   applyAcceptedFileSetAsAgent,
@@ -121,9 +126,18 @@ import {
 } from "./share.js";
 import { shareRegistrationHandoffGate } from "./capability-rooms-client.js";
 import { loadLocalProfile, updateLocalProfile } from "./local-profile.js";
-import { shouldShowPaletteNudge, dismissPaletteNudge } from "./onboarding-nudge.js";
-import { shouldShowFirstRunChooser, dismissFirstRunChooser } from "./first-run-chooser.js";
-import { shouldShowCoachOverlay, dismissCoachOverlay } from "./coach-overlay.js";
+import {
+  shouldShowPaletteNudge,
+  dismissPaletteNudge,
+} from "./onboarding-nudge.js";
+import {
+  shouldShowFirstRunChooser,
+  dismissFirstRunChooser,
+} from "./first-run-chooser.js";
+import {
+  shouldShowCoachOverlay,
+  dismissCoachOverlay,
+} from "./coach-overlay.js";
 import { Notice } from "./components/Notice.js";
 import { AccountChip } from "./components/AccountChip.js";
 import { getActiveAuthUser } from "./auth-gate.js";
@@ -140,13 +154,32 @@ import {
   type AgentMode,
 } from "./components/agent-access-panel-mode.js";
 import { HistoryPanel } from "./components/HistoryPanel.js";
-import { SearchPanel, type SearchPanelHandle } from "./components/SearchPanel.js";
+import {
+  SearchPanel,
+  type SearchPanelHandle,
+} from "./components/SearchPanel.js";
 import { VersionCompare } from "./components/VersionCompare.js";
-import { compareVersionTrees, type VersionComparison } from "./version-compare.js";
+import {
+  compareVersionTrees,
+  type VersionComparison,
+} from "./version-compare.js";
 import { IdbVersionStore } from "./idb-version-store.js";
+import {
+  createHostedHistoryVersionStore,
+  restoreHostedHistoryVersion,
+  type HostedHistoryTarget,
+} from "./hosted-history.js";
+import {
+  forgetHostedRunTarget,
+  readHostedRunTarget,
+  rememberHostedRunTarget,
+} from "./hosted-run-target.js";
 import { ImportPanel } from "./components/ImportPanel.js";
 import { FigurePanel } from "./components/FigurePanel.js";
-import { CitationPanel, type ResolvedCitation } from "./components/CitationPanel.js";
+import {
+  CitationPanel,
+  type ResolvedCitation,
+} from "./components/CitationPanel.js";
 import { bibEntryText } from "./components/citation-library.js";
 import { GitSyncPanel } from "./components/GitSyncPanel.js";
 import {
@@ -158,11 +191,21 @@ import {
 import { loadRemoteConfig } from "./git-remote-config.js";
 import { loadGithubConnection } from "./github-connect.js";
 import { loadRepoTarget } from "./github-repo-target.js";
-import { loadSyncDestination, deriveSyncDestinationKind } from "./sync-destination.js";
-import { createBrowserRemoteSync, exportProjectAsGitRepo } from "@galley/persistence/browser";
+import {
+  loadSyncDestination,
+  deriveSyncDestinationKind,
+} from "./sync-destination.js";
+import {
+  createBrowserRemoteSync,
+  exportProjectAsGitRepo,
+} from "@galley/persistence/browser";
 import { CompilerModeToggle } from "./components/CompilerModeToggle.js";
 import { loadMode, type CompileMode } from "./components/compiler-mode.js";
-import { initCompiler, createVerifyCompiler, serverCompileReachable } from "./compiler-assets.js";
+import {
+  initCompiler,
+  createVerifyCompiler,
+  serverCompileReachable,
+} from "./compiler-assets.js";
 import { loadFocusMode, saveFocusMode } from "./focus-mode.js";
 import { loadAgentMode, saveAgentMode } from "./agent-mode.js";
 import {
@@ -174,11 +217,17 @@ import {
   type AutoSnapshotState,
 } from "./auto-snapshot.js";
 import { quickFixForDiagnostic } from "./components/quick-fix.js";
-import { composeReviseRequest, selectionFromEditor } from "./revise-selection.js";
+import {
+  composeReviseRequest,
+  selectionFromEditor,
+} from "./revise-selection.js";
 import { buildProjectToolsSeam } from "./agent-project-tools.js";
 import { ReviseSelectionPrompt } from "./components/ReviseSelectionPrompt.js";
 import { explainForDiagnostic } from "./components/explain-error.js";
-import { appendSnippet, wholeSourceBlock } from "./components/authoring-insert.js";
+import {
+  appendSnippet,
+  wholeSourceBlock,
+} from "./components/authoring-insert.js";
 import { findProposalTarget } from "./components/McpProposals.js";
 import { PendingReviewBadge } from "./components/PendingReviewBadge.js";
 import { RunReviewCard } from "./components/RunReviewCard.js";
@@ -224,8 +273,15 @@ import {
   getControlResponderManager,
   type RestoreVersionHandler,
 } from "./control-responder-mount.js";
-import { createAgentOpenHandler, type ConsentOutcome } from "./agent-open-handler.js";
-import { grantMatchesReuseScope, inheritedGrantMode, mintGrantMode } from "./proposal-grant.js";
+import {
+  createAgentOpenHandler,
+  type ConsentOutcome,
+} from "./agent-open-handler.js";
+import {
+  grantMatchesReuseScope,
+  inheritedGrantMode,
+  mintGrantMode,
+} from "./proposal-grant.js";
 import type {
   OpenedProject,
   OpenProjectRefusal,
@@ -258,7 +314,10 @@ import {
   type DockState,
   type InsertTab,
 } from "./components/dock-state.js";
-import { readFilesDockPref, writeFilesDockPref } from "./components/files-dock-pref.js";
+import {
+  readFilesDockPref,
+  writeFilesDockPref,
+} from "./components/files-dock-pref.js";
 import "./components/rail-and-pills.css";
 import { useResponsive, type PaneTab } from "./use-responsive.js";
 import { useSaveState, type SaveStateTarget } from "./use-save-state.js";
@@ -269,7 +328,11 @@ import { BLANK_STARTER_FILES, BLANK_STARTER_MAIN } from "./project-sample.js";
 import type { SeedFile } from "@galley/collab";
 import { createProject, einsteinSeed } from "./project-create.js";
 import { ProjectEditor } from "./components/ProjectEditor.js";
-import { PersistentBlobStore, IndexeddbBlobBackend, blobDbName } from "./idb-blob-store.js";
+import {
+  PersistentBlobStore,
+  IndexeddbBlobBackend,
+  blobDbName,
+} from "./idb-blob-store.js";
 import {
   pendingHashes,
   buildBinaryFilesInput,
@@ -286,7 +349,10 @@ import {
   pastedImageName,
   isDisplayableRasterMime,
 } from "./binary-upload.js";
-import { BinaryPreview, type BinaryPreviewMeta } from "./components/BinaryPreview.js";
+import {
+  BinaryPreview,
+  type BinaryPreviewMeta,
+} from "./components/BinaryPreview.js";
 import {
   buildFileTree,
   planFolderCreate,
@@ -302,16 +368,24 @@ import {
 import { FileTreeMenu } from "./components/FileTreeMenu.js";
 import { CommentThreadCard } from "./components/CommentThreadCard.js";
 import { CommentCreateComposer } from "./components/CommentCreateComposer.js";
-import { CommentsOverview, type OverviewThread } from "./components/CommentsOverview.js";
+import {
+  CommentsOverview,
+  type OverviewThread,
+} from "./components/CommentsOverview.js";
 import type { CommentSelection } from "./components/comment-create-tooltip.js";
 import { Preview } from "./components/Preview.js";
 import { AgentPanel } from "./components/AgentPanel.js";
+import { HostedRunsPanel } from "./components/HostedRunsPanel.js";
+import { hostedRunsConfig } from "./hosted-runs-client.js";
 import { WritingGoals } from "./components/WritingGoals.js";
 import { readProjectInstructions } from "./instructions-vfs.js";
 import { InstructionsPanel } from "./components/InstructionsPanel.js";
 import { InsertReferencePicker } from "./components/InsertReferencePicker.js";
 import { ContributionStatementModal } from "./components/ContributionStatementModal.js";
-import { gatherContributionEvidence, type AttributedFile } from "./contribution-evidence.js";
+import {
+  gatherContributionEvidence,
+  type AttributedFile,
+} from "./contribution-evidence.js";
 import {
   findAllInstructionsFiles,
   readInstructionsText,
@@ -328,7 +402,10 @@ import { useCompiler } from "./useCompiler.js";
 import { createDemoModel } from "./demo-model.js";
 import { usePanes } from "./usePanes.js";
 import { SplitPanes } from "./components/SplitPanes.js";
-import { jumpToDiagnostic, jumpToOffset } from "./components/diagnostics-extension.js";
+import {
+  jumpToDiagnostic,
+  jumpToOffset,
+} from "./components/diagnostics-extension.js";
 import { labelCompletionSource } from "./components/label-complete.js";
 import { citeCompletionSource } from "./components/cite-complete.js";
 import { CommandSheet } from "./components/CommandSheet.js";
@@ -462,6 +539,10 @@ interface BootSeed {
   mainPath: string;
   demoHistory: boolean;
 }
+const HOSTED_STORAGE_ERRORS = new WeakMap<CollabProject, () => void>();
+// Page-lifetime sessions outlive the mounted shell. Deliver byte-arrival cues to
+// the current shell without retaining an unmounted React state setter.
+const BINARY_STORAGE_UPDATES = new WeakMap<CollabProject, () => void>();
 
 function obtainProjectSession(
   config: CollabConfig,
@@ -473,6 +554,14 @@ function obtainProjectSession(
   if (!session) {
     const displayName = loadLocalProfile().displayName?.trim();
     session = createProjectSession(seed.files, seed.mainPath, config, {
+      onInboundStored: () => {
+        const live = SESSION_CACHE.get(key);
+        if (live) BINARY_STORAGE_UPDATES.get(live.project)?.();
+      },
+      onHostedStorageError: () => {
+        const live = SESSION_CACHE.get(key);
+        if (live) HOSTED_STORAGE_ERRORS.get(live.project)?.();
+      },
       demoHistory: seed.demoHistory,
       ...(displayName ? { displayName } : {}),
       // Pass the per-project blob store so the local/solo path can run the
@@ -529,7 +618,9 @@ export function ProjectApp({
   const blobStore = useMemo(() => {
     try {
       if (typeof indexedDB === "undefined") return null;
-      return new PersistentBlobStore(new IndexeddbBlobBackend(blobDbName(projectId)));
+      return new PersistentBlobStore(
+        new IndexeddbBlobBackend(blobDbName(projectId)),
+      );
     } catch {
       return null;
     }
@@ -562,7 +653,9 @@ export function ProjectApp({
       // save state. Local sessions only; connected joiners omit it (relay-backed).
       // Conditional spread keeps `exactOptionalPropertyTypes` happy (no explicit
       // `undefined` value) and leaves the target inert when there's no local store.
-      ...(session.whenPersisted ? { whenPersisted: session.whenPersisted } : {}),
+      ...(session.whenPersisted
+        ? { whenPersisted: session.whenPersisted }
+        : {}),
       onChange: (cb) => {
         const ydoc = session.project.doc;
         ydoc.on("update", cb);
@@ -600,7 +693,9 @@ export function ProjectApp({
   // purely VIEW state: an ephemeral Set of collapsed folder prefixes (default
   // expanded), never persisted, never in the CRDT. `folderRenaming` tracks the
   // inline folder-rename edit (a folder prefix → its draft new prefix).
-  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => new Set());
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [folderRenaming, setFolderRenaming] = useState<string | null>(null);
   const [folderRenameValue, setFolderRenameValue] = useState("");
   // The per-folder "New subfolder…" inline input: the parent prefix currently
@@ -627,6 +722,19 @@ export function ProjectApp({
   // C3: a typed, shell-root status banner (severity drives ARIA role) — see
   // app-notice.ts. `setNotice(null)` clears; failures use errorNotice(...).
   const [notice, setNotice] = useState<AppNotice | null>(null);
+  useEffect(() => {
+    const notify = () =>
+      setNotice(
+        errorNotice(
+          "Some assets are still only on this device because hosted storage could not save them. Keep this device available and retry after checking storage access or quota.",
+        ),
+      );
+    HOSTED_STORAGE_ERRORS.set(project, notify);
+    return () => {
+      if (HOSTED_STORAGE_ERRORS.get(project) === notify)
+        HOSTED_STORAGE_ERRORS.delete(project);
+    };
+  }, [project]);
   // #23.1 data-durability guard: best-effort persistent-storage request + a
   // health read on mount, surfaced as a calm dismissible nudge ONLY when at-risk
   // (transient eviction risk OR storage nearly full). Null until resolved; an
@@ -644,7 +752,8 @@ export function ProjectApp({
   // losing the user's work on close. A one-time dismissible top-level info banner
   // (below) warns up front; this gates the in-session hide (the dismissal also
   // persists via localStorage so it never re-nags across loads).
-  const [transientWarningDismissed, setTransientWarningDismissed] = useState(false);
+  const [transientWarningDismissed, setTransientWarningDismissed] =
+    useState(false);
   // Share-join readiness (#14-C handshake): a joiner that booted CONNECTED starts
   // with an EMPTY doc — the room's content only arrives over the wire (the relay's
   // first sync step2). Until then the empty editor is "not loaded yet", not "the
@@ -661,11 +770,17 @@ export function ProjectApp({
   // The session boots LOCAL; clicking Share live-upgrades it to a shared room and
   // swaps the editor's awareness over to the connection's. A session that booted
   // CONNECTED (a joiner opening a share link) starts with these already set.
-  const [connection, setConnection] = useState<CollabConnection | undefined>(() => session.connection);
+  const [connection, setConnection] = useState<CollabConnection | undefined>(
+    () => session.connection,
+  );
   // M8: a live connection means a SHARED session, where `offline` is a real
   // signal (edits aren't reaching peers); solo-local sessions suppress it.
-  const saveState = useSaveState(saveTarget, { shared: connection !== undefined });
-  const [activeAwareness, setActiveAwareness] = useState<Awareness>(() => session.awareness);
+  const saveState = useSaveState(saveTarget, {
+    shared: connection !== undefined,
+  });
+  const [activeAwareness, setActiveAwareness] = useState<Awareness>(
+    () => session.awareness,
+  );
   // ADR-0025 §8.2: the auto-apply path reads the LIVE awareness for the single-
   // auto-applier election WITHOUT re-subscribing the serialized chain on every
   // awareness swap — mirror it into a ref the (stable) chain reads fresh.
@@ -687,7 +802,8 @@ export function ProjectApp({
   // locally but no longer reaching the room. Dismissible; cleared on a reconnect
   // edge or a fresh frame (see link-status.ts). Null = no episode / dismissed /
   // no connection → no banner.
-  const [storageCueState, setStorageCueState] = useState<StorageCueState | null>(null);
+  const [storageCueState, setStorageCueState] =
+    useState<StorageCueState | null>(null);
   const storageBanner = connection ? storageCue(storageCueState) : null;
   // H3: the join-sync cue (null once resolved → no banner).
   const joinCue = joinSyncCue(joinSync);
@@ -721,7 +837,9 @@ export function ProjectApp({
   const [inAppMode, setInAppMode] = useState<AgentMode>("ask");
   // The merged Agent-access audit (newest-first): the MCP durable tombstone audit
   // (when a grant exists) + the in-app provenance trail. Default empty.
-  const [autoAcceptAudit, setAutoAcceptAudit] = useState<AgentAccessAuditRow[]>([]);
+  const [autoAcceptAudit, setAutoAcceptAudit] = useState<AgentAccessAuditRow[]>(
+    [],
+  );
   // Per-session auto-apply bookkeeping (refs — never trigger a re-render):
   //  - ids currently mid-apply (re-entrancy guard against rapid observer fires),
   //  - the highest applied seq PER MAILBOX (the monotonic replay guard, audit is
@@ -738,11 +856,17 @@ export function ProjectApp({
   // settle EXACTLY ONCE per id (a concurrent re-entry returns false immediately),
   // so the plan is never applied twice. The id is released in a `finally`.
   const fileAcceptInFlight = useRef<Set<string>>(new Set());
-  const lastAppliedSeqRef = useRef<{ mcpProposals: number | null; mcpFileProposals: number | null }>({
+  const lastAppliedSeqRef = useRef<{
+    mcpProposals: number | null;
+    mcpFileProposals: number | null;
+  }>({
     mcpProposals: null,
     mcpFileProposals: null,
   });
-  const appliedVolumeRef = useRef<{ ops: number; bytes: number }>({ ops: 0, bytes: 0 });
+  const appliedVolumeRef = useRef<{ ops: number; bytes: number }>({
+    ops: 0,
+    bytes: 0,
+  });
   const autoAcceptChain = useRef<Promise<void>>(Promise.resolve());
   // ADR-0025 §8.1 Ask→Auto FUTURE-records-only: a record is auto-eligible only if
   // mode was Auto at the instant its mailbox-arrival was FIRST observed by this
@@ -776,7 +900,9 @@ export function ProjectApp({
         session.role,
         config.role ??
           (typeof window !== "undefined"
-            ? parseShareRole(new URLSearchParams(window.location.search).get("role"))
+            ? parseShareRole(
+                new URLSearchParams(window.location.search).get("role"),
+              )
             : undefined),
       ),
     [connection, session, config.role],
@@ -809,12 +935,24 @@ export function ProjectApp({
     // A session that booted CONNECTED (a joiner / CONNECTED-mode boot) already
     // has a live room — seed it so a later agent request reuses it, never mints a
     // second. A LOCAL boot starts null; Share (or the agent path) mints the first.
-    () => (session.connection ? config.room ?? null : null),
+    () => {
+      if (!session.connection) return null;
+      const hosted = config.syncUrl === undefined ? hostedRunsConfig() : null;
+      const target = hosted
+        ? readHostedRunTarget(
+            projectId,
+            hosted.apiPath,
+            resolveSyncUrl(configuredSyncUrlOverride(), window.location),
+          )
+        : null;
+      return target?.room ?? config.room ?? null;
+    },
   );
   // #16.3: the pending agent open-project consent (the blocking modal). Null when
   // nothing is awaiting a decision — the modal renders absent, the shipped path
   // is unchanged. Only ONE consent may be pending at a time (single-consent lock).
-  const [agentConsent, setAgentConsent] = useState<AgentOpenConsentPending | null>(null);
+  const [agentConsent, setAgentConsent] =
+    useState<AgentOpenConsentPending | null>(null);
   // 14-D authoring surface: the project-instructions editor modal. Closed by
   // default — additive, the shipped path is byte-for-byte unchanged until opened.
   const [instructionsOpen, setInstructionsOpen] = useState(false);
@@ -822,14 +960,23 @@ export function ProjectApp({
   // by default — additive, the shipped path is byte-for-byte unchanged until opened.
   const [styleLibraryOpen, setStyleLibraryOpen] = useState(false);
   const [styleBusy, setStyleBusy] = useState(false);
-  const [styleTrial, setStyleTrial] = useState<{ style: Style; errors: Diagnostic[] } | null>(null);
+  const [styleTrial, setStyleTrial] = useState<{
+    style: Style;
+    errors: Diagnostic[];
+  } | null>(null);
   // Save-your-own (styles Phase 2): the user's locally-saved styles, loaded once
   // from localStorage. Empty until the user saves one, so the picker shows only
   // the built-ins by default — the shipped catalog is unchanged.
-  const [savedStyles, setSavedStyles] = useState<LocalStyleEntry[]>(() => loadLocalStyles());
+  const [savedStyles, setSavedStyles] = useState<LocalStyleEntry[]>(() =>
+    loadLocalStyles(),
+  );
   // Remote style catalogs (B4.5 seam). Zero registered sources (the OSS default)
   // ⇒ no async work at all and an empty list — the shipped catalog is unchanged.
-  const { remoteStyles, loading: styleSourcesLoading, errors: styleSourceErrors } = useStyleSources();
+  const {
+    remoteStyles,
+    loading: styleSourcesLoading,
+    errors: styleSourceErrors,
+  } = useStyleSources();
   // A lazily-created OFFLINE worker for the pre-apply trial compile (built-in
   // styles never need server/packages); cached across applies for the session.
   const trialCompilerRef = useRef<Promise<Compiler> | null>(null);
@@ -839,7 +986,9 @@ export function ProjectApp({
   // #13 contribution reconstruction: the rendered draft contribution statement
   // under review (null ⇒ modal closed). Reviewing is read-only; inserting routes
   // through the Accept gate. Additive — shipped path unchanged until opened.
-  const [contributionDraft, setContributionDraft] = useState<string | null>(null);
+  const [contributionDraft, setContributionDraft] = useState<string | null>(
+    null,
+  );
   // 11.8b selection-scoped revise: a snapshot of the editor selection captured
   // when "Revise selection…" is invoked, plus the prompt's open state. Closed by
   // default — additive, the shipped path is byte-for-byte unchanged until opened.
@@ -860,19 +1009,29 @@ export function ProjectApp({
   // and is remembered. Computed once at mount from the persisted choice + the
   // current viewport width; `window` is read lazily (SSR-safe via the guard).
   const [dockState, setDockState] = useState<DockState>(() => {
-    const width = typeof window === "undefined" ? Number.NaN : window.innerWidth;
+    const width =
+      typeof window === "undefined" ? Number.NaN : window.innerWidth;
     const filesClosed =
-      panes.isCollapsed("files") || shouldBootFilesClosed(readFilesDockPref(), width);
+      panes.isCollapsed("files") ||
+      shouldBootFilesClosed(readFilesDockPref(), width);
     return initialDockState(filesClosed);
   });
   const dock = dockState.open;
   const insertTab = dockState.insertTab;
   // #H7: roving-focus refs for the Insert tablist (WAI-ARIA arrow-key nav).
-  const insertTabRefs = useRef<Partial<Record<InsertTab, HTMLButtonElement | null>>>({});
+  const insertTabRefs = useRef<
+    Partial<Record<InsertTab, HTMLButtonElement | null>>
+  >({});
   /** Close `id` if (and only if) it is the docked panel — panels' onClose. */
-  const closePanel = useCallback((id: DockId) => setDockState((s) => closeDockIf(s, id)), []);
+  const closePanel = useCallback(
+    (id: DockId) => setDockState((s) => closeDockIf(s, id)),
+    [],
+  );
   /** Dock a panel (palette commands / programmatic opens). */
-  const openPanel = useCallback((id: DockId) => setDockState((s) => openDock(s, id)), []);
+  const openPanel = useCallback(
+    (id: DockId) => setDockState((s) => openDock(s, id)),
+    [],
+  );
   /** Dock the Insert panel at a tab (or switch tabs while docked). */
   const openInsert = useCallback(
     (tab: InsertTab) => setDockState((s) => openInsertTab(s, tab)),
@@ -893,7 +1052,8 @@ export function ProjectApp({
       // on every later boot, and keep the panes collapse flag in lockstep with
       // the dock so the two layout models never disagree.
       writeFilesDockPref(filesClosed);
-      if (panes.isCollapsed("files") !== filesClosed) panes.toggleCollapse("files");
+      if (panes.isCollapsed("files") !== filesClosed)
+        panes.toggleCollapse("files");
     }
     setDockState(next);
   };
@@ -905,7 +1065,9 @@ export function ProjectApp({
   // keyed on `activeFileId`), so we can't jump synchronously — we stash the
   // target offset and an effect fires `jumpToOffset` once the new view is live.
   const searchPanelRef = useRef<SearchPanelHandle | null>(null);
-  const [pendingJumpOffset, setPendingJumpOffset] = useState<number | null>(null);
+  const [pendingJumpOffset, setPendingJumpOffset] = useState<number | null>(
+    null,
+  );
   // Comments Phase A (Layers 3-5). The live thread set is mirrored from the CRDT
   // comments map by an effect keyed on [project] (NOT gated on a connection —
   // comments persist + render locally via y-indexeddb). `activeThread` is the
@@ -914,18 +1076,26 @@ export function ProjectApp({
   // its anchor rect, before the thread exists). A pending thread-open survives a
   // cross-file jump via `pendingThreadOpen` (mirrors `pendingJumpOffset`).
   const [threads, setThreads] = useState<ThreadView[]>([]);
-  const [activeThread, setActiveThread] = useState<{ id: string; anchor: DOMRect } | null>(null);
-  const [commentDraft, setCommentDraft] = useState<
-    { selection: CommentSelection; anchor: DOMRect } | null
-  >(null);
-  const [pendingThreadOpen, setPendingThreadOpen] = useState<string | null>(null);
+  const [activeThread, setActiveThread] = useState<{
+    id: string;
+    anchor: DOMRect;
+  } | null>(null);
+  const [commentDraft, setCommentDraft] = useState<{
+    selection: CommentSelection;
+    anchor: DOMRect;
+  } | null>(null);
+  const [pendingThreadOpen, setPendingThreadOpen] = useState<string | null>(
+    null,
+  );
   // L6 presence: how many OTHER peers currently have the open thread's card open,
   // read off the live awareness roster (0 = local-only or nobody else looking).
   const [threadViewers, setThreadViewers] = useState(0);
   // #11.3 forward sync: the active-file editor cursor, fed to <Preview> with the
   // source map so the preview highlights/scrolls the mapped region. Inert until
   // BOTH a sourceMap and a position are present (see Preview). Reset on file swap.
-  const [cursorPos, setCursorPos] = useState<SourceLineCol | undefined>(undefined);
+  const [cursorPos, setCursorPos] = useState<SourceLineCol | undefined>(
+    undefined,
+  );
   // Live active-file text mirror for the lazy `@`-completion getters.
   const activeTextRef = useRef<string>("");
   // H2: live mirrors of the active file id + the role's mutate-ability, re-read by
@@ -988,7 +1158,9 @@ export function ProjectApp({
   );
   const completionSources = useMemo(
     () => [
-      labelCompletionSource(() => labelNames(buildLabelIndex(activeTextRef.current))),
+      labelCompletionSource(() =>
+        labelNames(buildLabelIndex(activeTextRef.current)),
+      ),
       citeCompletionSource(() => citeKeysFromBibliography(bibTextRef.current)),
     ],
     [],
@@ -1013,7 +1185,31 @@ export function ProjectApp({
      */
     onImport?: () => void;
   } | null>(null);
-  const versionStore = useMemo(() => new IdbVersionStore(), []);
+  const historyTarget = useRef<HostedHistoryTarget | undefined>(undefined);
+  historyTarget.current =
+    connection && activeShareRoom
+      ? {
+          syncUrl:
+            config.syncUrl ??
+            resolveSyncUrl(configuredSyncUrlOverride(), window.location),
+          room: activeShareRoom,
+        }
+      : undefined;
+  const versionStore = useMemo(
+    () =>
+      createHostedHistoryVersionStore(
+        new IdbVersionStore(),
+        () => historyTarget.current,
+        undefined,
+        () =>
+          setNotice(
+            errorNotice(
+              "Hosted history is unavailable; showing versions saved on this device.",
+            ),
+          ),
+      ),
+    [],
+  );
 
   // A1 export channel: the blobOpts for an AGENT share-connect — the BlobStore plus
   // the grant-scoped blob-terminal {signer, verifier} (so the browser, the SENDER of
@@ -1028,6 +1224,7 @@ export function ProjectApp({
         terminalVerifier?: import("@galley/collab").BlobTerminalVerifier;
         terminalScopeId?: string;
         onInboundStored?: (hash: string, size: number) => void;
+        onHostedStorageError?: () => void;
       }
     | undefined;
   // A1 §1: a STABLE identity of the terminal-auth scope — the SAME 5 fields the
@@ -1042,18 +1239,34 @@ export function ProjectApp({
     projectId: string;
     shareRoom: string;
   }): string =>
-    JSON.stringify(["blob-terminal-scope", s.grantId, s.controlRoom, s.syncUrl, s.projectId, s.shareRoom]);
+    JSON.stringify([
+      "blob-terminal-scope",
+      s.grantId,
+      s.controlRoom,
+      s.syncUrl,
+      s.projectId,
+      s.shareRoom,
+    ]);
   // A1: blobOpts built from the ACTIVE grant (used on the reuse / reload-rebind
   // paths, where a grant is already live). Undefined when no BlobStore.
-  const onInboundStored = (hash: string, size: number): void => inboundStoredRef.current?.(hash, size);
+  const onInboundStored = (hash: string, size: number): void => {
+    BINARY_STORAGE_UPDATES.get(project)?.();
+    inboundStoredRef.current?.(hash, size);
+  };
   const agentBlobOpts = (): AgentBlobOpts => {
     if (!blobStore) return undefined;
     const mgr = getControlResponderManager();
     const auth = mgr.getBlobTerminalAuth();
     const grant = mgr.getActiveGrant();
-    if (auth === null || grant === null) return { store: blobStore, onInboundStored };
+    if (auth === null || grant === null)
+      return {
+        store: blobStore,
+        onInboundStored,
+        onHostedStorageError: () => HOSTED_STORAGE_ERRORS.get(project)?.(),
+      };
     return {
       store: blobStore,
+      onHostedStorageError: () => HOSTED_STORAGE_ERRORS.get(project)?.(),
       onInboundStored,
       terminalSigner: auth.terminalSigner,
       terminalVerifier: auth.terminalVerifier,
@@ -1069,16 +1282,31 @@ export function ProjectApp({
   // A1: blobOpts built from an EXPLICIT scope (used on the fresh-mint share path,
   // where the grant is recorded only AFTER this connect). The scope MUST match the
   // open_project handoff so the kernel derives the identical terminal key.
-  const buildAgentBlobOpts = (grantId: string, shareRoom: string, syncUrl: string): AgentBlobOpts => {
+  const buildAgentBlobOpts = (
+    grantId: string,
+    shareRoom: string,
+    syncUrl: string,
+  ): AgentBlobOpts => {
     if (!blobStore) return undefined;
     const controlRoom = getControlResponderManager().getState().controlRoom;
-    if (controlRoom === null) return { store: blobStore, onInboundStored };
+    if (controlRoom === null)
+      return {
+        store: blobStore,
+        onInboundStored,
+        onHostedStorageError: () => HOSTED_STORAGE_ERRORS.get(project)?.(),
+      };
     const scope = { grantId, controlRoom, syncUrl, projectId, shareRoom };
-    const auth = getControlResponderManager().buildBlobTerminalAuthForScope(scope);
+    const auth =
+      getControlResponderManager().buildBlobTerminalAuthForScope(scope);
     return auth === null
-      ? { store: blobStore, onInboundStored }
+      ? {
+          store: blobStore,
+          onInboundStored,
+          onHostedStorageError: () => HOSTED_STORAGE_ERRORS.get(project)?.(),
+        }
       : {
           store: blobStore,
+          onHostedStorageError: () => HOSTED_STORAGE_ERRORS.get(project)?.(),
           onInboundStored,
           terminalSigner: auth.terminalSigner,
           terminalVerifier: auth.terminalVerifier,
@@ -1092,13 +1320,24 @@ export function ProjectApp({
   // a separate `binaryTick` bump does that once new bytes land.
   const binaryCacheRef = useRef<ResolvedBinaryCache>(new Map());
   const [binaryTick, setBinaryTick] = useState(0);
+  const [binaryArrivalTick, setBinaryArrivalTick] = useState(0);
+  useEffect(() => {
+    const notify = () => setBinaryArrivalTick((n) => n + 1);
+    BINARY_STORAGE_UPDATES.set(project, notify);
+    return () => {
+      if (BINARY_STORAGE_UPDATES.get(project) === notify)
+        BINARY_STORAGE_UPDATES.delete(project);
+    };
+  }, [project]);
 
   // A2/C1a: a STABLE delivery hook the blob channel calls when a verified inbound
   // blob is stored. The expect_blob effect points this at its lease-clearing +
   // delivered-tracking logic; it survives channel recreation (the channel always
   // calls `inboundStoredRef.current`), so a lease is cleared on delivery and the
   // release path knows which hashes are stored.
-  const inboundStoredRef = useRef<((hash: string, size: number) => void) | null>(null);
+  const inboundStoredRef = useRef<
+    ((hash: string, size: number) => void) | null
+  >(null);
 
   // A11y (#23.5): the inline version-compare / git-fetch overlay is a `dialog`
   // rendered directly in this shell (no dedicated component), so its focus trap +
@@ -1144,7 +1383,8 @@ export function ProjectApp({
   // (it closes over `diagnostics`/`pageCount`/`ready` from useCompiler, declared far
   // below); the stable compile handler reads this ref at CALL time.
   const compileBrowserRef = useRef<
-    ((projectId: string) => Promise<CompileDiagnostics | OpenProjectRefusal>) | null
+    | ((projectId: string) => Promise<CompileDiagnostics | OpenProjectRefusal>)
+    | null
   >(null);
 
   // Authoring surfaces (import wedge #15, figure generator #8, citations #6) are
@@ -1155,7 +1395,9 @@ export function ProjectApp({
   // Multimodal gate (#8/#10): the transport's vision capability, probed lazily
   // on first Figure-panel open (never on mount — no unprompted network on load).
   // Demo model's probe is local/instant → supportsImageInput:false → calm hint.
-  const [capabilities, setCapabilities] = useState<ProviderCapabilities | undefined>(undefined);
+  const [capabilities, setCapabilities] = useState<
+    ProviderCapabilities | undefined
+  >(undefined);
   // Click-to-rename header (project-model redesign §5): `nameEditing` toggles the
   // inline text input; `nameDraft` is its draft. Enter/blur commits via
   // `onRenameProject`; Escape cancels; empty/whitespace reverts. A ref guards the
@@ -1177,9 +1419,8 @@ export function ProjectApp({
   // EXISTING snapshot path on an elapsed-time / edit-count cadence (coalesced).
   // Lazy-read the persisted choice once; default is `{enabled:false}` so nothing
   // subscribes and shipped behavior is byte-identical.
-  const [autoSnapshotPolicy, setAutoSnapshotPolicy] = useState<AutoSnapshotPolicy>(() =>
-    loadAutoSnapshotPolicy(),
-  );
+  const [autoSnapshotPolicy, setAutoSnapshotPolicy] =
+    useState<AutoSnapshotPolicy>(() => loadAutoSnapshotPolicy());
   // Quick-fix (#11.4b) / explain (#18.4): a monotonic-nonce request handed to
   // the AgentPanel. `adviceOnly` marks an explain run (text answer, no diff).
   const [pendingRun, setPendingRun] = useState<
@@ -1204,7 +1445,9 @@ export function ProjectApp({
   const model = useMemo(
     () =>
       provider
-        ? createModelClient(selectedModel ? { ...provider, model: selectedModel } : provider)
+        ? createModelClient(
+            selectedModel ? { ...provider, model: selectedModel } : provider,
+          )
         : demoModel,
     [provider, demoModel, selectedModel],
   );
@@ -1231,7 +1474,10 @@ export function ProjectApp({
   // the prop so the panel keeps its honest "could not verify offline" status
   // (exactOptionalPropertyTypes — never pass `undefined`).
   const verifyCompilerFactoryProp = useMemo(
-    () => (serverCompileReachable() ? { verifyCompilerFactory: createVerifyCompiler } : {}),
+    () =>
+      serverCompileReachable()
+        ? { verifyCompilerFactory: createVerifyCompiler }
+        : {},
     [],
   );
 
@@ -1279,8 +1525,8 @@ export function ProjectApp({
   // #7 7D: async binary-byte resolution for compile. The compile-input build is
   // SYNCHRONOUS, but a binary pointer's bytes load async from the BlobStore. This
   // effect watches the live binary pointers (re-runs on every doc change via
-  // `refreshTick`), fetches any hashes MISSING from the cache, populates the
-  // cache (a ref), then bumps `binaryTick` ONCE so the compile input rebuilds
+  // `refreshTick`) and verified inbound-byte arrivals, fetches hashes MISSING
+  // from the cache, then bumps `binaryTick` ONCE so the compile input rebuilds
   // with the now-resolved bytes. It never blocks render and never throws — a
   // missing/corrupt blob (get → undefined) is simply skipped (the pointer stays
   // unresolved, omitted from the compile input). Default-safe: a text-only
@@ -1313,7 +1559,7 @@ export function ProjectApp({
     // refreshTick: re-evaluate the pending set after every doc change (a new
     // binary pointer, e.g. just-seeded import binaries, must get fetched).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blobStore, project, refreshTick]);
+  }, [blobStore, project, refreshTick, binaryArrivalTick]);
 
   // #7 7D: consume this project's PENDING binary pointers (stashed by an import's
   // Accept handler, which already wrote the bytes into THIS project's BlobStore).
@@ -1422,7 +1668,10 @@ export function ProjectApp({
     // H3: branch on `synced` at the timeout — synced ⇒ done (silent), else go
     // LOUD ("Couldn't reach the room — still trying") instead of clearing to a
     // blank-looking empty doc.
-    const timer = setTimeout(() => setJoinSync(joinPhaseOnTimeout(conn.synced)), 5_000);
+    const timer = setTimeout(
+      () => setJoinSync(joinPhaseOnTimeout(conn.synced)),
+      5_000,
+    );
     return () => {
       off();
       clearTimeout(timer);
@@ -1486,9 +1735,8 @@ export function ProjectApp({
     const aw = connection.awareness;
     const recount = () =>
       setThreadViewers(
-        connection
-          .presences()
-          .filter((p) => p.focusedThreadId === focusedId).length -
+        connection.presences().filter((p) => p.focusedThreadId === focusedId)
+          .length -
           // Exclude self — this peer is already advertising the same id.
           1,
       );
@@ -1589,14 +1837,18 @@ export function ProjectApp({
       setStorageCueState((prev) =>
         reduceStorageCue(
           prev,
-          status === "connected" ? { type: "connected" } : { type: "disconnected" },
+          status === "connected"
+            ? { type: "connected" }
+            : { type: "disconnected" },
         ),
       );
     });
     // B2: the relay's storage-full control frame → (re)show the cue. A new frame
     // is a new episode and always re-shows, dismissed or not.
     const offStorageFull = connection.onStorageFull((info) =>
-      setStorageCueState((prev) => reduceStorageCue(prev, { type: "storage-full", info })),
+      setStorageCueState((prev) =>
+        reduceStorageCue(prev, { type: "storage-full", info }),
+      ),
     );
     return () => {
       offStatus();
@@ -1609,7 +1861,10 @@ export function ProjectApp({
   // changes first (e.g. a fresh drop), so a stale timer can't dismiss a new cue.
   useEffect(() => {
     if (linkStatus !== "reconnected") return;
-    const timer = setTimeout(() => setLinkStatus((prev) => reduceLinkStatus(prev, "settle")), 3_000);
+    const timer = setTimeout(
+      () => setLinkStatus((prev) => reduceLinkStatus(prev, "settle")),
+      3_000,
+    );
     return () => clearTimeout(timer);
   }, [linkStatus]);
 
@@ -1623,7 +1878,10 @@ export function ProjectApp({
       setShareConnectTimedOut(false);
       return;
     }
-    const timer = setTimeout(() => setShareConnectTimedOut(true), SHARE_CONNECT_TIMEOUT_MS);
+    const timer = setTimeout(
+      () => setShareConnectTimedOut(true),
+      SHARE_CONNECT_TIMEOUT_MS,
+    );
     return () => clearTimeout(timer);
   }, [connection, linkStatus]);
 
@@ -1687,14 +1945,16 @@ export function ProjectApp({
             state: e.state,
             source: "mcp" as const,
           }));
-    const inAppRows: AgentAccessAuditRow[] = readInAppAudit(projectId).map((e) => ({
-      key: `in-app:${e.runId}:${e.at}`,
-      request: e.request,
-      fileCount: e.fileCount,
-      at: e.at,
-      state: e.state,
-      source: "in-app" as const,
-    }));
+    const inAppRows: AgentAccessAuditRow[] = readInAppAudit(projectId).map(
+      (e) => ({
+        key: `in-app:${e.runId}:${e.at}`,
+        request: e.request,
+        fileCount: e.fileCount,
+        at: e.at,
+        state: e.state,
+        source: "in-app" as const,
+      }),
+    );
     const merged = [...mcpRows, ...inAppRows].sort((a, b) => b.at - a.at);
     setAutoAcceptAudit(merged);
   }, [projectId]);
@@ -1717,9 +1977,14 @@ export function ProjectApp({
       // (concurrent applies sharing a pre-loop snapshot would slip the burst gates).
       // ADR-0025 §8.1: capture each record's mode-at-first-sight; only records first
       // SEEN under Auto are eligible — a flip Ask→Auto never auto-applies the backlog.
-      const liveMode = getControlResponderManager().getActiveGrant()?.mode ?? null;
+      const liveMode =
+        getControlResponderManager().getActiveGrant()?.mode ?? null;
       for (const p of pending) {
-        const eligible = observeAutoEligibility(autoEligibilityRef.current, p.id, liveMode);
+        const eligible = observeAutoEligibility(
+          autoEligibilityRef.current,
+          p.id,
+          liveMode,
+        );
         if (!eligible) continue;
         autoAcceptChain.current = autoAcceptChain.current
           .then(() => runAutoAcceptRef.current("single", p))
@@ -1744,9 +2009,14 @@ export function ProjectApp({
       setFileProposals(pending);
       setRunGroups(getPendingRunGroups(project).groups);
       // ADR-0025 §8.1: same future-records-only capture as the single mailbox.
-      const liveMode = getControlResponderManager().getActiveGrant()?.mode ?? null;
+      const liveMode =
+        getControlResponderManager().getActiveGrant()?.mode ?? null;
       for (const p of pending) {
-        const eligible = observeAutoEligibility(autoEligibilityRef.current, p.id, liveMode);
+        const eligible = observeAutoEligibility(
+          autoEligibilityRef.current,
+          p.id,
+          liveMode,
+        );
         if (!eligible) continue;
         autoAcceptChain.current = autoAcceptChain.current
           .then(() => runAutoAcceptRef.current("file", p))
@@ -1883,10 +2153,10 @@ export function ProjectApp({
         reattachReevaluated.current = true;
         const singles = getPendingProposals(project);
         const files = getPendingFileProposals(project);
-        promotePendingToEligible(
-          autoEligibilityRef.current,
-          [...singles.map((p) => p.id), ...files.map((p) => p.id)],
-        );
+        promotePendingToEligible(autoEligibilityRef.current, [
+          ...singles.map((p) => p.id),
+          ...files.map((p) => p.id),
+        ]);
         for (const p of singles) {
           autoAcceptChain.current = autoAcceptChain.current
             .then(() => runAutoAcceptRef.current("single", p))
@@ -1933,8 +2203,14 @@ export function ProjectApp({
     // Not eligible: ensure no stale claim from this tab lingers in this awareness.
     releaseAutoApplier(activeAwareness);
     return undefined;
-  }, [activeAwareness, canMutate, config.syncUrl, agentGrantActive, autoAccept, projectId]);
-
+  }, [
+    activeAwareness,
+    canMutate,
+    config.syncUrl,
+    agentGrantActive,
+    autoAccept,
+    projectId,
+  ]);
 
   // Share: live-upgrade this LOCAL project to a shared room WITHOUT the user
   // hand-editing the URL (#14-C, the last #14 exit criterion). We wait for
@@ -1953,19 +2229,26 @@ export function ProjectApp({
    * throws across its boundary and never sets a user-facing share error (callers
    * decide how to surface it).
    */
-  const ensureSharedForAgent = async (): Promise<
-    OpenedProject | OpenProjectRefusal
-  > => {
+  const ensureSharedForAgent = async (
+    recordMcpGrant = true,
+  ): Promise<OpenedProject | OpenProjectRefusal> => {
     await session.whenReady;
-    const syncUrl = resolveSyncUrl(configuredSyncUrlOverride(), window.location);
+    const syncUrl = resolveSyncUrl(
+      configuredSyncUrlOverride(),
+      window.location,
+    );
     if (!/^wss?:\/\//.test(syncUrl)) {
-      return { refused: "sharing is unavailable: the sync server URL is misconfigured" };
+      return {
+        refused: "sharing is unavailable: the sync server URL is misconfigured",
+      };
     }
     // The main file path the handoff hands back (kernel scopes its tools to it).
     const snap = project.snapshot();
     const mainId = snap.mainFileId;
     const mainPath =
-      mainId != null ? snap.files.find((f) => f.fileId === mainId && !f.deleted)?.path : undefined;
+      mainId != null
+        ? snap.files.find((f) => f.fileId === mainId && !f.deleted)?.path
+        : undefined;
     if (mainPath === undefined || mainPath.length === 0) {
       return { refused: "this project has no main file to share" };
     }
@@ -1988,6 +2271,9 @@ export function ProjectApp({
     // No-op without a live Agent Access session (no control room → no responseKey
     // to MAC with); harmless for the plain Share button, which also lands here.
     const recordGrant = (room: string): void => {
+      // Hosted runs carry no MCP authority. Sharing a mailbox for a hosted
+      // draft must never grant a separately paired agent access to file content.
+      if (!recordMcpGrant) return;
       const mgr = getControlResponderManager();
       const controlRoom = mgr.getState().controlRoom;
       if (controlRoom === null) return;
@@ -2011,7 +2297,10 @@ export function ProjectApp({
       // arm-before-pair Auto actually auto-applies the agent's signed proposals.
       // Scoped to `projectId` (the single project being consented to here), so
       // project A's Auto never seeds project B's first grant — see mintGrantMode.
-      const mintMode = mintGrantMode(inheritedMode, getProjectAcceptanceMode(projectId));
+      const mintMode = mintGrantMode(
+        inheritedMode,
+        getProjectAcceptanceMode(projectId),
+      );
       mgr.recordGrant({
         controlRoom,
         projectId,
@@ -2036,7 +2325,9 @@ export function ProjectApp({
       if (room === null) {
         // Connected but the room id was never tracked — fail closed rather than
         // guess a capability we cannot reconstruct.
-        return { refused: "sharing is unavailable: the active share room is unknown" };
+        return {
+          refused: "sharing is unavailable: the active share room is unknown",
+        };
       }
       // M2 (#1 slice 2): under auth the room is only a capability once the
       // server REGISTERED it. The gate awaits the (memoized) registration —
@@ -2050,7 +2341,13 @@ export function ProjectApp({
       // agent scope before the handoff, so the export never pushes over an advisory
       // channel (the forged-COMPLETE DoS). Recreates the channel iff it is absent or
       // advisory; a no-op when it is already authenticated.
-      ensureAuthenticatedBlobChannel(session, syncUrl, room, buildAgentBlobOpts(grantId, room, syncUrl));
+      if (recordMcpGrant)
+        ensureAuthenticatedBlobChannel(
+          session,
+          syncUrl,
+          room,
+          buildAgentBlobOpts(grantId, room, syncUrl),
+        );
       return { room, syncUrl, mainFile: mainPath, grantId };
     }
 
@@ -2077,7 +2374,16 @@ export function ProjectApp({
       room,
       {},
       "editor",
-      buildAgentBlobOpts(grantId, room, syncUrl),
+      recordMcpGrant
+        ? buildAgentBlobOpts(grantId, room, syncUrl)
+        : blobStore
+          ? {
+              store: blobStore,
+              onInboundStored,
+              onHostedStorageError: () =>
+                HOSTED_STORAGE_ERRORS.get(project)?.(),
+            }
+          : undefined,
     );
     setConnection(conn);
     setActiveAwareness(conn.awareness);
@@ -2094,6 +2400,54 @@ export function ProjectApp({
     recordGrant(room);
     return { room, syncUrl, mainFile: mainPath, grantId };
   };
+
+  // Rejoin only a mailbox explicitly consented to on this browser and bound to
+  // this configured host. This recovers proposals after a closed tab/restart;
+  // it never submits or repeats a model request and grants no MCP authority.
+  useEffect(() => {
+    const hosted = hostedRunsConfig();
+    if (!hosted || config.syncUrl !== undefined || session.connection) return;
+    const expected = resolveSyncUrl(
+      configuredSyncUrlOverride(),
+      window.location,
+    );
+    const target = readHostedRunTarget(projectId, hosted.apiPath, expected);
+    if (!target) return;
+    let disposed = false;
+    void session.whenReady
+      .then(() => {
+        if (disposed || session.connection) return;
+        const conn = connectProjectSession(
+          session,
+          target.syncUrl,
+          target.room,
+          {},
+          "editor",
+          blobStore
+            ? {
+                store: blobStore,
+                onInboundStored,
+                onHostedStorageError: () =>
+                  HOSTED_STORAGE_ERRORS.get(project)?.(),
+              }
+            : undefined,
+        );
+        setConnection(conn);
+        setActiveAwareness(conn.awareness);
+        setActiveShareRoom(target.room);
+        setShareLink(buildShareLink(target.room, undefined, shareRole));
+      })
+      .catch(() =>
+        setNotice(
+          errorNotice(
+            "Could not reconnect the hosted draft mailbox. Refresh before starting another run.",
+          ),
+        ),
+      );
+    return () => {
+      disposed = true;
+    };
+  }, [projectId, session]);
 
   // Host names (or renames) themselves from the Share popover: persist to the
   // local profile (so future sessions/shares carry it) AND live-update presence
@@ -2155,6 +2509,8 @@ export function ProjectApp({
   const onUnshare = () => {
     if (!connection) return;
     disconnectProjectSession(session);
+    const hosted = hostedRunsConfig();
+    if (hosted) forgetHostedRunTarget(projectId, hosted.apiPath);
     setConnection(undefined);
     // F10: the connection is dropped — a genuine later (re)attach must re-evaluate
     // the resumed-Auto backlog once more.
@@ -2229,11 +2585,16 @@ export function ProjectApp({
     if (controlRoom === null) return null;
 
     // The live coordinates this session re-derives, independent of the grant blob.
-    const syncUrl = resolveSyncUrl(configuredSyncUrlOverride(), window.location);
+    const syncUrl = resolveSyncUrl(
+      configuredSyncUrlOverride(),
+      window.location,
+    );
     const snap = project.snapshot();
     const mainId = snap.mainFileId;
     const mainPath =
-      mainId != null ? snap.files.find((f) => f.fileId === mainId && !f.deleted)?.path : undefined;
+      mainId != null
+        ? snap.files.find((f) => f.fileId === mainId && !f.deleted)?.path
+        : undefined;
     if (mainPath === undefined || mainPath.length === 0) return null;
 
     // EXACT scope match (ADR-0024 §3) — any drift falls through to consent.
@@ -2260,7 +2621,12 @@ export function ProjectApp({
       // A1 §1: a plain Share may have connected this room with an ADVISORY blob
       // channel; guarantee an AUTHENTICATED one for the agent scope before the
       // handoff so the export never pushes over an advisory channel.
-      ensureAuthenticatedBlobChannel(session, grant.syncUrl, grant.shareRoom, agentBlobOpts());
+      ensureAuthenticatedBlobChannel(
+        session,
+        grant.syncUrl,
+        grant.shareRoom,
+        agentBlobOpts(),
+      );
       return {
         room: grant.shareRoom,
         syncUrl: grant.syncUrl,
@@ -2340,7 +2706,8 @@ export function ProjectApp({
           setAgentConsent({
             projectName: projectName ?? "this project",
             // The modal resolves true (Share) / false (Deny / escape / backdrop).
-            resolve: (approved: boolean) => finish(approved ? "approve" : "deny"),
+            resolve: (approved: boolean) =>
+              finish(approved ? "approve" : "deny"),
           });
         }),
       // The (idempotent) share-upgrade, read at CALL time via the ref.
@@ -2350,7 +2717,8 @@ export function ProjectApp({
       // any miss → full consent (fail closed). `isRequestLive` is threaded through
       // so the seam re-checks it before its reconnect side effect (SEC-16.3a).
       tryReuseGrant: (requestedProjectId, isRequestLive) =>
-        tryReuseGrantRef.current?.(requestedProjectId, isRequestLive) ?? Promise.resolve(null),
+        tryReuseGrantRef.current?.(requestedProjectId, isRequestLive) ??
+        Promise.resolve(null),
     });
     const unregister = manager.registerOpenProjectHandler(handler);
     // A1 export channel: a STABLE export handler that (1) refuses a request for any
@@ -2363,17 +2731,22 @@ export function ProjectApp({
       maxBytes: number,
     ): Promise<ExportedCompiled | OpenProjectRefusal | null> => {
       if (config.syncUrl !== undefined) {
-        return { refused: "this session is viewing a shared project — it cannot export it for the agent" };
+        return {
+          refused:
+            "this session is viewing a shared project — it cannot export it for the agent",
+        };
       }
       if (requestedProjectId !== projectId) {
         // The agent asked to export a DIFFERENT project than the one open here.
         return { refused: "no project is open to export for that id" };
       }
       const run = exportCompiledRef.current;
-      if (run === null) return { refused: "the document is not ready to export yet" };
+      if (run === null)
+        return { refused: "the document is not ready to export yet" };
       return run(transferId, maxBytes);
     };
-    const unregisterExport = manager.registerExportCompiledHandler(exportHandler);
+    const unregisterExport =
+      manager.registerExportCompiledHandler(exportHandler);
     // F9/F5 compile: a handler scoped to THIS open project that returns its CURRENT
     // preview diagnostics (the live preview already compiled them — no fresh build).
     // Refuse a DIFFERENT project than the one open (scope safety, mirroring export),
@@ -2387,7 +2760,8 @@ export function ProjectApp({
         return { refused: "no project is open to compile for that id" };
       }
       const run = compileBrowserRef.current;
-      if (run === null) return { refused: "the document is not ready to compile yet" };
+      if (run === null)
+        return { refused: "the document is not ready to compile yet" };
       return run(requestedProjectId);
     };
     const unregisterCompile = manager.registerCompileHandler(compileHandler);
@@ -2452,7 +2826,8 @@ export function ProjectApp({
       }
       return reserved;
     };
-    const unregisterExpectBlob = manager.registerExpectBlobHandler(expectBlobHandler);
+    const unregisterExpectBlob =
+      manager.registerExpectBlobHandler(expectBlobHandler);
     // C1b: the kernel asks to RELEASE earlier reservations when a multi-binary
     // upload fails partway or the publish throws. For each of THIS session's own
     // reserved hashes: drop the (still-pending) reservation + its lease so the
@@ -2492,7 +2867,8 @@ export function ProjectApp({
       }
       return true;
     };
-    const unregisterReleaseBlob = manager.registerReleaseBlobHandler(releaseBlobHandler);
+    const unregisterReleaseBlob =
+      manager.registerReleaseBlobHandler(releaseBlobHandler);
     // B3 request_restore_version: a STABLE handler scoped to THIS open project. It
     // exposes the live TEXT-file set (binary assets EXCLUDED, so a restore can
     // never delete one) and publishes the computed restore proposal as a NORMAL,
@@ -2519,7 +2895,8 @@ export function ProjectApp({
       // UNSIGNED publish into the live doc (signer omitted): manual Accept only.
       publish: async (input) => publishFileProposal(project, input, HUMAN),
     };
-    const unregisterRestore = manager.registerRestoreVersionHandler(restoreHandler);
+    const unregisterRestore =
+      manager.registerRestoreVersionHandler(restoreHandler);
     return () => {
       unregister();
       unregisterExport();
@@ -2593,7 +2970,10 @@ export function ProjectApp({
       if ("bytes" in r) {
         downloadBytes(r.bytes, r.filename);
         if (r.omitted?.length) {
-          console.warn("export bundle: binary bytes unavailable, omitted:", r.omitted);
+          console.warn(
+            "export bundle: binary bytes unavailable, omitted:",
+            r.omitted,
+          );
           setNotice(infoNotice(omittedBinariesNotice(r.omitted)));
         }
       } else {
@@ -2619,7 +2999,10 @@ export function ProjectApp({
       if ("bytes" in r) {
         downloadBytes(r.bytes, r.filename);
         if (r.omitted?.length) {
-          console.warn("export git repo: binary bytes unavailable, omitted:", r.omitted);
+          console.warn(
+            "export git repo: binary bytes unavailable, omitted:",
+            r.omitted,
+          );
           setNotice(infoNotice(omittedBinariesNotice(r.omitted)));
         }
       } else {
@@ -2645,7 +3028,11 @@ export function ProjectApp({
   const liveFiles = allLiveFiles.filter((f) => !isReservedProjectPath(f.path));
   // The instructions editor reads from the FULL live set (it edits the hidden file).
   const instructionsText = readInstructionsText(
-    allLiveFiles.map((f) => ({ fileId: f.fileId, path: f.path, text: project.getFile(f.fileId)?.text ?? "" })),
+    allLiveFiles.map((f) => ({
+      fileId: f.fileId,
+      path: f.path,
+      text: project.getFile(f.fileId)?.text ?? "",
+    })),
   );
   const hasInstructions = instructionsText !== undefined;
 
@@ -2654,11 +3041,18 @@ export function ProjectApp({
   // in an offline worker BEFORE committing; a clean trial applies straight away,
   // a failing trial routes to the Cancel / Apply-anyway confirmation (`styleTrial`).
   const styleMainText =
-    snapshot.mainFileId != null ? (project.getFile(snapshot.mainFileId)?.text ?? "") : "";
+    snapshot.mainFileId != null
+      ? (project.getFile(snapshot.mainFileId)?.text ?? "")
+      : "";
   // Capability detection is PROJECT-WIDE: a chapter/intro file can import helpers
   // from /style.typ that /main.typ does not, and a swap must satisfy those too.
   const styleOtherTexts = snapshot.files
-    .filter((f) => !f.deleted && f.fileId !== snapshot.mainFileId && f.path !== "/style.typ")
+    .filter(
+      (f) =>
+        !f.deleted &&
+        f.fileId !== snapshot.mainFileId &&
+        f.path !== "/style.typ",
+    )
     .map((f) => project.getFile(f.fileId)?.text ?? "");
   const styleability = detectStyleability(styleMainText, styleOtherTexts);
   const doApplyStyle = (style: Style) => {
@@ -2672,8 +3066,11 @@ export function ProjectApp({
     try {
       trialCompilerRef.current ??= initCompiler("local");
       const compiler = await trialCompilerRef.current;
-      const errors = await trialCompileStyle(project, style, styleability, (input) =>
-        compiler.check(input),
+      const errors = await trialCompileStyle(
+        project,
+        style,
+        styleability,
+        (input) => compiler.check(input),
       );
       if (errors.length === 0) {
         applyStyle(project, style, styleability, HUMAN);
@@ -2694,10 +3091,16 @@ export function ProjectApp({
   // the in-memory list and are gated on `canMutate` like other editing actions.
   // Built-ins/local FIRST and never awaited — remote styles only ever APPEND, so
   // a slow source can't delay or reorder the shipped cards.
-  const styleCatalog: Style[] = [...BUILT_IN_STYLES, ...savedStyles.map(toStyle), ...remoteStyles];
+  const styleCatalog: Style[] = [
+    ...BUILT_IN_STYLES,
+    ...savedStyles.map(toStyle),
+    ...remoteStyles,
+  ];
   const onSaveCurrentStyle = (name: string) => {
     if (!canMutate) return;
-    const current = snapshot.files.find((f) => f.path === "/style.typ" && !f.deleted);
+    const current = snapshot.files.find(
+      (f) => f.path === "/style.typ" && !f.deleted,
+    );
     const text = current ? (project.getFile(current.fileId)?.text ?? "") : "";
     if (text.trim() === "") return; // nothing to capture — no /style.typ yet
     saveLocalStyle(undefined, { name, text });
@@ -2718,7 +3121,8 @@ export function ProjectApp({
     snapshot.mainFileId != null
       ? snapshot.files.find((f) => f.fileId === snapshot.mainFileId)
       : undefined;
-  const mainDeleted = mainFileSnapshot?.deleted === true && liveFiles.length > 0;
+  const mainDeleted =
+    mainFileSnapshot?.deleted === true && liveFiles.length > 0;
   const activeFile = activeFileId ? project.getFile(activeFileId) : undefined;
   const activeText = activeFileId ? project.fileText(activeFileId) : undefined;
   activeTextRef.current = activeFile?.text ?? "";
@@ -2732,7 +3136,9 @@ export function ProjectApp({
   // the live snapshot so it tracks every keystroke (the same refreshTick path
   // that feeds `agentInstructions`). Only consumed when constraints exist.
   const goalsText =
-    (snapshot.mainFileId != null ? project.getFile(snapshot.mainFileId)?.text : undefined) ??
+    (snapshot.mainFileId != null
+      ? project.getFile(snapshot.mainFileId)?.text
+      : undefined) ??
     activeFile?.text ??
     "";
   // The bibliography feed reads the FULL live set (a `.bib` is never reserved, so
@@ -2836,7 +3242,8 @@ export function ProjectApp({
       return; // a just-fired Escape cancellation; ignore the trailing blur
     }
     const path = renameValue.trim();
-    if (!isViewer && renamingId && path !== "") project.rename(renamingId, path, HUMAN);
+    if (!isViewer && renamingId && path !== "")
+      project.rename(renamingId, path, HUMAN);
     setRenamingId(null);
   };
 
@@ -2877,7 +3284,8 @@ export function ProjectApp({
       );
       // Store every blob first (bytes-before-pointer). mime is ALWAYS derived from
       // the magic bytes inside `put` (inferMime) — never the OS-supplied File.type.
-      const stored: { path: string; asset: BinaryAsset; bytes: Uint8Array }[] = [];
+      const stored: { path: string; asset: BinaryAsset; bytes: Uint8Array }[] =
+        [];
       for (const a of plan.accepted) {
         try {
           const bytes = new Uint8Array(await files[a.index]!.arrayBuffer());
@@ -2890,7 +3298,11 @@ export function ProjectApp({
       // A role can flip during the async put window: bytes already stored are
       // fine (content-addressed, GC-safe), but skip the pointer writes.
       if (stored.length > 0 && !canMutateRef.current) {
-        setNotice(infoNotice("Your access changed while uploading, so nothing was added."));
+        setNotice(
+          infoNotice(
+            "Your access changed while uploading, so nothing was added.",
+          ),
+        );
         return [];
       }
       if (stored.length > 0) {
@@ -2901,7 +3313,8 @@ export function ProjectApp({
         const fresh = project.snapshot();
         const live = new Set<string>();
         for (const f of fresh.files) if (!f.deleted) live.add(f.path);
-        for (const f of fresh.binaryFiles ?? []) if (!f.deleted) live.add(f.path);
+        for (const f of fresh.binaryFiles ?? [])
+          if (!f.deleted) live.add(f.path);
         for (const s of stored) {
           s.path = uniqueBinaryPath(s.path, live);
           live.add(s.path);
@@ -2920,7 +3333,8 @@ export function ProjectApp({
         }
         // Pre-warm the resolve cache so the compile input picks the bytes up THIS
         // tick instead of awaiting the async resolution effect's IDB round-trip.
-        for (const s of stored) binaryCacheRef.current.set(s.asset.hash, s.bytes);
+        for (const s of stored)
+          binaryCacheRef.current.set(s.asset.hash, s.bytes);
         setBinaryTick((n) => n + 1);
         // Quota nudge (#23.1): a large upload can push storage toward eviction —
         // re-read the estimate and re-surface the durability banner if now at risk.
@@ -2936,7 +3350,8 @@ export function ProjectApp({
           })
           .catch(() => undefined);
       }
-      if (plan.rejected.length > 0) setNotice(infoNotice(uploadSkipNotice(plan.rejected)));
+      if (plan.rejected.length > 0)
+        setNotice(infoNotice(uploadSkipNotice(plan.rejected)));
       return stored.map((s) => ({ path: s.path, mime: s.asset.mime }));
     };
     // Serialize: each gesture runs only after the previous one's pointers are
@@ -2951,9 +3366,12 @@ export function ProjectApp({
   // edit, like typing: no Accept gate, correct local attribution). NON-image
   // uploads (a picked PDF/zip) still store, but inserting `image("/x.pdf")` would
   // break the compile, so they are surfaced as a notice instead.
-  const insertImageFiguresAtCursor = (uploaded: { path: string; mime: string }[]) => {
+  const insertImageFiguresAtCursor = (
+    uploaded: { path: string; mime: string }[],
+  ) => {
     if (!canMutate || uploaded.length === 0) return;
-    const insertable = (m: string) => isDisplayableRasterMime(m) || m === "image/svg+xml";
+    const insertable = (m: string) =>
+      isDisplayableRasterMime(m) || m === "image/svg+xml";
     const figures = uploaded.filter((u) => insertable(u.mime));
     const view = editorViewRef.current;
     if (view && figures.length > 0) {
@@ -2964,7 +3382,9 @@ export function ProjectApp({
     }
     const skipped = uploaded.filter((u) => !insertable(u.mime));
     if (skipped.length > 0) {
-      const names = skipped.map((u) => u.path.slice(u.path.lastIndexOf("/") + 1)).join(", ");
+      const names = skipped
+        .map((u) => u.path.slice(u.path.lastIndexOf("/") + 1))
+        .join(", ");
       setNotice(infoNotice(`Uploaded ${names} — not insertable as an image.`));
     }
   };
@@ -2999,7 +3419,9 @@ export function ProjectApp({
       if (uploaded.length === 0) return;
       const view = editorViewRef.current;
       if (!view || !canMutate) return;
-      const snippet = uploaded.map((u) => inlineImageSnippet(u.path)).join("\n");
+      const snippet = uploaded
+        .map((u) => inlineImageSnippet(u.path))
+        .join("\n");
       const pos = at ?? view.state.selection.main.from;
       view.dispatch({ changes: { from: pos, to: pos, insert: snippet } });
       view.focus();
@@ -3136,7 +3558,8 @@ export function ProjectApp({
       setNotice(infoNotice("Those bytes aren’t on this device yet."));
       return;
     }
-    const basename = meta.path.slice(meta.path.lastIndexOf("/") + 1) || "download";
+    const basename =
+      meta.path.slice(meta.path.lastIndexOf("/") + 1) || "download";
     // A download forces a save (never navigates), so the pointer mime is safe here.
     downloadBytes(bytes, basename, meta.mime || "application/octet-stream");
   };
@@ -3144,7 +3567,9 @@ export function ProjectApp({
   // The asset currently open in the preview modal, resolved from the live doc —
   // null when nothing is open OR the pointer was tombstoned while open (so the
   // modal closes gracefully rather than previewing a deleted asset).
-  const binaryPreviewSnap = binaryPreviewId ? project.getBinary(binaryPreviewId) : undefined;
+  const binaryPreviewSnap = binaryPreviewId
+    ? project.getBinary(binaryPreviewId)
+    : undefined;
   const binaryPreviewMeta: BinaryPreviewMeta | null =
     binaryPreviewSnap && !binaryPreviewSnap.deleted
       ? {
@@ -3204,11 +3629,14 @@ export function ProjectApp({
     const steps = planFolderRename(liveFiles, oldPrefix, newPrefix);
     if (steps.length === 0) return;
     project.doc.transact(() => {
-      for (const step of steps) project.rename(step.fileId, step.newPath, HUMAN);
+      for (const step of steps)
+        project.rename(step.fileId, step.newPath, HUMAN);
     }, authorOrigin(HUMAN));
     // Keep the (renamed) folder's collapse state attached to its new canonical
     // prefix (mirror the helper's leading-slash canonicalization).
-    const canonicalNew = newPrefix.startsWith("/") ? newPrefix : `/${newPrefix}`;
+    const canonicalNew = newPrefix.startsWith("/")
+      ? newPrefix
+      : `/${newPrefix}`;
     setCollapsedFolders((prev) => {
       if (!prev.has(oldPrefix)) return prev;
       const next = new Set(prev);
@@ -3221,7 +3649,8 @@ export function ProjectApp({
   // The "+" on a folder row: prefill the new-file input with that folder's
   // prefix so the next created file lands inside it (a path with a prefix already
   // works; this is just an affordance).
-  const newFileInFolder = (folderPath: string) => setNewFilePath(`${folderPath}/`);
+  const newFileInFolder = (folderPath: string) =>
+    setNewFilePath(`${folderPath}/`);
 
   // --- Tree context menu — a right-click (or Shift+F10 / the ContextMenu key)
   // on a row opens a small menu over the SAME operations the row's buttons
@@ -3255,7 +3684,8 @@ export function ProjectApp({
       if (id === "preview-binary") openBinaryPreview(target.fileId);
       else if (id === "download-binary") void downloadBinary(target.fileId);
       else if (!canMutate) return;
-      else if (id === "rename-binary") beginRenameBinary(target.fileId, target.path);
+      else if (id === "rename-binary")
+        beginRenameBinary(target.fileId, target.path);
       else if (id === "delete-binary") deleteBinary(target.fileId);
       return;
     }
@@ -3324,7 +3754,11 @@ export function ProjectApp({
   const onSaveVersion = (input: { name: string; message?: string }) => {
     const outcome = materializeProject(project.snapshot());
     if (!outcome.ok) {
-      setNotice(errorNotice(`Cannot save a version: ${outcome.reason} (${outcome.detail}).`));
+      setNotice(
+        errorNotice(
+          `Cannot save a version: ${outcome.reason} (${outcome.detail}).`,
+        ),
+      );
       return;
     }
     // Applies to BOTH manual saves and #10 auto-snapshots (this is the one path).
@@ -3332,14 +3766,25 @@ export function ProjectApp({
     void versionStore
       .createVersion(
         projectId,
-        { ...input, author, ...(contributors.length > 0 ? { contributors } : {}) },
+        {
+          ...input,
+          author,
+          ...(contributors.length > 0 ? { contributors } : {}),
+        },
         outcome.result.files,
       )
       .then(() => setHistoryEpoch((n) => n + 1))
       .catch((err) => {
         // L8: keep the raw error in the console; show the user plain, reassuring copy.
         console.error("version save failed:", err);
-        setNotice(errorNotice(versionErrorNotice("save")));
+        setNotice(
+          errorNotice(
+            err instanceof Error &&
+              err.message.startsWith("Local version saved;")
+              ? "The version is saved on this device, but the hosted checkpoint could not be saved. Refresh and try again."
+              : versionErrorNotice("save"),
+          ),
+        );
       });
   };
 
@@ -3359,7 +3804,10 @@ export function ProjectApp({
     if (!autoSnapshotPolicy.enabled || !canMutate) return; // default-OFF: no-op
     const ydoc = project.doc;
     // Per-subscription state (not React state — avoids a render per keystroke).
-    const state: AutoSnapshotState = { lastSnapshotTime: Date.now(), editsSinceLast: 0 };
+    const state: AutoSnapshotState = {
+      lastSnapshotTime: Date.now(),
+      editsSinceLast: 0,
+    };
     let timer: ReturnType<typeof setTimeout> | undefined;
     const AUTO_SNAPSHOT_DEBOUNCE_MS = 1_000;
 
@@ -3393,7 +3841,9 @@ export function ProjectApp({
   // the sensible enabled defaults on turn-on, and persist. Viewer-gated.
   const onToggleAutoSnapshot = (next: boolean) => {
     if (!canMutate) return; // viewers can't enable a mutating cadence
-    const policy: AutoSnapshotPolicy = next ? enabledAutoSnapshotPolicy() : { enabled: false };
+    const policy: AutoSnapshotPolicy = next
+      ? enabledAutoSnapshotPolicy()
+      : { enabled: false };
     setAutoSnapshotPolicy(policy);
     saveAutoSnapshotPolicy(policy);
   };
@@ -3403,11 +3853,17 @@ export function ProjectApp({
   const onRestoreVersion = (versionId: string) => {
     if (!canMutate) return; // restore rewrites the live CRDT — viewers can't
     setNotice(null);
-    void versionStore
-      .getVersionTree(versionId)
+    void restoreHostedHistoryVersion(
+      project,
+      versionId,
+      historyTarget.current,
+      HUMAN,
+    )
+      .then((restored) =>
+        restored ? null : versionStore.getVersionTree(versionId),
+      )
       .then((tree) => {
-        if (!tree) return;
-        restoreProjectFromTree(project, tree, HUMAN);
+        if (tree) restoreProjectFromTree(project, tree, HUMAN);
         setActiveFileId(project.mainFileId());
         closePanel("history");
       })
@@ -3432,14 +3888,19 @@ export function ProjectApp({
           const i = list.findIndex((v) => v.id === id);
           return i === -1 ? Number.MAX_SAFE_INTEGER : i;
         };
-        const [olderId, newerId] = order(aId) <= order(bId) ? [aId, bId] : [bId, aId];
+        const [olderId, newerId] =
+          order(aId) <= order(bId) ? [aId, bId] : [bId, aId];
         const label = (id: string) => list.find((v) => v.id === id)?.name ?? id;
         return Promise.all([
           versionStore.getVersionTree(olderId),
           versionStore.getVersionTree(newerId),
         ]).then(([olderTree, newerTree]) => {
           if (!olderTree || !newerTree) {
-            setNotice(errorNotice("Could not load one of the selected versions to compare."));
+            setNotice(
+              errorNotice(
+                "Could not load one of the selected versions to compare.",
+              ),
+            );
             return;
           }
           setCompareData({
@@ -3475,7 +3936,9 @@ export function ProjectApp({
   // The live CRDT projected to a git-shaped tree — shared by both push transports.
   // Carries `.galley/instructions` (14-D round-trip) so a later fetch restores it.
   const materializeLiveTree = () => {
-    const outcome = materializeProject(project.snapshot(), { includeInstructions: true });
+    const outcome = materializeProject(project.snapshot(), {
+      includeInstructions: true,
+    });
     return outcome.ok
       ? { ok: true as const, files: outcome.result.files }
       : { ok: false as const, reason: `${outcome.reason} (${outcome.detail})` };
@@ -3501,7 +3964,8 @@ export function ProjectApp({
       });
     }
     const cfg = loadRemoteConfig(projectId);
-    if (!cfg) return { ok: false, error: "No remote configured — save a URL first." };
+    if (!cfg)
+      return { ok: false, error: "No remote configured — save a URL first." };
     return pushGitRemote(createBrowserRemoteSync(), cfg, materializeLiveTree);
   };
 
@@ -3519,13 +3983,16 @@ export function ProjectApp({
       });
     } else {
       const cfg = loadRemoteConfig(projectId);
-      if (!cfg) return { ok: false, error: "No remote configured — save a URL first." };
+      if (!cfg)
+        return { ok: false, error: "No remote configured — save a URL first." };
       result = await fetchGitRemote(createBrowserRemoteSync(), cfg);
     }
     if (result.ok && result.candidate) {
       // Include instructions in the BASE too, so the compare overlay is honest:
       // an identical remote `.galley/instructions` shows unchanged, not "added".
-      const current = materializeProject(project.snapshot(), { includeInstructions: true });
+      const current = materializeProject(project.snapshot(), {
+        includeInstructions: true,
+      });
       const base = current.ok ? current.result.files : [];
       const candidate = result.candidate;
       setCompareData({
@@ -3555,7 +4022,9 @@ export function ProjectApp({
     return {
       kind: "project",
       main: input.main,
-      files: input.files.map((f) => (f.path === activeFile.path ? { path: f.path, text: scratch } : f)),
+      files: input.files.map((f) =>
+        f.path === activeFile.path ? { path: f.path, text: scratch } : f,
+      ),
     };
   };
 
@@ -3588,7 +4057,10 @@ export function ProjectApp({
       project
         .snapshot()
         .files.filter((f) => !f.deleted && !isReservedProjectPath(f.path))
-        .map((f) => ({ path: f.path, text: project.getFile(f.fileId)?.text ?? "" })),
+        .map((f) => ({
+          path: f.path,
+          text: project.getFile(f.fileId)?.text ?? "",
+        })),
     [project],
   );
 
@@ -3604,9 +4076,19 @@ export function ProjectApp({
     // SEC: accepting an agent edit writes the agent's span into the shared doc.
     if (!canMutate) return false;
     if (!activeFileId || !activeFile) return false;
-    const outcome = resolveAccept(activeFile.text, run.baseSource, run.finalSource, run.blocks);
+    const outcome = resolveAccept(
+      activeFile.text,
+      run.baseSource,
+      run.finalSource,
+      run.blocks,
+    );
     if (outcome.applied) {
-      applyAcceptedFileAsAgent(project, activeFileId, outcome.source!, AGENT_RUN_ID);
+      applyAcceptedFileAsAgent(
+        project,
+        activeFileId,
+        outcome.source!,
+        AGENT_RUN_ID,
+      );
       return true;
     }
     setNotice(
@@ -3641,12 +4123,28 @@ export function ProjectApp({
     const liveText = liveFileRec.text;
     // The conflict-aware re-plan against the LIVE text (a concurrent edit during
     // the checkpoint window surfaces here as a conflict, never a clobber).
-    const outcome = resolveAccept(liveText, run.baseSource, run.finalSource, run.blocks);
+    const outcome = resolveAccept(
+      liveText,
+      run.baseSource,
+      run.finalSource,
+      run.blocks,
+    );
     // The single final gate: still Auto, still able to mutate, and no conflict.
-    if (!passesInAppFinalGate({ mode: liveMode, canMutate: liveCanMutate, conflict: !outcome.applied })) {
+    if (
+      !passesInAppFinalGate({
+        mode: liveMode,
+        canMutate: liveCanMutate,
+        conflict: !outcome.applied,
+      })
+    ) {
       return false;
     }
-    applyAcceptedFileAsAgent(project, liveFileId, outcome.source!, AGENT_RUN_ID);
+    applyAcceptedFileAsAgent(
+      project,
+      liveFileId,
+      outcome.source!,
+      AGENT_RUN_ID,
+    );
     return true;
   };
 
@@ -3677,7 +4175,12 @@ export function ProjectApp({
       return false;
     }
     const file = target.file;
-    const outcome = resolveAccept(file.text, p.baseText, p.proposedText, p.blocks);
+    const outcome = resolveAccept(
+      file.text,
+      p.baseText,
+      p.proposedText,
+      p.blocks,
+    );
     if (!outcome.applied) {
       setNotice(
         errorNotice(
@@ -3706,7 +4209,9 @@ export function ProjectApp({
   // its body as the agent peer, rewrite each edit as the agent peer, and record
   // the verdict. Returns true when applied. NEVER auto-applies on its own — the
   // card's "Accept all" button drives it.
-  const onAcceptFileProposal = async (p: FileProposalRecord): Promise<boolean> => {
+  const onAcceptFileProposal = async (
+    p: FileProposalRecord,
+  ): Promise<boolean> => {
     setNotice(null);
     // SEC: applies agent edits AND records a verdict in the shared mailbox —
     // both shared-doc writes a viewer must not make.
@@ -3729,7 +4234,9 @@ export function ProjectApp({
       // CRDT pointer to absent bytes either.
       const probe = planFileProposalAccept(project.snapshot(), p.ops);
       if (!probe.ok) {
-        setNotice(errorNotice(`Could not apply the proposal — ${probe.reason}`));
+        setNotice(
+          errorNotice(`Could not apply the proposal — ${probe.reason}`),
+        );
         return false;
       }
       if (probe.plan.binaryCreates.length > 0) {
@@ -3741,7 +4248,10 @@ export function ProjectApp({
           );
           return false;
         }
-        const present = await verifyBinaryBlobsPresent(probe.plan.binaryCreates, blobStore);
+        const present = await verifyBinaryBlobsPresent(
+          probe.plan.binaryCreates,
+          blobStore,
+        );
         if (!present.ok) {
           setNotice(
             errorNotice(
@@ -3758,7 +4268,9 @@ export function ProjectApp({
       if (getFileProposal(project, p.id)?.status !== "pending") return false;
       const planned = planFileProposalAccept(project.snapshot(), p.ops);
       if (!planned.ok) {
-        setNotice(errorNotice(`Could not apply the proposal — ${planned.reason}`));
+        setNotice(
+          errorNotice(`Could not apply the proposal — ${planned.reason}`),
+        );
         return false;
       }
       try {
@@ -3783,7 +4295,11 @@ export function ProjectApp({
         // An unexpected failure: surface it and leave the proposal PENDING (never
         // silently half-resolved). The validated plan makes this near-impossible,
         // but we never claim success we didn't achieve.
-        setNotice(errorNotice(`Could not finish applying the proposal — ${String(err)}`));
+        setNotice(
+          errorNotice(
+            `Could not finish applying the proposal — ${String(err)}`,
+          ),
+        );
         return false;
       }
     } finally {
@@ -3830,7 +4346,8 @@ export function ProjectApp({
     setNotice(null);
     if (!canMutate) return;
     for (const record of group.records) {
-      if ("ops" in record) resolveFileProposal(project, record.id, "rejected", HUMAN);
+      if ("ops" in record)
+        resolveFileProposal(project, record.id, "rejected", HUMAN);
       else resolveProposal(project, record.id, "rejected", HUMAN);
     }
   };
@@ -3865,7 +4382,8 @@ export function ProjectApp({
       // the write-eligibility through the scoped read means a project-B selection
       // can never call setGrantMode and flip project-A's MAC'd disposition.
       const grantActive =
-        getControlResponderManager().getActiveGrantForProject(projectId) !== null;
+        getControlResponderManager().getActiveGrantForProject(projectId) !==
+        null;
       const writes = agentModeWrites(mode, grantActive);
       // In-app authority: always.
       setProjectAcceptanceMode(projectId, writes.mode);
@@ -3888,10 +4406,10 @@ export function ProjectApp({
         if (writes.mode === "auto") {
           const singles = getPendingProposals(project);
           const files = getPendingFileProposals(project);
-          promotePendingToEligible(
-            autoEligibilityRef.current,
-            [...singles.map((p) => p.id), ...files.map((p) => p.id)],
-          );
+          promotePendingToEligible(autoEligibilityRef.current, [
+            ...singles.map((p) => p.id),
+            ...files.map((p) => p.id),
+          ]);
           for (const p of singles) {
             autoAcceptChain.current = autoAcceptChain.current
               .then(() => runAutoAcceptRef.current("single", p))
@@ -3911,7 +4429,10 @@ export function ProjectApp({
 
   // The EFFECTIVE mode the panel DISPLAYS: Auto when either authoritative store is
   // on Auto (the MCP grant `mode` when a grant exists, OR the in-app setting).
-  const effectiveMode = effectiveAgentMode(autoAccept ? "auto" : agentGrantActive ? "ask" : null, inAppMode);
+  const effectiveMode = effectiveAgentMode(
+    autoAccept ? "auto" : agentGrantActive ? "ask" : null,
+    inAppMode,
+  );
 
   // Write a labeled, restorable pre-image version BEFORE an auto-apply (ADR-0023
   // §3). Returns the version id, or null on ANY failure (a bad materialization, a
@@ -3972,7 +4493,10 @@ export function ProjectApp({
   // EXISTING accept handler, which re-validates the conflict gate against the live
   // snapshot (the verify→apply TOCTOU guard) and is the sole apply chokepoint.
   const runAutoAccept = useCallback(
-    async (kind: "single" | "file", record: ProposalRecord | FileProposalRecord): Promise<void> => {
+    async (
+      kind: "single" | "file",
+      record: ProposalRecord | FileProposalRecord,
+    ): Promise<void> => {
       // A cheap synchronous re-entrancy backstop. NOTE: auto-applies are now
       // serialized through `autoAcceptChain`, so a concurrent double-fire for the
       // same record can't happen (the prior task's `finally` releases this id
@@ -4017,7 +4541,9 @@ export function ProjectApp({
           // fails closed (a binary proposal won't auto-apply without a store).
           ...(blobStore
             ? {
-                binaryPresent: (binaryCreates: { path: string; asset: { hash: string } }[]) =>
+                binaryPresent: (
+                  binaryCreates: { path: string; asset: { hash: string } }[],
+                ) =>
                   verifyBinaryBlobsPresent(
                     binaryCreates as { path: string; asset: BinaryAsset }[],
                     blobStore,
@@ -4031,7 +4557,8 @@ export function ProjectApp({
             : await decideAutoAcceptFile(record as FileProposalRecord, ctx);
         if ("manual" in decision) return; // not eligible → leave it for the human card
         const digest = decision.apply.digest;
-        const fileCount = kind === "single" ? 1 : (record as FileProposalRecord).ops.length;
+        const fileCount =
+          kind === "single" ? 1 : (record as FileProposalRecord).ops.length;
         // A2: charge the applied-volume window with proposed-TEXT bytes PLUS every
         // create-binary op's blob `size`, so a binary auto-apply consumes the byte
         // burst-budget (mirrors `proposedBytes` in the decision gate — without the
@@ -4051,7 +4578,10 @@ export function ProjectApp({
 
         // `started` BEFORE the checkpoint/apply: a crash mid-apply still leaves a
         // tombstone that blocks any replay of this digest on the next load.
-        audit.mark(record.id, digest, "started", { request: record.request, fileCount });
+        audit.mark(record.id, digest, "started", {
+          request: record.request,
+          fileCount,
+        });
         if (audit.corrupt() || audit.overflowed()) {
           disarmAutoAccept(
             "Auto-accept paused: its audit log is full or unreadable. Review what landed, then re-arm.",
@@ -4071,7 +4601,9 @@ export function ProjectApp({
         }
         const checkpointId = await checkpointBeforeApply(record.request);
         if (checkpointId === null) {
-          disarmAutoAccept("Auto-accept paused: a pre-apply checkpoint could not be written.");
+          disarmAutoAccept(
+            "Auto-accept paused: a pre-apply checkpoint could not be written.",
+          );
           return;
         }
         // THE FINAL PRE-APPLY GATE (ADR-0025 §8.1) — the LAST thing before apply,
@@ -4087,12 +4619,17 @@ export function ProjectApp({
         // (The accept handler additionally re-plans against the live snapshot — the
         // conflict-aware TOCTOU guard — as a further backstop after this gate.)
         const liveMode =
-          getControlResponderManager().getActiveGrantForProject(projectId)?.mode ?? null;
+          getControlResponderManager().getActiveGrantForProject(projectId)
+            ?.mode ?? null;
         const stillPending =
           (kind === "single"
             ? getProposal(project, record.id)
-            : getFileProposal(project, record.id))?.status === "pending";
-        const ownsAutoApplier = isAutoApplierOwner(activeAwarenessRef.current, grant.grantId);
+            : getFileProposal(project, record.id)
+          )?.status === "pending";
+        const ownsAutoApplier = isAutoApplierOwner(
+          activeAwarenessRef.current,
+          grant.grantId,
+        );
         if (
           !passesFinalApplyGate({
             mode: liveMode,
@@ -4101,7 +4638,10 @@ export function ProjectApp({
             ownsAutoApplier,
           })
         ) {
-          audit.mark(record.id, digest, "failed", { request: record.request, fileCount });
+          audit.mark(record.id, digest, "failed", {
+            request: record.request,
+            fileCount,
+          });
           refreshAutoAcceptAudit();
           return;
         }
@@ -4113,13 +4653,18 @@ export function ProjectApp({
         // held (another tab is applying) OR the Web Locks API is unavailable
         // (jsdom/old runtime), `ranWithLock` is false and we DO NOT apply — the
         // record stays for manual review.
-        const lockOutcome = await withAutoApplierLock(grant.grantId, async () =>
-          kind === "single"
-            ? onAcceptProposal(record as ProposalRecord)
-            : onAcceptFileProposal(record as FileProposalRecord),
+        const lockOutcome = await withAutoApplierLock(
+          grant.grantId,
+          async () =>
+            kind === "single"
+              ? onAcceptProposal(record as ProposalRecord)
+              : onAcceptFileProposal(record as FileProposalRecord),
         );
         if (!lockOutcome.ranWithLock) {
-          audit.mark(record.id, digest, "failed", { request: record.request, fileCount });
+          audit.mark(record.id, digest, "failed", {
+            request: record.request,
+            fileCount,
+          });
           refreshAutoAcceptAudit();
           return;
         }
@@ -4130,14 +4675,18 @@ export function ProjectApp({
             fileCount,
             checkpointVersionId: checkpointId,
           });
-          lastAppliedSeqRef.current[kind === "single" ? "mcpProposals" : "mcpFileProposals"] =
-            record.seq;
+          lastAppliedSeqRef.current[
+            kind === "single" ? "mcpProposals" : "mcpFileProposals"
+          ] = record.seq;
           vol.ops += fileCount;
           vol.bytes += proposedBytes;
         } else {
           // The handler re-validated against the live snapshot and declined (a
           // TOCTOU conflict): mark it and leave the human card to take over.
-          audit.mark(record.id, digest, "failed", { request: record.request, fileCount });
+          audit.mark(record.id, digest, "failed", {
+            request: record.request,
+            fileCount,
+          });
         }
         refreshAutoAcceptAudit();
       } finally {
@@ -4200,13 +4749,20 @@ export function ProjectApp({
           return { path: f.path, ranges };
         });
         const input = gatherContributionEvidence(versions, files);
-        const text = renderContributionStatement(buildContributionStatement(input), {
-          heading: true,
-        });
+        const text = renderContributionStatement(
+          buildContributionStatement(input),
+          {
+            heading: true,
+          },
+        );
         setContributionDraft(text);
       })
       .catch(() => {
-        setNotice(errorNotice("Could not read the project history to draft a contribution statement."));
+        setNotice(
+          errorNotice(
+            "Could not read the project history to draft a contribution statement.",
+          ),
+        );
       });
   }, [canMutate, versionStore, projectId, liveFiles, project]);
 
@@ -4269,14 +4825,19 @@ export function ProjectApp({
       // `parseBibtex` — emit BibTeX (via `bibEntryText`/`toBibtex`), NOT the
       // review-only Hayagriva YAML, so the entry is visible + compiles.
       const entry = bibEntryText(resolved).trimEnd();
-      const bibFile = project.snapshot().files.find(
-        (f) => !f.deleted && f.path.toLowerCase().endsWith(".bib"),
-      );
+      const bibFile = project
+        .snapshot()
+        .files.find((f) => !f.deleted && f.path.toLowerCase().endsWith(".bib"));
       if (bibFile) {
         project.transactFile(
           bibFile.fileId,
           (t) => {
-            const sep = t.length > 0 && !t.toString().endsWith("\n") ? "\n\n" : t.length > 0 ? "\n" : "";
+            const sep =
+              t.length > 0 && !t.toString().endsWith("\n")
+                ? "\n\n"
+                : t.length > 0
+                  ? "\n"
+                  : "";
             t.insert(t.length, `${sep}${entry}\n`);
           },
           HUMAN,
@@ -4299,9 +4860,9 @@ export function ProjectApp({
   const onRewriteBibliography = useCallback(
     (text: string) => {
       if (!canMutate) return; // SEC: rewriting the .bib mutates the shared doc
-      const bibFile = project.snapshot().files.find(
-        (f) => !f.deleted && f.path.toLowerCase().endsWith(".bib"),
-      );
+      const bibFile = project
+        .snapshot()
+        .files.find((f) => !f.deleted && f.path.toLowerCase().endsWith(".bib"));
       if (!bibFile) return;
       const ytext = project.fileText(bibFile.fileId);
       if (!ytext) return;
@@ -4335,8 +4896,13 @@ export function ProjectApp({
     const live = project
       .snapshot()
       .files.filter((f) => !f.deleted)
-      .map((f) => ({ fileId: f.fileId, path: f.path, text: "" })) as InstructionsEditFile[];
-    for (const f of findAllInstructionsFiles(live)) project.delete(f.fileId, HUMAN);
+      .map((f) => ({
+        fileId: f.fileId,
+        path: f.path,
+        text: "",
+      })) as InstructionsEditFile[];
+    for (const f of findAllInstructionsFiles(live))
+      project.delete(f.fileId, HUMAN);
     setInstructionsOpen(false);
   }, [project, canMutate]);
 
@@ -4357,7 +4923,8 @@ export function ProjectApp({
       return;
     }
     const trimmed = nameDraft.trim();
-    if (trimmed.length > 0 && trimmed !== projectName) onRenameProject?.(trimmed);
+    if (trimmed.length > 0 && trimmed !== projectName)
+      onRenameProject?.(trimmed);
     setNameEditing(false);
   }, [nameDraft, projectName, onRenameProject]);
 
@@ -4369,7 +4936,9 @@ export function ProjectApp({
   // Quick-fix (#11.4b): build the scoped agent request from a diagnostic on the
   // active file and hand it to the AgentPanel to run. Accept stays mandatory (the
   // run yields a reviewable diff). Mirrors App.tsx's onQuickFix.
-  const onQuickFix = (diagnostic: Parameters<typeof quickFixForDiagnostic>[0]) => {
+  const onQuickFix = (
+    diagnostic: Parameters<typeof quickFixForDiagnostic>[0],
+  ) => {
     if (!canMutate || !activeFile) return; // SEC: a quick-fix run yields an Accept-gated doc edit
     const qf = quickFixForDiagnostic(diagnostic, activeFile.text);
     if (panes.isCollapsed("sidebar")) panes.toggleCollapse("sidebar");
@@ -4380,11 +4949,17 @@ export function ProjectApp({
   // the active file and hand it to the AgentPanel. The answer is a plain-text
   // explanation — the run is flagged adviceOnly, so no diff/Accept gate and the
   // document never changes. Mirrors App.tsx's onExplain.
-  const onExplain = (diagnostic: Parameters<typeof explainForDiagnostic>[0]) => {
+  const onExplain = (
+    diagnostic: Parameters<typeof explainForDiagnostic>[0],
+  ) => {
     if (!activeFile) return;
     const ex = explainForDiagnostic(diagnostic, activeFile.text);
     if (panes.isCollapsed("sidebar")) panes.toggleCollapse("sidebar");
-    setPendingRun((p) => ({ request: ex.request, nonce: (p?.nonce ?? 0) + 1, adviceOnly: true }));
+    setPendingRun((p) => ({
+      request: ex.request,
+      nonce: (p?.nonce ?? 0) + 1,
+      adviceOnly: true,
+    }));
   };
 
   // #13 follow-up: insert `@<label>` at the live editor cursor (replacing any
@@ -4420,7 +4995,10 @@ export function ProjectApp({
   }, []);
 
   // Whether a non-empty selection exists right now (gates the command/shortcut).
-  const hasSelection = useCallback(() => readEditorSelection() !== null, [readEditorSelection]);
+  const hasSelection = useCallback(
+    () => readEditorSelection() !== null,
+    [readEditorSelection],
+  );
 
   // Open the revise prompt for the CURRENT selection. Snapshots the region so a
   // later selection change can't silently retarget the run; no-ops (with a
@@ -4429,10 +5007,18 @@ export function ProjectApp({
     if (!canMutate) return; // SEC: revise yields an Accept-gated doc edit (raw shortcut too)
     const sel = readEditorSelection();
     if (!sel) {
-      setNotice(infoNotice("Select some text in the editor first, then choose Revise selection."));
+      setNotice(
+        infoNotice(
+          "Select some text in the editor first, then choose Revise selection.",
+        ),
+      );
       return;
     }
-    setRevisePrompt({ text: sel.text, startLine: sel.startLine, endLine: sel.endLine });
+    setRevisePrompt({
+      text: sel.text,
+      startLine: sel.startLine,
+      endLine: sel.endLine,
+    });
   }, [readEditorSelection, canMutate]);
 
   // Submit the revise prompt: compose the scoped request from the snapshot + the
@@ -4466,7 +5052,12 @@ export function ProjectApp({
       const coords = view?.coordsAtPos(selection.to);
       const anchor = coords
         ? new DOMRect(coords.left, coords.top, 0, coords.bottom - coords.top)
-        : new DOMRect(window.innerWidth / 2 - 150, window.innerHeight / 3, 0, 0);
+        : new DOMRect(
+            window.innerWidth / 2 - 150,
+            window.innerHeight / 3,
+            0,
+            0,
+          );
       // Opening a fresh thread closes any open card (one floating surface at a time).
       setActiveThread(null);
       setCommentDraft({ selection, anchor });
@@ -4538,14 +5129,18 @@ export function ProjectApp({
       // An ORPHANED thread (range null) has nothing to scroll to — switching files
       // would land on a file with nothing to see. Open its card over the CURRENT
       // view at a centered rect instead (caretRectForThread falls back to that).
-      const targetFileId = thread.fileId === SINGLE_FILE_ID ? activeFileId : thread.fileId;
+      const targetFileId =
+        thread.fileId === SINGLE_FILE_ID ? activeFileId : thread.fileId;
       if (range && targetFileId && targetFileId !== activeFileId) {
         setPendingThreadOpen(threadId);
         setActiveFileId(targetFileId);
         return;
       }
       if (range) jumpToOffset(editorViewRef.current, range.from);
-      setActiveThread({ id: threadId, anchor: caretRectForThread(editorViewRef.current, project, threadId) });
+      setActiveThread({
+        id: threadId,
+        anchor: caretRectForThread(editorViewRef.current, project, threadId),
+      });
     },
     [project, activeFileId],
   );
@@ -4556,7 +5151,8 @@ export function ProjectApp({
     ? threads.find((t) => t.id === activeThread.id)
     : undefined;
   const activeThreadOrphaned =
-    activeThreadView !== undefined && resolveThreadRange(project, activeThreadView) === null;
+    activeThreadView !== undefined &&
+    resolveThreadRange(project, activeThreadView) === null;
 
   // L5: project every thread into an overview row — file path + document-order key
   // (file index in the tree order, then resolved offset) + orphan flag.
@@ -4573,7 +5169,10 @@ export function ProjectApp({
         id: t.id,
         fileId: t.fileId,
         filePath: path,
-        order: [idx, range ? range.from : Number.MAX_SAFE_INTEGER] as [number, number],
+        order: [idx, range ? range.from : Number.MAX_SAFE_INTEGER] as [
+          number,
+          number,
+        ],
         anchorText: t.anchorText,
         status: t.status,
         messageCount: t.messages.length,
@@ -4641,7 +5240,9 @@ export function ProjectApp({
     if (!svg) return;
     void (async () => {
       try {
-        const out = await buildRasterExport(svg, { rasterize: browserRasterize });
+        const out = await buildRasterExport(svg, {
+          rasterize: browserRasterize,
+        });
         downloadBytes(out.bytes, out.filename, out.type);
       } catch (err) {
         // H4: surface the failure (the C3 banner) in addition to the console.
@@ -4693,7 +5294,10 @@ export function ProjectApp({
     // paths guarantee an authenticated channel for the agent scope; if for any reason
     // this one is not, refuse rather than push.
     if (!channel.authenticated) {
-      return { refused: "the project's byte channel is not securely authenticated for the agent" };
+      return {
+        refused:
+          "the project's byte channel is not securely authenticated for the agent",
+      };
     }
     let bytes: Uint8Array | null;
     try {
@@ -4720,10 +5324,14 @@ export function ProjectApp({
     // receiver's verified COMPLETE — so a resolved push means the kernel genuinely
     // holds the verified bytes that match the descriptor we return.
     try {
-      const handle = channel.send(bytes, hash, "application/pdf", { transferId });
+      const handle = channel.send(bytes, hash, "application/pdf", {
+        transferId,
+      });
       await handle.done;
     } catch {
-      return { refused: "the compiled PDF could not be delivered to the agent" };
+      return {
+        refused: "the compiled PDF could not be delivered to the agent",
+      };
     }
     return { hash, size: bytes.length };
   };
@@ -4731,7 +5339,10 @@ export function ProjectApp({
   // Per-file diagnostics: those tagged with the active file's path, plus any
   // untagged (project-level) ones.
   const activeDiagnostics = useMemo(
-    () => diagnostics.filter((d) => d.path === undefined || d.path === activeFile?.path),
+    () =>
+      diagnostics.filter(
+        (d) => d.path === undefined || d.path === activeFile?.path,
+      ),
     [diagnostics, activeFile?.path],
   );
 
@@ -4775,9 +5386,14 @@ export function ProjectApp({
   // FAIL CLOSED on the prerequisites: a shared/joined session is VIEWING someone
   // else's project (it cannot offer it for compile), and an unready compiler has no
   // diagnostics yet.
-  compileBrowserRef.current = async (): Promise<CompileDiagnostics | OpenProjectRefusal> => {
+  compileBrowserRef.current = async (): Promise<
+    CompileDiagnostics | OpenProjectRefusal
+  > => {
     if (config.syncUrl !== undefined) {
-      return { refused: "this session is viewing a shared project — it cannot compile it for the agent" };
+      return {
+        refused:
+          "this session is viewing a shared project — it cannot compile it for the agent",
+      };
     }
     if (!ready) return { refused: "the document is not ready to compile yet" };
     return {
@@ -4819,7 +5435,11 @@ export function ProjectApp({
     applyTheme(initial);
     setThemeMode(initial);
     let storedSkin: string | null = null;
-    try { storedSkin = localStorage.getItem(SKIN_STORAGE_KEY); } catch { /* storage off */ }
+    try {
+      storedSkin = localStorage.getItem(SKIN_STORAGE_KEY);
+    } catch {
+      /* storage off */
+    }
     applySkin(resolveInitialSkin({ stored: storedSkin }));
   }, []);
 
@@ -4827,7 +5447,9 @@ export function ProjectApp({
   // once per invocation, never inside a setState updater. Stable for the keymap.
   const toggleThemeNow = useCallback(() => {
     const current: ThemeMode =
-      document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+      document.documentElement.getAttribute("data-theme") === "dark"
+        ? "dark"
+        : "light";
     setThemeMode(toggleTheme(current));
   }, []);
 
@@ -4840,7 +5462,10 @@ export function ProjectApp({
       // here instead of always landing on home (#H6). A home origin is the
       // default, so don't bother carrying it.
       const origin = onOpenLibrary ? routeHref(currentRoute()) : undefined;
-      const href = settingsHref(section, origin && origin !== "/" ? origin : undefined);
+      const href = settingsHref(
+        section,
+        origin && origin !== "/" ? origin : undefined,
+      );
       if (onOpenLibrary) navigate(href);
     },
     [onOpenLibrary],
@@ -4849,23 +5474,72 @@ export function ProjectApp({
   // Command surface (#11.7): Mod-chord bindings + the discoverable cheat-sheet.
   const shortcuts = useMemo<Shortcut[]>(
     () => [
-      { id: "export", keys: "Mod-e", label: "Export PDF", group: "File", global: true, run: runPdfExport },
-      { id: "theme", keys: "Mod-j", label: "Toggle dark mode", group: "View", global: true, run: toggleThemeNow },
-      { id: "settings", keys: "Mod-,", label: "Open settings", group: "View", global: true, run: () => gotoSettings() },
+      {
+        id: "export",
+        keys: "Mod-e",
+        label: "Export PDF",
+        group: "File",
+        global: true,
+        run: runPdfExport,
+      },
+      {
+        id: "theme",
+        keys: "Mod-j",
+        label: "Toggle dark mode",
+        group: "View",
+        global: true,
+        run: toggleThemeNow,
+      },
+      {
+        id: "settings",
+        keys: "Mod-,",
+        label: "Open settings",
+        group: "View",
+        global: true,
+        run: () => gotoSettings(),
+      },
       // Tier E #2 — find in files (project-wide). Mod-F is the editor's own
       // single-file find (searchKeymap); Mod-Shift-F is the across-files search,
       // the VS Code convention. `global` so it fires while typing in the editor.
-      { id: "search-in-files", keys: "Mod-Shift-f", label: "Find in files", group: "View", global: true, run: openSearch },
+      {
+        id: "search-in-files",
+        keys: "Mod-Shift-f",
+        label: "Find in files",
+        group: "View",
+        global: true,
+        run: openSearch,
+      },
       // 11.8b — revise the current selection via the agent. Mod-Shift-e is free
       // in this shell (used keys: Mod-e/j/,/Shift-f///k) AND unbound by
       // CodeMirror's basicSetup (defaultKeymap + searchKeymap); searchKeymap owns
       // Mod-f/Mod-Shift-f/Mod-g/Mod-d, not Mod-Shift-e. `global` so it fires
       // while typing in the editor (where the selection lives); a no-op when the
       // selection is empty so it never hijacks an empty-cursor keystroke.
-      { id: "revise-selection", keys: "Mod-Shift-e", label: "Revise selection", group: "Edit", global: true, run: openReviseSelection },
-      { id: "help", keys: "Mod-/", label: "Keyboard shortcuts", group: "Help", global: true, run: () => setShowShortcuts((s) => !s) },
+      {
+        id: "revise-selection",
+        keys: "Mod-Shift-e",
+        label: "Revise selection",
+        group: "Edit",
+        global: true,
+        run: openReviseSelection,
+      },
+      {
+        id: "help",
+        keys: "Mod-/",
+        label: "Keyboard shortcuts",
+        group: "Help",
+        global: true,
+        run: () => setShowShortcuts((s) => !s),
+      },
     ],
-    [ready, exportPdf, toggleThemeNow, gotoSettings, openSearch, openReviseSelection],
+    [
+      ready,
+      exportPdf,
+      toggleThemeNow,
+      gotoSettings,
+      openSearch,
+      openReviseSelection,
+    ],
   );
   useShortcuts(shortcuts);
 
@@ -4877,7 +5551,9 @@ export function ProjectApp({
   const [paletteOpen, setPaletteOpen] = useState(false);
   // One-time ⌘K nudge (#19.4, spec §6): a small pill near the actions cluster,
   // dismissed PERMANENTLY the first time the palette opens (any trigger).
-  const [showNudge, setShowNudge] = useState<boolean>(() => shouldShowPaletteNudge());
+  const [showNudge, setShowNudge] = useState<boolean>(() =>
+    shouldShowPaletteNudge(),
+  );
   // H5: a one-time, NON-BLOCKING first-run chooser banner (mirrors the ⌘K nudge).
   // Only on a fresh LOCAL boot (not a joiner, not the explicit `?seed=einstein`
   // demo) so a novice landing on the near-blank starter sees the templates + the
@@ -4886,7 +5562,8 @@ export function ProjectApp({
     () =>
       config.syncUrl === undefined &&
       (typeof window === "undefined" ||
-        new URLSearchParams(window.location.search).get("seed") !== "einstein") &&
+        new URLSearchParams(window.location.search).get("seed") !==
+          "einstein") &&
       shouldShowFirstRunChooser(),
   );
   // 14-E: the signed-in user (published by the boot AuthGate before any shell
@@ -4913,7 +5590,8 @@ export function ProjectApp({
     () =>
       config.syncUrl === undefined &&
       (typeof window === "undefined" ||
-        new URLSearchParams(window.location.search).get("seed") !== "einstein") &&
+        new URLSearchParams(window.location.search).get("seed") !==
+          "einstein") &&
       shouldShowCoachOverlay(),
   );
   const dismissCoach = () => {
@@ -4992,7 +5670,9 @@ export function ProjectApp({
         else openPanel("files");
         requestAnimationFrame(() =>
           (
-            document.querySelector('[data-testid="new-file-path"]') as HTMLInputElement | null
+            document.querySelector(
+              '[data-testid="new-file-path"]',
+            ) as HTMLInputElement | null
           )?.focus(),
         );
       },
@@ -5010,7 +5690,7 @@ export function ProjectApp({
       keywords: ["projects", "switch"],
       group: "Project",
       // Mirrors the topbar "Projects ▾" button's action exactly.
-      run: () => (onOpenLibrary ? onOpenLibrary() : (navigate("/library"))),
+      run: () => (onOpenLibrary ? onOpenLibrary() : navigate("/library")),
     },
     {
       id: "rename-project",
@@ -5054,7 +5734,15 @@ export function ProjectApp({
       // rail's Search→Outline order; opens the outline dock (the narrow overlay).
       id: "outline",
       title: "Outline",
-      keywords: ["outline", "headings", "sections", "navigate", "jump", "toc", "contents"],
+      keywords: [
+        "outline",
+        "headings",
+        "sections",
+        "navigate",
+        "jump",
+        "toc",
+        "contents",
+      ],
       group: "View",
       run: () => openPanel("outline"),
     },
@@ -5076,7 +5764,14 @@ export function ProjectApp({
       // insert. Mutating (the insert lands a doc edit), so hidden for a viewer.
       id: "draft-contribution-statement",
       title: "Draft contribution statement",
-      keywords: ["credit", "author", "contribution", "attribution", "roles", "statement"],
+      keywords: [
+        "credit",
+        "author",
+        "contribution",
+        "attribution",
+        "roles",
+        "statement",
+      ],
       group: "Edit",
       available: () => canMutate,
       run: openContributionStatement,
@@ -5086,7 +5781,15 @@ export function ProjectApp({
       // Only listed/runnable when a non-empty selection exists.
       id: "revise-selection",
       title: "Revise selection…",
-      keywords: ["edit", "rewrite", "revise", "shorten", "agent", "ai", "region"],
+      keywords: [
+        "edit",
+        "rewrite",
+        "revise",
+        "shorten",
+        "agent",
+        "ai",
+        "region",
+      ],
       shortcut: "Mod-Shift-e",
       group: "Edit",
       // B19-sharing-roles: a viewer can't Accept the resulting diff, so the
@@ -5225,7 +5928,14 @@ export function ProjectApp({
     {
       id: "settings-ai",
       title: "AI provider settings…",
-      keywords: ["model", "api key", "agent", "provider", "ollama", "anthropic"],
+      keywords: [
+        "model",
+        "api key",
+        "agent",
+        "provider",
+        "ollama",
+        "anthropic",
+      ],
       group: "Settings",
       run: () => gotoSettings("ai"),
     },
@@ -5251,10 +5961,16 @@ export function ProjectApp({
   // leaves tagged `kind:"binary"` (`renderFileRow` renders them distinctly and
   // never opens the editor). A project with no binaries adds nothing — the input
   // and resulting tree are byte-for-byte unchanged.
-  const liveBinaryFiles = (snapshot.binaryFiles ?? []).filter((f) => !f.deleted);
+  const liveBinaryFiles = (snapshot.binaryFiles ?? []).filter(
+    (f) => !f.deleted,
+  );
   const fileTree = buildFileTree([
     ...liveFiles.map((f) => ({ fileId: f.fileId, path: f.path })),
-    ...liveBinaryFiles.map((f) => ({ fileId: f.fileId, path: f.path, isBinary: true })),
+    ...liveBinaryFiles.map((f) => ({
+      fileId: f.fileId,
+      path: f.path,
+      isBinary: true,
+    })),
   ]);
 
   // One file row — its testids, data-path, the ★ main marker, the inline rename
@@ -5265,7 +5981,10 @@ export function ProjectApp({
   // row's hint. Empty for a text-only project.
   const binaryMetaByPath = new Map(liveBinaryFiles.map((f) => [f.path, f]));
 
-  const renderFileRow = (node: Extract<TreeNode, { type: "file" }>, depth: number) => {
+  const renderFileRow = (
+    node: Extract<TreeNode, { type: "file" }>,
+    depth: number,
+  ) => {
     // #7 7D: a binary asset row — an icon, the name, a size/mime hint. Its label
     // OPENS THE PREVIEW (never the editor: an image isn't editable text). It keeps
     // the distinct `project-binary-file` testid + className so it never collides
@@ -5274,7 +5993,11 @@ export function ProjectApp({
     // handlers (a text rename/delete on a binary id throws).
     if (node.kind === "binary") {
       const meta = binaryMetaByPath.get(node.path);
-      const menuTarget: TreeMenuTarget = { kind: "binary", fileId: node.fileId, path: node.path };
+      const menuTarget: TreeMenuTarget = {
+        kind: "binary",
+        fileId: node.fileId,
+        path: node.path,
+      };
       return (
         <li
           key={node.fileId}
@@ -5358,86 +6081,89 @@ export function ProjectApp({
       isMain: node.fileId === snapshot.mainFileId,
     };
     return (
-    <li
-      key={node.fileId}
-      className="project-file-row"
-      style={{ "--tree-depth": depth } as CSSProperties}
-      onContextMenu={(e) => openTreeMenu(e, menuTarget)}
-      onKeyDown={(e) => treeMenuKeyDown(e, menuTarget)}
-    >
-      {renamingId === node.fileId ? (
-        <input
-          className="project-file-rename"
-          data-testid="rename-input"
-          value={renameValue}
-          autoFocus
-          onChange={(e) => setRenameValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commitRename();
-            if (e.key === "Escape") cancelRename();
-          }}
-          onBlur={commitRename}
-        />
-      ) : (
-        <button
-          type="button"
-          className={`project-file${node.fileId === activeFileId ? " is-active" : ""}`}
-          data-testid="project-file"
-          data-path={node.path}
-          aria-current={node.fileId === activeFileId}
-          onClick={() => setActiveFileId(node.fileId)}
-          onDoubleClick={() => beginRename(node.fileId, node.path)}
-        >
-          {node.name}
-          {node.fileId === snapshot.mainFileId && (
-            <span className="project-file-main" title="main file">
-              {" ★"}
-            </span>
-          )}
-        </button>
-      )}
-      {/* B19-sharing-roles: viewers get NO file-ops (handlers also fail closed). */}
-      {!isViewer && (
-        <span className="project-file-ops">
-          {node.fileId !== snapshot.mainFileId && (
+      <li
+        key={node.fileId}
+        className="project-file-row"
+        style={{ "--tree-depth": depth } as CSSProperties}
+        onContextMenu={(e) => openTreeMenu(e, menuTarget)}
+        onKeyDown={(e) => treeMenuKeyDown(e, menuTarget)}
+      >
+        {renamingId === node.fileId ? (
+          <input
+            className="project-file-rename"
+            data-testid="rename-input"
+            value={renameValue}
+            autoFocus
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitRename();
+              if (e.key === "Escape") cancelRename();
+            }}
+            onBlur={commitRename}
+          />
+        ) : (
+          <button
+            type="button"
+            className={`project-file${node.fileId === activeFileId ? " is-active" : ""}`}
+            data-testid="project-file"
+            data-path={node.path}
+            aria-current={node.fileId === activeFileId}
+            onClick={() => setActiveFileId(node.fileId)}
+            onDoubleClick={() => beginRename(node.fileId, node.path)}
+          >
+            {node.name}
+            {node.fileId === snapshot.mainFileId && (
+              <span className="project-file-main" title="main file">
+                {" ★"}
+              </span>
+            )}
+          </button>
+        )}
+        {/* B19-sharing-roles: viewers get NO file-ops (handlers also fail closed). */}
+        {!isViewer && (
+          <span className="project-file-ops">
+            {node.fileId !== snapshot.mainFileId && (
+              <button
+                type="button"
+                title="set as main file"
+                data-testid="set-main"
+                data-path={node.path}
+                onClick={() => setMain(node.fileId)}
+              >
+                main
+              </button>
+            )}
             <button
               type="button"
-              title="set as main file"
-              data-testid="set-main"
+              title="rename file"
+              data-testid="rename-file"
               data-path={node.path}
-              onClick={() => setMain(node.fileId)}
+              onClick={() => beginRename(node.fileId, node.path)}
             >
-              main
+              ✎
             </button>
-          )}
-          <button
-            type="button"
-            title="rename file"
-            data-testid="rename-file"
-            data-path={node.path}
-            onClick={() => beginRename(node.fileId, node.path)}
-          >
-            ✎
-          </button>
-          <button
-            type="button"
-            title="delete file"
-            data-testid="delete-file"
-            data-path={node.path}
-            onClick={() => deleteFile(node.fileId)}
-          >
-            ✕
-          </button>
-        </span>
-      )}
-    </li>
+            <button
+              type="button"
+              title="delete file"
+              data-testid="delete-file"
+              data-path={node.path}
+              onClick={() => deleteFile(node.fileId)}
+            >
+              ✕
+            </button>
+          </span>
+        )}
+      </li>
     );
   };
 
   // One folder row + (when expanded) its subtree. The folder is a derived prefix,
   // never a CRDT entity: the toggle is ephemeral view state, the inline rename
   // re-paths every file under the prefix, and "+" prefills a new file there.
-  const renderFolderRow = (node: Extract<TreeNode, { type: "folder" }>, depth: number) => {
+  const renderFolderRow = (
+    node: Extract<TreeNode, { type: "folder" }>,
+    depth: number,
+  ) => {
     const collapsed = collapsedFolders.has(node.path);
     const menuTarget: TreeMenuTarget = { kind: "folder", path: node.path };
     return (
@@ -5540,7 +6266,9 @@ export function ProjectApp({
           </div>
         )}
         {!collapsed && (
-          <ul className="project-tree-children">{renderTreeNodes(node.children, depth + 1)}</ul>
+          <ul className="project-tree-children">
+            {renderTreeNodes(node.children, depth + 1)}
+          </ul>
         )}
       </li>
     );
@@ -5548,7 +6276,9 @@ export function ProjectApp({
 
   const renderTreeNodes = (nodes: TreeNode[], depth: number): ReactNode =>
     nodes.map((node) =>
-      node.type === "folder" ? renderFolderRow(node, depth) : renderFileRow(node, depth),
+      node.type === "folder"
+        ? renderFolderRow(node, depth)
+        : renderFileRow(node, depth),
     );
 
   const filesNode = (
@@ -5572,7 +6302,11 @@ export function ProjectApp({
           }}
         />
       )}
-      <ul className="project-files" data-testid="project-files" aria-label="Project files">
+      <ul
+        className="project-files"
+        data-testid="project-files"
+        aria-label="Project files"
+      >
         {renderTreeNodes(fileTree, 0)}
       </ul>
       {/* B19-sharing-roles: a VIEWER sees the project structure but cannot create
@@ -5665,8 +6399,16 @@ export function ProjectApp({
     <div className="center" key="center" role="region" aria-label="Preview">
       <Preview
         svg={svg}
-        placeholder={previewPlaceholder({ ready, errorCount: errors.length, busy, pageCount })}
-        staleNotice={staleRenderNotice({ hasRender: svg !== null, errorCount: errors.length })}
+        placeholder={previewPlaceholder({
+          ready,
+          errorCount: errors.length,
+          busy,
+          pageCount,
+        })}
+        staleNotice={staleRenderNotice({
+          hasRender: svg !== null,
+          errorCount: errors.length,
+        })}
         {...(sourceMap ? { sourceMap } : {})}
         {...(cursorPos ? { activeSourcePos: cursorPos } : {})}
         {...(activeFile ? { activeFilePath: activeFile.path } : {})}
@@ -5693,14 +6435,19 @@ export function ProjectApp({
                   // Cross-file: compute the offset against the TARGET file's text
                   // (the active editor's doc is the wrong file) and switch + stash.
                   const targetText = project.getFile(target.fileId)?.text ?? "";
-                  setPendingJumpOffset(lineColToOffset(targetText, pos.line, pos.column));
+                  setPendingJumpOffset(
+                    lineColToOffset(targetText, pos.line, pos.column),
+                  );
                   setActiveFileId(target.fileId);
                   return;
                 }
                 // Same file (or no file context): jump within the active editor.
                 const v = editorViewRef.current;
                 if (!v) return;
-                const lineNo = Math.min(Math.max(pos.line, 1), v.state.doc.lines);
+                const lineNo = Math.min(
+                  Math.max(pos.line, 1),
+                  v.state.doc.lines,
+                );
                 const lineInfo = v.state.doc.line(lineNo);
                 jumpToOffset(v, lineInfo.from + Math.max(0, pos.column));
               },
@@ -5761,9 +6508,9 @@ export function ProjectApp({
       </div>
       {!provider && (
         <p className="agent-provider-hint" data-testid="agent-provider-hint">
-          The agent drafts sections, edits the current file, and explains compile
-          errors — right here in your document. It’s currently answering from a
-          canned offline demo;{" "}
+          The agent drafts sections, edits the current file, and explains
+          compile errors — right here in your document. It’s currently answering
+          from a canned offline demo;{" "}
           <button
             type="button"
             className="agent-provider-hint-link"
@@ -5802,6 +6549,54 @@ export function ProjectApp({
           audit={autoAcceptAudit}
         />
       )}
+      {canMutate &&
+        config.syncUrl === undefined &&
+        hostedRunsConfig() !== null && (
+          <HostedRunsPanel
+            key={projectId}
+            config={hostedRunsConfig()!}
+            projectId={projectId}
+            projectName={projectName ?? "this project"}
+            snapshot={() => {
+              const file = activeFileId
+                ? project.getFile(activeFileId)
+                : undefined;
+              return file && !file.deleted && !isReservedProjectPath(file.path)
+                ? { path: file.path, text: file.text }
+                : null;
+            }}
+            share={async () => {
+              const target = await ensureSharedForAgent(false);
+              const hosted = hostedRunsConfig();
+              if (
+                !("refused" in target) &&
+                hosted &&
+                !rememberHostedRunTarget(projectId, hosted.apiPath, target)
+              ) {
+                setNotice(
+                  infoNotice(
+                    "This browser cannot retain the draft mailbox. Keep this tab open until you review the hosted draft.",
+                  ),
+                );
+              }
+              return target;
+            }}
+            proposalStatus={(ref) => {
+              const proposalId = /^doc:[^:]+:(.+)$/.exec(ref)?.[1];
+              return proposalId
+                ? getFileProposal(project, proposalId)?.status
+                : undefined;
+            }}
+            onReview={() => {
+              setReviewPaneOpen(true);
+              requestAnimationFrame(() =>
+                document
+                  .querySelector('[data-testid="pending-review-pane"]')
+                  ?.scrollIntoView({ block: "nearest" }),
+              );
+            }}
+          />
+        )}
       {activeFile && (
         <p className="agent-target" data-testid="agent-target">
           {canMutate ? (
@@ -5816,7 +6611,10 @@ export function ProjectApp({
         </p>
       )}
       {agentInstructions?.constraints && (
-        <WritingGoals constraints={agentInstructions.constraints} source={goalsText} />
+        <WritingGoals
+          constraints={agentInstructions.constraints}
+          source={goalsText}
+        />
       )}
       {/* B19-sharing-roles: the agent panel runs edits the viewer can't Accept
           (the write is gated), so a VIEWER sees a read-only note instead of the
@@ -5864,8 +6662,8 @@ export function ProjectApp({
       ) : (
         <p className="agent-provider-hint" data-testid="agent-readonly-hint">
           You joined this project as a viewer, so it&rsquo;s read-only — the AI
-          agent and editing tools are disabled. Ask the owner for an edit link to
-          make changes.
+          agent and editing tools are disabled. Ask the owner for an edit link
+          to make changes.
         </p>
       )}
     </aside>
@@ -5888,7 +6686,11 @@ export function ProjectApp({
   ) => {
     // `focused` is the tab receiving the keydown — move focus relative to IT,
     // not the selected tab, so manual activation (focus ≠ selection) is correct.
-    const target = tablistKeyTarget(e.key, INSERT_TABS.indexOf(focused), INSERT_TABS.length);
+    const target = tablistKeyTarget(
+      e.key,
+      INSERT_TABS.indexOf(focused),
+      INSERT_TABS.length,
+    );
     if (target === null) return;
     e.preventDefault();
     insertTabRefs.current[INSERT_TABS[target]!]?.focus();
@@ -5930,7 +6732,9 @@ export function ProjectApp({
   const dockNode = (
     <aside
       className="shell-dock"
-      {...(dock ? { "data-dock": dock, "aria-label": DOCK_TITLES[dock] } : { hidden: true })}
+      {...(dock
+        ? { "data-dock": dock, "aria-label": DOCK_TITLES[dock] }
+        : { hidden: true })}
     >
       {dock === "files" && (
         <DockedPanel title="Files" onClose={() => onRailToggle("files")}>
@@ -5938,7 +6742,11 @@ export function ProjectApp({
         </DockedPanel>
       )}
       {dock === "search" && (
-        <DockedPanel title="Search" testId="search-overlay" onClose={() => closePanel("search")}>
+        <DockedPanel
+          title="Search"
+          testId="search-overlay"
+          onClose={() => closePanel("search")}
+        >
           <SearchPanel
             ref={searchPanelRef}
             files={searchFiles}
@@ -5986,7 +6794,11 @@ export function ProjectApp({
           the shared doc, so a VIEWER gets a read-only note instead of the tools.
           (The rail's insert icon lives outside this file, so it can still open
           the dock — but the panels + their handlers are gated.) */}
-      <div className="insert-dock" data-testid="insert-dock" hidden={dock !== "insert"}>
+      <div
+        className="insert-dock"
+        data-testid="insert-dock"
+        hidden={dock !== "insert"}
+      >
         {canMutate ? (
           <>
             <div className="insert-tabs" role="tablist" aria-label="Insert">
@@ -6023,38 +6835,38 @@ export function ProjectApp({
               role="tabpanel"
               aria-labelledby={`insert-tab-${insertTab}`}
             >
-            <FigurePanel
-              docked
-              open={dock === "insert" && insertTab === "figure"}
-              onClose={() => closePanel("insert")}
-              model={model}
-              currentSource={activeFile?.text ?? ""}
-              onInsert={onInsertSnippet}
-              {...(svg !== null ? { previewSvg: svg } : {})}
-              {...(capabilities !== undefined ? { capabilities } : {})}
-              {...verifyCompilerFactoryProp}
-            />
-            <CitationPanel
-              docked
-              open={dock === "insert" && insertTab === "citation"}
-              onClose={() => closePanel("insert")}
-              currentSource={activeFile?.text ?? ""}
-              onInsert={onInsertSnippet}
-              onAddToBibliography={onAddToBibliography}
-              bibliographySource={bibTextRef.current}
-              onRewriteBibliography={onRewriteBibliography}
-              existingKeys={citeKeysFromBibliography(bibTextRef.current)}
-            />
-            {/* Paste-text → Typst stays here (document-scoped); the zip/project
+              <FigurePanel
+                docked
+                open={dock === "insert" && insertTab === "figure"}
+                onClose={() => closePanel("insert")}
+                model={model}
+                currentSource={activeFile?.text ?? ""}
+                onInsert={onInsertSnippet}
+                {...(svg !== null ? { previewSvg: svg } : {})}
+                {...(capabilities !== undefined ? { capabilities } : {})}
+                {...verifyCompilerFactoryProp}
+              />
+              <CitationPanel
+                docked
+                open={dock === "insert" && insertTab === "citation"}
+                onClose={() => closePanel("insert")}
+                currentSource={activeFile?.text ?? ""}
+                onInsert={onInsertSnippet}
+                onAddToBibliography={onAddToBibliography}
+                bibliographySource={bibTextRef.current}
+                onRewriteBibliography={onRewriteBibliography}
+                existingKeys={citeKeysFromBibliography(bibTextRef.current)}
+              />
+              {/* Paste-text → Typst stays here (document-scoped); the zip/project
                 import moved to the Projects page (a zip is usually a project). */}
-            <ImportPanel
-              docked
-              open={dock === "insert" && insertTab === "import"}
-              onClose={() => closePanel("insert")}
-              currentSource={activeFile?.text ?? ""}
-              onInsert={onInsertSnippet}
-              repair={{ model, compilerFactory: () => initCompiler() }}
-            />
+              <ImportPanel
+                docked
+                open={dock === "insert" && insertTab === "import"}
+                onClose={() => closePanel("insert")}
+                currentSource={activeFile?.text ?? ""}
+                onInsert={onInsertSnippet}
+                repair={{ model, compilerFactory: () => initCompiler() }}
+              />
             </div>
           </>
         ) : (
@@ -6079,7 +6891,9 @@ export function ProjectApp({
       <AgentOpenConsent pending={agentConsent} />
       <InstructionsPanel
         open={instructionsOpen}
-        {...(instructionsText !== undefined ? { initialText: instructionsText } : {})}
+        {...(instructionsText !== undefined
+          ? { initialText: instructionsText }
+          : {})}
         hasExisting={hasInstructions}
         onSave={onSaveInstructions}
         onRemove={onRemoveInstructions}
@@ -6095,7 +6909,9 @@ export function ProjectApp({
         styleability={styleability}
         busy={styleBusy}
         onApply={onStyleApply}
-        {...(canMutate ? { onSaveCurrent: onSaveCurrentStyle, onDeleteStyle } : {})}
+        {...(canMutate
+          ? { onSaveCurrent: onSaveCurrentStyle, onDeleteStyle }
+          : {})}
       />
       {styleTrial !== null && (
         <div
@@ -6110,9 +6926,11 @@ export function ProjectApp({
               <h2 className="style-title">This style didn’t compile cleanly</h2>
             </header>
             <p className="style-intro">
-              Applying “{styleTrial.style.manifest.name}” produced {styleTrial.errors.length}{" "}
-              compile {styleTrial.errors.length === 1 ? "error" : "errors"}. You can apply it
-              anyway and fix the document, or cancel and keep the current style.
+              Applying “{styleTrial.style.manifest.name}” produced{" "}
+              {styleTrial.errors.length} compile{" "}
+              {styleTrial.errors.length === 1 ? "error" : "errors"}. You can
+              apply it anyway and fix the document, or cancel and keep the
+              current style.
             </p>
             <div className="style-notice" role="alert">
               {styleTrial.errors
@@ -6210,7 +7028,7 @@ export function ProjectApp({
             title="Your projects, templates & demos"
             aria-label="Your projects, templates and demos"
             onClick={() =>
-              onOpenLibrary ? onOpenLibrary() : (navigate("/library"))
+              onOpenLibrary ? onOpenLibrary() : navigate("/library")
             }
           >
             <span className="brand-word">Galley</span>
@@ -6259,7 +7077,11 @@ export function ProjectApp({
                 {projectName}
               </span>
             ) : (
-              <span className="pill-project-name" data-testid="project-name" title={projectName}>
+              <span
+                className="pill-project-name"
+                data-testid="project-name"
+                title={projectName}
+              >
                 {projectName}
               </span>
             ))}
@@ -6286,7 +7108,9 @@ export function ProjectApp({
                 role="status"
                 title={packagesUnavailableReason ?? undefined}
               >
-                ⚠ {packagesUnavailableReason ?? "This document imports @preview packages, which can't be compiled here."}
+                ⚠{" "}
+                {packagesUnavailableReason ??
+                  "This document imports @preview packages, which can't be compiled here."}
               </span>
             )}
             {packagesOnServer && (
@@ -6296,11 +7120,15 @@ export function ProjectApp({
                 role="status"
                 title={`${packagesOnServerReason ?? "Uses @preview packages — compiling on the server."} The document is sent to the configured compile service.`}
               >
-                ↗ Compiled on the server — this document is sent to the configured compile service.
+                ↗ Compiled on the server — this document is sent to the
+                configured compile service.
               </span>
             )}
             <div className="status-popover-compiler">
-              <span className="status-popover-compiler-label" id="preview-compiler-label">
+              <span
+                className="status-popover-compiler-label"
+                id="preview-compiler-label"
+              >
                 Preview compiler
               </span>
               <CompilerModeToggle
@@ -6418,7 +7246,10 @@ export function ProjectApp({
                 a quiet icon button with an open-thread count pip (null at 0). Its
                 dropdown lists every thread; clicking one focus-jumps + opens it. */}
             <span className="pill-sep" aria-hidden="true" />
-            <CommentsOverview threads={overviewThreads} onJump={onJumpToThread} />
+            <CommentsOverview
+              threads={overviewThreads}
+              onJump={onJumpToThread}
+            />
             {/* 14-E: the signed-in account affordance. `getActiveAuthUser()` is
                 non-null ONLY when the boot AuthGate verified a session (auth-on
                 deployments), so auth-off runs render this pill byte-for-byte
@@ -6426,7 +7257,10 @@ export function ProjectApp({
             {authUser !== null && (
               <>
                 <span className="pill-sep" aria-hidden="true" />
-                <AccountChip user={authUser} onOpenSettings={() => gotoSettings()} />
+                <AccountChip
+                  user={authUser}
+                  onOpenSettings={() => gotoSettings()}
+                />
               </>
             )}
           </div>
@@ -6439,7 +7273,11 @@ export function ProjectApp({
               starter. Local fresh boots only; dismissed permanently on any action.
               Once dismissed, the ⌘K nudge takes the slot. */}
           {showFirstRun && !narrow ? (
-            <div className="nudge-pill first-run-pill" data-testid="first-run-chooser" role="status">
+            <div
+              className="nudge-pill first-run-pill"
+              data-testid="first-run-chooser"
+              role="status"
+            >
               <span>New here?</span>
               <button
                 type="button"
@@ -6497,7 +7335,8 @@ export function ProjectApp({
                 runPdfExport();
               },
               testId: "at-risk-backup",
-              title: "Export the project as a PDF so you have an off-browser copy",
+              title:
+                "Export the project as a PDF so you have an off-browser copy",
             }}
           />
         </div>
@@ -6527,7 +7366,8 @@ export function ProjectApp({
                     label: "Retry now",
                     onClick: () => connection.retryNow(),
                     testId: "link-retry-now",
-                    title: "Reconnect to the room now instead of waiting for the next attempt",
+                    title:
+                      "Reconnect to the room now instead of waiting for the next attempt",
                   },
                 }
               : {})}
@@ -6554,7 +7394,11 @@ export function ProjectApp({
             data-testid="storage-full-dismiss"
             aria-label="Dismiss storage warning"
             title="Dismiss"
-            onClick={() => setStorageCueState((prev) => reduceStorageCue(prev, { type: "dismiss" }))}
+            onClick={() =>
+              setStorageCueState((prev) =>
+                reduceStorageCue(prev, { type: "dismiss" }),
+              )
+            }
           >
             ✕
           </button>
@@ -6566,7 +7410,11 @@ export function ProjectApp({
           interrupt via role="alert"); dismissable like the durability nudge. */}
       {notice && (
         <div className="durability-bar">
-          <Notice severity={notice.severity} testId="accept-notice" message={notice.message} />
+          <Notice
+            severity={notice.severity}
+            testId="accept-notice"
+            message={notice.message}
+          />
           <button
             type="button"
             className="durability-dismiss"
@@ -6637,7 +7485,8 @@ export function ProjectApp({
                 runPdfExport();
               },
               testId: "durability-backup",
-              title: "Export the project as a PDF so you have an off-browser copy",
+              title:
+                "Export the project as a PDF so you have an off-browser copy",
             }}
           />
           <button
@@ -6671,7 +7520,8 @@ export function ProjectApp({
                   runPdfExport();
                 },
                 testId: "transient-storage-backup",
-                title: "Export the project as a PDF so you have an off-browser copy",
+                title:
+                  "Export the project as a PDF so you have an off-browser copy",
               }}
             />
             <button
@@ -6770,7 +7620,11 @@ export function ProjectApp({
           onClose={() => setActiveThread(null)}
         />
       )}
-      <CommandSheet shortcuts={shortcuts} open={showShortcuts} onClose={() => setShowShortcuts(false)} />
+      <CommandSheet
+        shortcuts={shortcuts}
+        open={showShortcuts}
+        onClose={() => setShowShortcuts(false)}
+      />
       <CommandPalette
         commands={paletteRegistry.list()}
         open={paletteOpen}

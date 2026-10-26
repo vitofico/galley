@@ -97,6 +97,7 @@ interface BlobRoom {
 }
 
 export interface BlobRelayHandle {
+  closeRoom(roomId: string): void;
   /** Number of live blob rooms (observability/tests). */
   roomCount(): number;
   /** Connection count in `room` (0 if absent). */
@@ -158,7 +159,8 @@ export class BlobRelay implements BlobRelayHandle {
     if (blobRoom.conns.size >= MAX_PEERS_PER_ROOM) {
       this.closeSocket(ws, 1013, "too many peers in blob room");
       // Reap a freshly-created-but-now-unused room.
-      if (blobRoom.conns.size === 0 && this.rooms.get(room) === blobRoom) this.rooms.delete(room);
+      if (blobRoom.conns.size === 0 && this.rooms.get(room) === blobRoom)
+        this.rooms.delete(room);
       return false;
     }
     const peers = blobRoom.conns;
@@ -298,7 +300,11 @@ export class BlobRelay implements BlobRelayHandle {
   }
 
   /** Forward `data` to every OTHER peer, applying backpressure (§D12). */
-  private forwardToOthers(from: WebSocket, peers: Set<WebSocket>, data: Uint8Array): void {
+  private forwardToOthers(
+    from: WebSocket,
+    peers: Set<WebSocket>,
+    data: Uint8Array,
+  ): void {
     for (const peer of peers) {
       if (peer === from) continue;
       this.forwardTo(peer, data);
@@ -326,7 +332,10 @@ export class BlobRelay implements BlobRelayHandle {
     }
   }
 
-  private countOriginated(transfers: Map<string, Transfer>, ws: WebSocket): number {
+  private countOriginated(
+    transfers: Map<string, Transfer>,
+    ws: WebSocket,
+  ): number {
     let n = 0;
     for (const t of transfers.values()) if (t.sender === ws) n += 1;
     return n;
@@ -351,5 +360,20 @@ export class BlobRelay implements BlobRelayHandle {
       }
     }
     this.rooms.clear();
+  }
+  closeRoom(roomId: string): void {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+    this.rooms.delete(roomId);
+    const sockets = [...room.conns];
+    room.conns.clear();
+    room.transfers.clear();
+    for (const ws of sockets) {
+      try {
+        ws.terminate();
+      } catch {
+        /* already closed */
+      }
+    }
   }
 }

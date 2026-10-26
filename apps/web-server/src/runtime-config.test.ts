@@ -54,13 +54,72 @@ const TREE = {
 
 const URL_OK = "http://compile.example.com/compile";
 
+describe("optional hosted adapters", () => {
+  it("exposes same-origin run/account paths and hosted storage without changing CSP", async () => {
+    const app = createWebServerApp({
+      files: fakeFiles(TREE),
+      hostedRunsApiPath: " /cloud/api/agent-runs ",
+      hostedAccountPath: "/cloud/dashboard",
+      hostedStorage: true,
+    });
+    const res = await app.request("/config.js");
+    expect(await res.text()).toBe(
+      'window.__GALLEY_CONFIG__ = {"hostedRuns":{"apiPath":"/cloud/api/agent-runs","accountPath":"/cloud/dashboard"},"hostedStorage":true};\n',
+    );
+    expect(res.headers.get("content-security-policy")).toBe(DEFAULT_CSP);
+    expect(await (await app.request("/p/id")).text()).toContain(
+      RUNTIME_CONFIG_TAG,
+    );
+  });
+  it("rejects external or partial paths rather than enabling accidental credential egress", () => {
+    for (const hostedRunsApiPath of [
+      "https://remote/api/agent-runs",
+      "//remote/api/agent-runs",
+      "/cloud/../api/agent-runs",
+      "/cloud/%2f/api/agent-runs",
+      "/api/other",
+    ]) {
+      expect(() =>
+        createWebServerApp({ files: fakeFiles(TREE), hostedRunsApiPath }),
+      ).toThrow(/same-origin/);
+    }
+    expect(() =>
+      createWebServerApp({
+        files: fakeFiles(TREE),
+        hostedAccountPath: "/cloud/dashboard",
+      }),
+    ).toThrow(/same-origin/);
+  });
+  it("can opt into hosted storage alone, and omits both adapters by default", async () => {
+    const enabled = createWebServerApp({
+      files: fakeFiles(TREE),
+      hostedStorage: true,
+    });
+    expect(await (await enabled.request("/config.js")).text()).toBe(
+      'window.__GALLEY_CONFIG__ = {"hostedStorage":true};\n',
+    );
+    expect(
+      (
+        await createWebServerApp({
+          files: fakeFiles(TREE),
+          hostedStorage: false,
+        }).request("/config.js")
+      ).status,
+    ).toBe(404);
+  });
+});
+
 function appWith(compileUrl?: string | null) {
   return createWebServerApp({ files: fakeFiles(TREE), compileUrl });
 }
 
 /** An app with the auth router mounted (14-E: the flag mirrors the mount). */
 function appWithAuth(compileUrl?: string | null) {
-  return createWebServerApp({ files: fakeFiles(TREE), compileUrl, authRouter: new Hono() });
+  return createWebServerApp({
+    files: fakeFiles(TREE),
+    compileUrl,
+    authRouter: new Hono(),
+  });
 }
 
 /**
@@ -83,9 +142,13 @@ describe("runtime config: /config.js (configured)", () => {
   it("serves window.__GALLEY_CONFIG__ with the compile URL as application/javascript", async () => {
     const res = await appWith(URL_OK).request("/config.js");
     expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toBe("application/javascript; charset=utf-8");
+    expect(res.headers.get("content-type")).toBe(
+      "application/javascript; charset=utf-8",
+    );
     const body = await res.text();
-    expect(body).toBe(`window.__GALLEY_CONFIG__ = {"compileUrl":"${URL_OK}"};\n`);
+    expect(body).toBe(
+      `window.__GALLEY_CONFIG__ = {"compileUrl":"${URL_OK}"};\n`,
+    );
     expect(evalConfig(body)).toEqual({ compileUrl: URL_OK });
   });
 
@@ -101,7 +164,9 @@ describe("runtime config: /config.js (configured)", () => {
   it("answers HEAD /config.js with headers and no body", async () => {
     const res = await appWith(URL_OK).request("/config.js", { method: "HEAD" });
     expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toBe("application/javascript; charset=utf-8");
+    expect(res.headers.get("content-type")).toBe(
+      "application/javascript; charset=utf-8",
+    );
     expect(await res.text()).toBe("");
   });
 
@@ -182,12 +247,19 @@ describe("runtime config: index.html tag injection (configured)", () => {
   it("injectRuntimeConfigTag falls back sanely without a <head> (before first script, else prepend)", () => {
     const noHead = '<html><body><script src="/a.js"></script></body></html>';
     const injected = injectRuntimeConfigTag(noHead);
-    expect(injected.indexOf(RUNTIME_CONFIG_TAG)).toBeLessThan(injected.indexOf('<script src="/a.js">'));
-    expect(injectRuntimeConfigTag("<p>x</p>")).toBe(`${RUNTIME_CONFIG_TAG}<p>x</p>`);
+    expect(injected.indexOf(RUNTIME_CONFIG_TAG)).toBeLessThan(
+      injected.indexOf('<script src="/a.js">'),
+    );
+    expect(injectRuntimeConfigTag("<p>x</p>")).toBe(
+      `${RUNTIME_CONFIG_TAG}<p>x</p>`,
+    );
     // Attribute-carrying <head> tags are matched too.
-    const attrHead = '<head lang="en"><script type="module" src="/b.js"></script></head>';
+    const attrHead =
+      '<head lang="en"><script type="module" src="/b.js"></script></head>';
     const injectedAttr = injectRuntimeConfigTag(attrHead);
-    expect(injectedAttr.startsWith(`<head lang="en">${RUNTIME_CONFIG_TAG}`)).toBe(true);
+    expect(
+      injectedAttr.startsWith(`<head lang="en">${RUNTIME_CONFIG_TAG}`),
+    ).toBe(true);
   });
 });
 
@@ -232,7 +304,9 @@ describe("runtime config: the auth flag (14-E)", () => {
     const app = appWithAuth();
     const res = await app.request("/config.js");
     expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toBe("application/javascript; charset=utf-8");
+    expect(res.headers.get("content-type")).toBe(
+      "application/javascript; charset=utf-8",
+    );
     expect(res.headers.get("cache-control")).toBe("no-cache");
     const body = await res.text();
     expect(body).toBe('window.__GALLEY_CONFIG__ = {"auth":true};\n');
@@ -248,7 +322,9 @@ describe("runtime config: the auth flag (14-E)", () => {
     const res = await appWithAuth(URL_OK).request("/config.js");
     expect(res.status).toBe(200);
     const body = await res.text();
-    expect(body).toBe(`window.__GALLEY_CONFIG__ = {"compileUrl":"${URL_OK}","auth":true};\n`);
+    expect(body).toBe(
+      `window.__GALLEY_CONFIG__ = {"compileUrl":"${URL_OK}","auth":true};\n`,
+    );
     expect(evalConfig(body)).toEqual({ compileUrl: URL_OK, auth: true });
   });
 
@@ -281,19 +357,31 @@ describe("runtime config: the sync-relay URL (GALLEY_SYNC_URL)", () => {
   const SYNC_OK = "wss://galley.example/sync";
 
   it("serves syncUrl in /config.js when set, normalizing empty/whitespace to absent", async () => {
-    const app = createWebServerApp({ files: fakeFiles(TREE), syncUrl: SYNC_OK });
+    const app = createWebServerApp({
+      files: fakeFiles(TREE),
+      syncUrl: SYNC_OK,
+    });
     const body = await (await app.request("/config.js")).text();
     expect(body).toBe(`window.__GALLEY_CONFIG__ = {"syncUrl":"${SYNC_OK}"};\n`);
     expect(evalConfig(body)).toEqual({ syncUrl: SYNC_OK });
 
     // Empty/whitespace is treated as absent — no dead relay advertised, and with
     // nothing else configured /config.js 404s exactly like today.
-    const blank = createWebServerApp({ files: fakeFiles(TREE), syncUrl: "   " });
+    const blank = createWebServerApp({
+      files: fakeFiles(TREE),
+      syncUrl: "   ",
+    });
     expect((await blank.request("/config.js")).status).toBe(404);
   });
 
   it("emits keys in deterministic order: compileUrl, syncUrl, then auth", () => {
-    expect(renderRuntimeConfigScript({ compileUrl: URL_OK, syncUrl: SYNC_OK, auth: true })).toBe(
+    expect(
+      renderRuntimeConfigScript({
+        compileUrl: URL_OK,
+        syncUrl: SYNC_OK,
+        auth: true,
+      }),
+    ).toBe(
       `window.__GALLEY_CONFIG__ = {"compileUrl":"${URL_OK}","syncUrl":"${SYNC_OK}","auth":true};\n`,
     );
     // Present alone, it is the only key.

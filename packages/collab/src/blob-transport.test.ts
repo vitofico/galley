@@ -1,7 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { BlobTransport, buildBlobTerminalAuth, type ReceivedBlob } from "./blob-transport.js";
+import {
+  BlobTransport,
+  buildBlobTerminalAuth,
+  type ReceivedBlob,
+} from "./blob-transport.js";
 import { sha256Hex } from "./binary-assets.js";
-import { encodeFrame, BLOB_CHUNK_BYTES, BLOB_MAX_INFLIGHT_TRANSFERS } from "./blob-protocol.js";
+import {
+  decodeFrame,
+  encodeFrame,
+  BLOB_CHUNK_BYTES,
+  BLOB_MAX_INFLIGHT_TRANSFERS,
+} from "./blob-protocol.js";
 import type { WebSocketLike } from "./websocket-transport.js";
 
 const TERMINAL_SCOPE = {
@@ -19,7 +28,11 @@ const TERMINAL_KEY = new Uint8Array(32).map((_, i) => (i * 7) & 0xff);
  * macrotask between jobs so the async verify (sha256) + store + COMPLETE all
  * settle. A test can also inject hostile frames straight onto an endpoint.
  */
-function makePair(): { a: WebSocketLike; b: WebSocketLike; flush: () => Promise<void> } {
+function makePair(): {
+  a: WebSocketLike;
+  b: WebSocketLike;
+  flush: () => Promise<void>;
+} {
   const queue: Array<() => void> = [];
   function endpoint() {
     const listeners = new Map<string, Set<(e: unknown) => void>>();
@@ -79,7 +92,8 @@ function makePair(): { a: WebSocketLike; b: WebSocketLike; flush: () => Promise<
 
 const fastSweep = {
   setTimeout: (fn: () => void) => globalThis.setTimeout(fn, 0),
-  clearTimeout: (h: unknown) => globalThis.clearTimeout(h as ReturnType<typeof setTimeout>),
+  clearTimeout: (h: unknown) =>
+    globalThis.clearTimeout(h as ReturnType<typeof setTimeout>),
 };
 
 describe("BlobTransport — honest completion (§A)", () => {
@@ -99,7 +113,9 @@ describe("BlobTransport — honest completion (§A)", () => {
     receiver.connect();
     await flush();
 
-    const bytes = new Uint8Array(BLOB_CHUNK_BYTES * 2 + 123).map((_, i) => (i * 13) & 0xff);
+    const bytes = new Uint8Array(BLOB_CHUNK_BYTES * 2 + 123).map(
+      (_, i) => (i * 13) & 0xff,
+    );
     const hash = await sha256Hex(bytes);
     receiver.expect(hash, bytes.length);
     const handle = sender.send(bytes, hash, "application/octet-stream");
@@ -117,7 +133,9 @@ describe("BlobTransport — honest completion (§A)", () => {
     const { a, b, flush } = makePair();
     const received: ReceivedBlob[] = [];
     const sender = new BlobTransport(() => a);
-    const receiver = new BlobTransport(() => b, { onBlob: (blob) => void received.push(blob) });
+    const receiver = new BlobTransport(() => b, {
+      onBlob: (blob) => void received.push(blob),
+    });
     sender.connect();
     receiver.connect();
     await flush();
@@ -173,7 +191,13 @@ describe("BlobTransport — ACK is flow-control only (§A2 adversarial)", () => 
       () => (rejected = true),
     );
     await flush();
-    b.send(encodeFrame({ kind: "ack", transferId: handle.transferId, index: 0xffffffff }));
+    b.send(
+      encodeFrame({
+        kind: "ack",
+        transferId: handle.transferId,
+        index: 0xffffffff,
+      }),
+    );
     await flush();
     expect(resolved).toBe(false);
     expect(rejected).toBe(false);
@@ -189,7 +213,12 @@ describe("BlobTransport — ACK is flow-control only (§A2 adversarial)", () => 
       if (buf[0] === 2 /* Data */) {
         const idLen = buf[1]!;
         const off = 2 + idLen;
-        const idx = ((buf[off]! << 24) | (buf[off + 1]! << 16) | (buf[off + 2]! << 8) | buf[off + 3]!) >>> 0;
+        const idx =
+          ((buf[off]! << 24) |
+            (buf[off + 1]! << 16) |
+            (buf[off + 2]! << 8) |
+            buf[off + 3]!) >>>
+          0;
         seenData.push(idx);
       }
     });
@@ -202,7 +231,9 @@ describe("BlobTransport — ACK is flow-control only (§A2 adversarial)", () => 
     await flush();
     expect(seenData).toEqual([0, 1, 2, 3]); // window 4
     // A cumulative ACK of index 1 advances the window to admit 4 and 5.
-    b.send(encodeFrame({ kind: "ack", transferId: handle.transferId, index: 1 }));
+    b.send(
+      encodeFrame({ kind: "ack", transferId: handle.transferId, index: 1 }),
+    );
     await flush();
     expect(seenData).toEqual([0, 1, 2, 3, 4, 5]);
     sender.disconnect();
@@ -214,7 +245,9 @@ describe("BlobTransport — acceptance gating (§E13/E15)", () => {
     const { a, b, flush } = makePair();
     const received: ReceivedBlob[] = [];
     const sender = new BlobTransport(() => a);
-    const receiver = new BlobTransport(() => b, { onBlob: (blob) => void received.push(blob) });
+    const receiver = new BlobTransport(() => b, {
+      onBlob: (blob) => void received.push(blob),
+    });
     sender.connect();
     receiver.connect();
     await flush();
@@ -232,7 +265,9 @@ describe("BlobTransport — acceptance gating (§E13/E15)", () => {
     const { a, b, flush } = makePair();
     const received: ReceivedBlob[] = [];
     const sender = new BlobTransport(() => a);
-    const receiver = new BlobTransport(() => b, { onBlob: (blob) => void received.push(blob) });
+    const receiver = new BlobTransport(() => b, {
+      onBlob: (blob) => void received.push(blob),
+    });
     sender.connect();
     receiver.connect();
     await flush();
@@ -245,7 +280,9 @@ describe("BlobTransport — acceptance gating (§E13/E15)", () => {
     expect(received).toHaveLength(1);
     expect(receiver.expectationCount).toBe(0);
     const second = sender.send(bytes, hash, "x");
-    const secondAssert = expect(second.done).rejects.toThrow(/unexpected|aborted/);
+    const secondAssert = expect(second.done).rejects.toThrow(
+      /unexpected|aborted/,
+    );
     await flush();
     await secondAssert;
     expect(received).toHaveLength(1);
@@ -267,12 +304,30 @@ describe("BlobTransport — integrity + DoS rejections", () => {
     const honest = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
     const liedHash = await sha256Hex(honest);
     const tampered = new Uint8Array([9, 9, 9, 9, 9, 9, 9, 9]);
-    const receiver = new BlobTransport(() => b, { onBlob: (blob) => void received.push(blob) });
+    const receiver = new BlobTransport(() => b, {
+      onBlob: (blob) => void received.push(blob),
+    });
     receiver.connect();
     receiver.expect(liedHash, 8);
     await flush();
-    a.send(encodeFrame({ kind: "header", transferId: "evil", hash: liedHash, size: 8, mime: "x", totalChunks: 1 }));
-    a.send(encodeFrame({ kind: "data", transferId: "evil", index: 0, bytes: tampered }));
+    a.send(
+      encodeFrame({
+        kind: "header",
+        transferId: "evil",
+        hash: liedHash,
+        size: 8,
+        mime: "x",
+        totalChunks: 1,
+      }),
+    );
+    a.send(
+      encodeFrame({
+        kind: "data",
+        transferId: "evil",
+        index: 0,
+        bytes: tampered,
+      }),
+    );
     await flush();
     expect(received).toHaveLength(0);
     expect(receiver.inboundCount).toBe(0);
@@ -280,13 +335,25 @@ describe("BlobTransport — integrity + DoS rejections", () => {
 
   it("caps concurrent inbound transfers past the limit", async () => {
     const { a, b, flush } = makePair();
-    const receiver = new BlobTransport(() => b, { onBlob: () => {}, maxExpectedBytes: 1_000_000 });
+    const receiver = new BlobTransport(() => b, {
+      onBlob: () => {},
+      maxExpectedBytes: 1_000_000,
+    });
     receiver.connect();
     await flush();
     for (let i = 0; i <= BLOB_MAX_INFLIGHT_TRANSFERS; i++) {
       const hash = i.toString(16).padStart(64, "0");
       receiver.expect(hash, 100);
-      a.send(encodeFrame({ kind: "header", transferId: `t${i}`, hash, size: 100, mime: "x", totalChunks: 1 }));
+      a.send(
+        encodeFrame({
+          kind: "header",
+          transferId: `t${i}`,
+          hash,
+          size: 100,
+          mime: "x",
+          totalChunks: 1,
+        }),
+      );
     }
     await flush();
     expect(receiver.inboundCount).toBe(BLOB_MAX_INFLIGHT_TRANSFERS);
@@ -296,12 +363,30 @@ describe("BlobTransport — integrity + DoS rejections", () => {
     const { a, b, flush } = makePair();
     const received: ReceivedBlob[] = [];
     const hash = "a".repeat(64);
-    const receiver = new BlobTransport(() => b, { onBlob: (blob) => void received.push(blob) });
+    const receiver = new BlobTransport(() => b, {
+      onBlob: (blob) => void received.push(blob),
+    });
     receiver.connect();
     receiver.expect(hash, 4);
     await flush();
-    a.send(encodeFrame({ kind: "header", transferId: "big", hash, size: 4, mime: "x", totalChunks: 1 }));
-    a.send(encodeFrame({ kind: "data", transferId: "big", index: 0, bytes: new Uint8Array(8) }));
+    a.send(
+      encodeFrame({
+        kind: "header",
+        transferId: "big",
+        hash,
+        size: 4,
+        mime: "x",
+        totalChunks: 1,
+      }),
+    );
+    a.send(
+      encodeFrame({
+        kind: "data",
+        transferId: "big",
+        index: 0,
+        bytes: new Uint8Array(8),
+      }),
+    );
     await flush();
     expect(received).toHaveLength(0);
     expect(receiver.inboundCount).toBe(0);
@@ -312,15 +397,35 @@ describe("BlobTransport — integrity + DoS rejections", () => {
     const received: ReceivedBlob[] = [];
     const hashA = "a".repeat(64);
     const hashB = "b".repeat(64);
-    const receiver = new BlobTransport(() => b, { onBlob: (blob) => void received.push(blob) });
+    const receiver = new BlobTransport(() => b, {
+      onBlob: (blob) => void received.push(blob),
+    });
     receiver.connect();
     receiver.expect(hashA, 100);
     receiver.expect(hashB, 100);
     await flush();
-    a.send(encodeFrame({ kind: "header", transferId: "dup", hash: hashA, size: 100, mime: "x", totalChunks: 1 }));
+    a.send(
+      encodeFrame({
+        kind: "header",
+        transferId: "dup",
+        hash: hashA,
+        size: 100,
+        mime: "x",
+        totalChunks: 1,
+      }),
+    );
     await flush();
     expect(receiver.inboundCount).toBe(1);
-    a.send(encodeFrame({ kind: "header", transferId: "dup", hash: hashB, size: 100, mime: "x", totalChunks: 1 }));
+    a.send(
+      encodeFrame({
+        kind: "header",
+        transferId: "dup",
+        hash: hashB,
+        size: 100,
+        mime: "x",
+        totalChunks: 1,
+      }),
+    );
     await flush();
     expect(receiver.inboundCount).toBe(0);
     expect(received).toHaveLength(0);
@@ -330,7 +435,10 @@ describe("BlobTransport — integrity + DoS rejections", () => {
     const { a } = makePair();
     const sender = new BlobTransport(() => a);
     sender.connect();
-    const fake = { length: 64 * 1024 * 1024 + 1, slice: () => new Uint8Array(0) } as unknown as Uint8Array;
+    const fake = {
+      length: 64 * 1024 * 1024 + 1,
+      slice: () => new Uint8Array(0),
+    } as unknown as Uint8Array;
     const handle = sender.send(fake, "a".repeat(64), "x");
     await expect(handle.done).rejects.toThrow(/BLOB_MAX_TRANSFER_BYTES/);
     expect(sender.outboundCount).toBe(0);
@@ -340,8 +448,12 @@ describe("BlobTransport — integrity + DoS rejections", () => {
     const { a } = makePair();
     const sender = new BlobTransport(() => a);
     sender.connect();
-    await expect(sender.send(new Uint8Array([1]), "NOTHEX", "x").done).rejects.toThrow(/hash/);
-    await expect(sender.send(new Uint8Array([1]), "a".repeat(64), "x".repeat(256)).done).rejects.toThrow(/mime/);
+    await expect(
+      sender.send(new Uint8Array([1]), "NOTHEX", "x").done,
+    ).rejects.toThrow(/hash/);
+    await expect(
+      sender.send(new Uint8Array([1]), "a".repeat(64), "x".repeat(256)).done,
+    ).rejects.toThrow(/mime/);
     expect(sender.outboundCount).toBe(0);
   });
 });
@@ -351,7 +463,9 @@ describe("BlobTransport — lifecycle (§B5/B7)", () => {
     const { a, b, flush } = makePair();
     const received: ReceivedBlob[] = [];
     const sender = new BlobTransport(() => a);
-    const receiver = new BlobTransport(() => b, { onBlob: (blob) => void received.push(blob) });
+    const receiver = new BlobTransport(() => b, {
+      onBlob: (blob) => void received.push(blob),
+    });
     receiver.connect();
     await flush();
     const bytes = new Uint8Array([1, 2, 3, 4]);
@@ -370,7 +484,16 @@ describe("BlobTransport — lifecycle (§B5/B7)", () => {
     receiver.connect();
     receiver.expect("a".repeat(64), 100);
     await flush();
-    a.send(encodeFrame({ kind: "header", transferId: "x", hash: "a".repeat(64), size: 100, mime: "x", totalChunks: 1 }));
+    a.send(
+      encodeFrame({
+        kind: "header",
+        transferId: "x",
+        hash: "a".repeat(64),
+        size: 100,
+        mime: "x",
+        totalChunks: 1,
+      }),
+    );
     await flush();
     expect(receiver.inboundCount).toBe(1);
     expect(receiver.expectationCount).toBe(1);
@@ -391,7 +514,16 @@ describe("BlobTransport — lifecycle (§B5/B7)", () => {
     receiver.connect();
     receiver.expect("a".repeat(64), 100);
     await flush();
-    a.send(encodeFrame({ kind: "header", transferId: "stale", hash: "a".repeat(64), size: 100, mime: "x", totalChunks: 1 }));
+    a.send(
+      encodeFrame({
+        kind: "header",
+        transferId: "stale",
+        hash: "a".repeat(64),
+        size: 100,
+        mime: "x",
+        totalChunks: 1,
+      }),
+    );
     await flush();
     expect(receiver.inboundCount).toBe(1);
     clock = 5000;
@@ -430,8 +562,24 @@ describe("BlobTransport — quota accounting (rework rd3 §2: release exactly on
     await flush();
     expect(receiver.outstandingBytes).toBe(100);
     // Header arrives (expected, charged=false), then a bad chunk triggers abort.
-    a.send(encodeFrame({ kind: "header", transferId: "t", hash, size: 100, mime: "x", totalChunks: 1 }));
-    a.send(encodeFrame({ kind: "data", transferId: "t", index: 0, bytes: new Uint8Array(200) })); // > size
+    a.send(
+      encodeFrame({
+        kind: "header",
+        transferId: "t",
+        hash,
+        size: 100,
+        mime: "x",
+        totalChunks: 1,
+      }),
+    );
+    a.send(
+      encodeFrame({
+        kind: "data",
+        transferId: "t",
+        index: 0,
+        bytes: new Uint8Array(200),
+      }),
+    ); // > size
     await flush();
     // The transfer aborted; its reservation belongs to the expectation, which is
     // still live (abort doesn't consume an expectation) — so the counter holds at
@@ -446,8 +594,13 @@ describe("BlobTransport — terminal authentication (rework rd3 §1)", () => {
   it("ENFORCE: a valid signed COMPLETE resolves the push", async () => {
     const { a, b, flush } = makePair();
     const auth = buildBlobTerminalAuth(TERMINAL_KEY, TERMINAL_SCOPE);
-    const sender = new BlobTransport(() => a, { terminalVerifier: auth.terminalVerifier });
-    const receiver = new BlobTransport(() => b, { onBlob: () => {}, terminalSigner: auth.terminalSigner });
+    const sender = new BlobTransport(() => a, {
+      terminalVerifier: auth.terminalVerifier,
+    });
+    const receiver = new BlobTransport(() => b, {
+      onBlob: () => {},
+      terminalSigner: auth.terminalSigner,
+    });
     sender.connect();
     receiver.connect();
     await flush();
@@ -487,14 +640,20 @@ describe("BlobTransport — terminal authentication (rework rd3 §1)", () => {
   it("ENFORCE: a COMPLETE signed with the WRONG key does NOT resolve", async () => {
     const { a, b, flush } = makePair();
     const senderAuth = buildBlobTerminalAuth(TERMINAL_KEY, TERMINAL_SCOPE);
-    const wrongAuth = buildBlobTerminalAuth(new Uint8Array(32).fill(9), TERMINAL_SCOPE);
+    const wrongAuth = buildBlobTerminalAuth(
+      new Uint8Array(32).fill(9),
+      TERMINAL_SCOPE,
+    );
     const sender = new BlobTransport(() => a, {
       terminalVerifier: senderAuth.terminalVerifier,
       idleTransferMs: 40,
       scheduler: fastSweep,
       now: () => Date.now(),
     });
-    const receiver = new BlobTransport(() => b, { onBlob: () => {}, terminalSigner: wrongAuth.terminalSigner });
+    const receiver = new BlobTransport(() => b, {
+      onBlob: () => {},
+      terminalSigner: wrongAuth.terminalSigner,
+    });
     sender.connect();
     receiver.connect();
     await flush();
@@ -510,8 +669,13 @@ describe("BlobTransport — terminal authentication (rework rd3 §1)", () => {
   it("ENFORCE: a forged (unsigned) ABORT is IGNORED — the transfer is not torn down", async () => {
     const { a, b, flush } = makePair();
     const auth = buildBlobTerminalAuth(TERMINAL_KEY, TERMINAL_SCOPE);
-    const sender = new BlobTransport(() => a, { terminalVerifier: auth.terminalVerifier });
-    const receiver = new BlobTransport(() => b, { onBlob: () => {}, terminalSigner: auth.terminalSigner });
+    const sender = new BlobTransport(() => a, {
+      terminalVerifier: auth.terminalVerifier,
+    });
+    const receiver = new BlobTransport(() => b, {
+      onBlob: () => {},
+      terminalSigner: auth.terminalSigner,
+    });
     sender.connect();
     receiver.connect();
     await flush();
@@ -521,7 +685,13 @@ describe("BlobTransport — terminal authentication (rework rd3 §1)", () => {
     const handle = sender.send(bytes, hash, "x");
     // A 3rd peer injects an UNSIGNED abort mid-flight — must be ignored; the real
     // signed COMPLETE still resolves the push.
-    b.send(encodeFrame({ kind: "abort", transferId: handle.transferId, reason: "forged" }));
+    b.send(
+      encodeFrame({
+        kind: "abort",
+        transferId: handle.transferId,
+        reason: "forged",
+      }),
+    );
     await flush();
     await expect(handle.done).resolves.toBeUndefined();
   });
@@ -547,16 +717,22 @@ describe("BlobTransport — transferId reservations (A1 export channel)", () => 
     const { a, b, flush } = makePair();
     const received: ReceivedBlob[] = [];
     const sender = new BlobTransport(() => a);
-    const receiver = new BlobTransport(() => b, { onBlob: (blob) => void received.push(blob) });
+    const receiver = new BlobTransport(() => b, {
+      onBlob: (blob) => void received.push(blob),
+    });
     sender.connect();
     receiver.connect();
     await flush();
 
-    const bytes = new Uint8Array(BLOB_CHUNK_BYTES + 50).map((_, i) => (i * 5) & 0xff);
+    const bytes = new Uint8Array(BLOB_CHUNK_BYTES + 50).map(
+      (_, i) => (i * 5) & 0xff,
+    );
     const hash = await sha256Hex(bytes);
     const transferId = "export-abc";
     // Reserve a generous maxBytes (the receiver does not know the exact size yet).
-    expect(receiver.expectTransfer(transferId, BLOB_CHUNK_BYTES * 4)).toBe(true);
+    expect(receiver.expectTransfer(transferId, BLOB_CHUNK_BYTES * 4)).toBe(
+      true,
+    );
     expect(receiver.transferReservationCount).toBe(1);
     expect(receiver.outstandingBytes).toBe(BLOB_CHUNK_BYTES * 4);
 
@@ -586,13 +762,17 @@ describe("BlobTransport — transferId reservations (A1 export channel)", () => 
     const { a, b, flush } = makePair();
     const received: ReceivedBlob[] = [];
     const forger = new BlobTransport(() => a);
-    const receiver = new BlobTransport(() => b, { onBlob: (blob) => void received.push(blob) });
+    const receiver = new BlobTransport(() => b, {
+      onBlob: (blob) => void received.push(blob),
+    });
     forger.connect();
     receiver.connect();
     await flush();
 
     const transferId = "export-race";
-    expect(receiver.expectTransfer(transferId, BLOB_CHUNK_BYTES * 4)).toBe(true);
+    expect(receiver.expectTransfer(transferId, BLOB_CHUNK_BYTES * 4)).toBe(
+      true,
+    );
 
     // A 3rd peer pushes a FORGED blob FIRST under the visible transferId.
     const fake = new Uint8Array([1, 1, 1]);
@@ -608,7 +788,9 @@ describe("BlobTransport — transferId reservations (A1 export channel)", () => 
     expect(receiver.transferReservationCount).toBe(1);
 
     // The REAL browser's candidate now arrives under the SAME id and also delivers.
-    const real = new Uint8Array(BLOB_CHUNK_BYTES + 7).map((_, i) => (i * 3) & 0xff);
+    const real = new Uint8Array(BLOB_CHUNK_BYTES + 7).map(
+      (_, i) => (i * 3) & 0xff,
+    );
     const realHash = await sha256Hex(real);
     const h2 = forger.send(real, realHash, "application/pdf", { transferId });
     await flush();
@@ -624,8 +806,13 @@ describe("BlobTransport — transferId reservations (A1 export channel)", () => 
   it("unexpectTransfer aborts a BOUND in-flight candidate + frees quota; a late completion stores nothing (rd-A1 §4)", async () => {
     const { a, b, flush } = makePair();
     const received: ReceivedBlob[] = [];
-    const sender = new BlobTransport(() => a, { scheduler: fastSweep, idleTransferMs: 10_000 });
-    const receiver = new BlobTransport(() => b, { onBlob: (blob) => void received.push(blob) });
+    const sender = new BlobTransport(() => a, {
+      scheduler: fastSweep,
+      idleTransferMs: 10_000,
+    });
+    const receiver = new BlobTransport(() => b, {
+      onBlob: (blob) => void received.push(blob),
+    });
     sender.connect();
     receiver.connect();
     await flush();
@@ -636,9 +823,20 @@ describe("BlobTransport — transferId reservations (A1 export channel)", () => 
     // INTO the receiver (a's peer is b = the receiver's socket).
     const bytes = new Uint8Array(BLOB_CHUNK_BYTES * 3).map((_, i) => i & 0xff);
     const hash = await sha256Hex(bytes);
-    expect(receiver.expectTransfer(transferId, BLOB_CHUNK_BYTES * 4)).toBe(true);
+    expect(receiver.expectTransfer(transferId, BLOB_CHUNK_BYTES * 4)).toBe(
+      true,
+    );
     // Inject ONLY the header so a candidate is BOUND but unfinished.
-    a.send(encodeFrame({ kind: "header", transferId, hash, size: bytes.length, mime: "application/pdf", totalChunks: 3 }));
+    a.send(
+      encodeFrame({
+        kind: "header",
+        transferId,
+        hash,
+        size: bytes.length,
+        mime: "application/pdf",
+        totalChunks: 3,
+      }),
+    );
     await flush();
     expect(receiver.inboundCount).toBe(1);
     // Withdraw while the candidate is bound: it aborts the in-flight candidate AND
@@ -649,7 +847,17 @@ describe("BlobTransport — transferId reservations (A1 export channel)", () => 
     expect(receiver.outstandingBytes).toBe(0);
     // A late "completion" (the data) after withdrawal stores nothing.
     for (let i = 0; i < 3; i++) {
-      a.send(encodeFrame({ kind: "data", transferId, index: i, bytes: bytes.subarray(i * BLOB_CHUNK_BYTES, (i + 1) * BLOB_CHUNK_BYTES) }));
+      a.send(
+        encodeFrame({
+          kind: "data",
+          transferId,
+          index: i,
+          bytes: bytes.subarray(
+            i * BLOB_CHUNK_BYTES,
+            (i + 1) * BLOB_CHUNK_BYTES,
+          ),
+        }),
+      );
     }
     await flush();
     expect(received).toHaveLength(0);
@@ -660,7 +868,9 @@ describe("BlobTransport — transferId reservations (A1 export channel)", () => 
     const { a, b, flush } = makePair();
     const received: ReceivedBlob[] = [];
     const sender = new BlobTransport(() => a);
-    const receiver = new BlobTransport(() => b, { onBlob: (blob) => void received.push(blob) });
+    const receiver = new BlobTransport(() => b, {
+      onBlob: (blob) => void received.push(blob),
+    });
     sender.connect();
     receiver.connect();
     await flush();
@@ -690,7 +900,10 @@ describe("BlobTransport — transferId reservations (A1 export channel)", () => 
   it("forged candidates cannot exhaust quota beyond the single reservation (rd-A1 §2)", async () => {
     const { a, b, flush } = makePair();
     const sender = new BlobTransport(() => a);
-    const receiver = new BlobTransport(() => b, { onBlob: () => {}, maxExpectedBytes: 4096 });
+    const receiver = new BlobTransport(() => b, {
+      onBlob: () => {},
+      maxExpectedBytes: 4096,
+    });
     sender.connect();
     receiver.connect();
     await flush();
@@ -712,8 +925,13 @@ describe("BlobTransport — transferId reservations (A1 export channel)", () => 
   it("ABORTS a transferId-reserved HEADER that declares MORE than the reserved maxBytes", async () => {
     const { a, b, flush } = makePair();
     const received: ReceivedBlob[] = [];
-    const sender = new BlobTransport(() => a, { scheduler: fastSweep, idleTransferMs: 50 });
-    const receiver = new BlobTransport(() => b, { onBlob: (blob) => void received.push(blob) });
+    const sender = new BlobTransport(() => a, {
+      scheduler: fastSweep,
+      idleTransferMs: 50,
+    });
+    const receiver = new BlobTransport(() => b, {
+      onBlob: (blob) => void received.push(blob),
+    });
     sender.connect();
     receiver.connect();
     await flush();
@@ -736,15 +954,22 @@ describe("BlobTransport — transferId reservations (A1 export channel)", () => 
   it("ABORTS an unexpected inbound that matches NEITHER a hash-expectation NOR a reservation", async () => {
     const { a, b, flush } = makePair();
     const received: ReceivedBlob[] = [];
-    const sender = new BlobTransport(() => a, { scheduler: fastSweep, idleTransferMs: 50 });
-    const receiver = new BlobTransport(() => b, { onBlob: (blob) => void received.push(blob) });
+    const sender = new BlobTransport(() => a, {
+      scheduler: fastSweep,
+      idleTransferMs: 50,
+    });
+    const receiver = new BlobTransport(() => b, {
+      onBlob: (blob) => void received.push(blob),
+    });
     sender.connect();
     receiver.connect();
     await flush();
     const bytes = new Uint8Array([9, 9, 9]);
     const hash = await sha256Hex(bytes);
     // No expect() and no expectTransfer() → unexpected → aborted (gating preserved).
-    const handle = sender.send(bytes, hash, "x", { transferId: "no-reservation" });
+    const handle = sender.send(bytes, hash, "x", {
+      transferId: "no-reservation",
+    });
     const assert = expect(handle.done).rejects.toThrow();
     await flush();
     await assert;
@@ -768,7 +993,10 @@ describe("BlobTransport — transferId reservations (A1 export channel)", () => 
 
   it("expectTransfer is idempotent for the same maxBytes and refuses a conflicting cap / over-quota", () => {
     const { b } = makePair();
-    const receiver = new BlobTransport(() => b, { onBlob: () => {}, maxExpectedBytes: 1000 });
+    const receiver = new BlobTransport(() => b, {
+      onBlob: () => {},
+      maxExpectedBytes: 1000,
+    });
     receiver.connect();
     expect(receiver.expectTransfer("t", 600)).toBe(true);
     expect(receiver.expectTransfer("t", 600)).toBe(true); // idempotent
@@ -786,7 +1014,9 @@ describe("BlobTransport — transferId reservations (A1 export channel)", () => 
     const { a, b, flush } = makePair();
     const received: ReceivedBlob[] = [];
     const sender = new BlobTransport(() => a);
-    const receiver = new BlobTransport(() => b, { onBlob: (blob) => void received.push(blob) });
+    const receiver = new BlobTransport(() => b, {
+      onBlob: (blob) => void received.push(blob),
+    });
     sender.connect();
     receiver.connect();
     await flush();
@@ -802,4 +1032,62 @@ describe("BlobTransport — transferId reservations (A1 export channel)", () => 
     expect(receiver.expectationCount).toBe(0);
     expect(receiver.outstandingBytes).toBe(0);
   });
+});
+it("rate-bounds trusted hosted pull retries round-robin and cancels them on withdrawal or destroy", () => {
+  const timers = new Map<number, { fn: () => void; ms: number }>();
+  let next = 0;
+  const sent: string[] = [];
+  const listeners = new Map<string, Set<(event: unknown) => void>>();
+  const socket: WebSocketLike = {
+    readyState: 1,
+    binaryType: "arraybuffer",
+    send: (data) => {
+      const { kind, ...frame } = decodeFrame(data);
+      if (kind === "request") sent.push((frame as { hash: string }).hash);
+    },
+    close: () => undefined,
+    addEventListener: (kind, listener) => {
+      const set = listeners.get(kind) ?? new Set();
+      set.add(listener);
+      listeners.set(kind, set);
+    },
+    removeEventListener: (kind, listener) => {
+      listeners.get(kind)?.delete(listener);
+    },
+  };
+  const transport = new BlobTransport(() => socket, {
+    requestRetryMs: 500,
+    scheduler: {
+      setTimeout: (fn, ms) => {
+        const id = ++next;
+        timers.set(id, { fn, ms });
+        return id;
+      },
+      clearTimeout: (id) => {
+        timers.delete(id as number);
+      },
+    },
+  });
+  const tick = () => {
+    const entry = [...timers].find(([, item]) => item.ms === 500);
+    expect(entry).toBeDefined();
+    timers.delete(entry![0]);
+    entry![1].fn();
+  };
+  transport.connect();
+  for (const callback of listeners.get("open") ?? []) callback({});
+  const hashes = ["a", "b", "c", "d"].map((value) => value.repeat(64));
+  for (const hash of hashes) expect(transport.request(hash, 1)).toBe(true);
+  expect(sent).toHaveLength(2);
+  tick();
+  expect(sent).toHaveLength(4);
+  tick();
+  expect(sent).toHaveLength(6);
+  expect(new Set(sent)).toEqual(new Set(hashes));
+  for (const hash of hashes) transport.unexpect(hash, 1);
+  expect([...timers.values()].some((timer) => timer.ms === 500)).toBe(false);
+  transport.request(hashes[0]!, 1);
+  expect([...timers.values()].some((timer) => timer.ms === 500)).toBe(true);
+  transport.disconnect();
+  expect(timers.size).toBe(0);
 });

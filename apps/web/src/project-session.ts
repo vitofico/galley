@@ -31,7 +31,10 @@ import {
   type BlobTerminalSigner,
   type BlobTerminalVerifier,
 } from "@galley/collab";
-import { createBlobChannelSession, type BlobChannelSession } from "./blob-session.js";
+import {
+  createBlobChannelSession,
+  type BlobChannelSession,
+} from "./blob-session.js";
 import { scheduleBlobSweep } from "./blob-gc.js";
 import {
   isReservedProjectPath,
@@ -43,7 +46,10 @@ import {
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import { authorColor, authorLabel } from "./attribution-style.js";
-import { capabilityAuthActive, ensureShareRoomRegistered } from "./capability-rooms-client.js";
+import {
+  capabilityAuthActive,
+  ensureShareRoomRegistered,
+} from "./capability-rooms-client.js";
 import {
   applyMinimalDiff,
   createIndexeddbDraftStore,
@@ -57,6 +63,9 @@ import type { ShareRole } from "./share.js";
 
 /** Project-session deps: the collab seams plus the version store (#20.2). */
 export interface ProjectSessionDeps extends CollabDeps {
+  onHostedStorageError?: () => void;
+  /** Verified bytes are readable in the blob store; invalidate derived byte caches. */
+  onInboundStored?: (hash: string, size: number) => void;
   /**
    * Version store receiving the demo history after a TRUE first seed (#20.2).
    * Tests inject a fake; the default is the browser IndexedDB-backed store —
@@ -175,7 +184,10 @@ export function createProjectSession(
     const awareness = new Awareness(project.doc);
     const author: Author = mintHumanAuthor(deps.displayName);
     const dbName = `galley-local-project-v1-${config.room ?? "default"}`;
-    const store = (deps.draftStore ?? createIndexeddbDraftStore)(dbName, project.doc);
+    const store = (deps.draftStore ?? createIndexeddbDraftStore)(
+      dbName,
+      project.doc,
+    );
     const whenReady = store.whenSynced
       .catch(() => undefined)
       .then(async () => {
@@ -213,6 +225,7 @@ export function createProjectSession(
       whenPersisted: store.whenSynced,
       destroy() {
         // Close a connection added by a later Share upgrade, too.
+        session.blobChannel?.destroy();
         session.connection?.destroy();
         store.destroy();
         awareness.destroy();
@@ -232,11 +245,16 @@ export function createProjectSession(
   const project = new CollabProject();
   const author: Author = mintHumanAuthor(deps.displayName);
   const url = `${config.syncUrl!.replace(/\/+$/, "")}/${encodeURIComponent(config.room ?? "default")}`;
-  const makeSocket = deps.socketFactory ?? ((u: string) => new WebSocket(u) as unknown as WebSocketLike);
+  const makeSocket =
+    deps.socketFactory ??
+    ((u: string) => new WebSocket(u) as unknown as WebSocketLike);
   // Distinct namespace from the LOCAL `galley-local-project-v1-*` draft store so a
   // joiner's replica never collides with a locally-owned project of the same room.
   const cacheDbName = `galley-connected-project-v1-${config.room ?? "default"}`;
-  const store = (deps.draftStore ?? createIndexeddbDraftStore)(cacheDbName, project.doc);
+  const store = (deps.draftStore ?? createIndexeddbDraftStore)(
+    cacheDbName,
+    project.doc,
+  );
   // B19-sharing-roles: a CONNECTED boot (a joiner opening a `?sync=` link) carries
   // its decoded `config.role` onto presence so the HOST sees a "Viewer" badge in
   // the room roster. Additive + back-compat: an absent/editor role adds no field,
@@ -244,7 +262,11 @@ export function createProjectSession(
   const connection = new CollabConnection(
     project,
     new WebSocketTransport(() => makeSocket(url)),
-    { author, user: userField(author), ...(config.role ? { role: config.role } : {}) },
+    {
+      author,
+      user: userField(author),
+      ...(config.role ? { role: config.role } : {}),
+    },
   );
   connection.connect();
   registerAuthor(project, author);
@@ -254,15 +276,30 @@ export function createProjectSession(
   // `blobStore` opens no channel.
   let blobChannel: BlobChannelSession | undefined;
   let blobSync: BlobSyncHandle | undefined;
+  let destroyed = false;
   if (deps.blobStore !== undefined) {
     const blobStore = deps.blobStore;
-    blobChannel = createBlobChannelSession(config.syncUrl!, config.room ?? "default", blobStore, {
-      ...(deps.blobSocketFactory ? { socketFactory: deps.blobSocketFactory } : {}),
-      // §4.6: a verified inbound blob just landed → replan so its (now-present) hash is
-      // unexpected + dropped from the want-list. Received bytes are stored NEUTRAL by the
-      // channel's `put`; this never grants a servable marker.
-      onInboundStored: () => blobSync?.notifyInbound(),
-    });
+    blobChannel = createBlobChannelSession(
+      config.syncUrl!,
+      config.room ?? "default",
+      blobStore,
+      {
+        ...(deps.blobSocketFactory
+          ? { socketFactory: deps.blobSocketFactory }
+          : {}),
+        ...(deps.onHostedStorageError
+          ? { onHostedStorageError: deps.onHostedStorageError }
+          : {}),
+        // §4.6: a verified inbound blob just landed → replan so its (now-present) hash is
+        // unexpected + dropped from the want-list. Received bytes are stored NEUTRAL by the
+        // channel's `put`; this never grants a servable marker.
+        onInboundStored: (hash, size) => {
+          if (destroyed) return;
+          blobSync?.notifyInbound();
+          deps.onInboundStored?.(hash, size);
+        },
+      },
+    );
     blobChannel.connect();
     // D1 online-only blob-sync: discover missing blobs over awareness + serve ONLY
     // locally-provenanced (servable) blobs over the byte channel. Torn down with the
@@ -278,7 +315,8 @@ export function createProjectSession(
         project.doc.on("update", h);
         return () => project.doc.off("update", h);
       },
-      subscribeAwareness: (cb) => subscribePeerAwareness(connection.awareness, project.doc.clientID, cb),
+      subscribeAwareness: (cb) =>
+        subscribePeerAwareness(connection.awareness, project.doc.clientID, cb),
       subscribeSynced: (cb) => connection.onSynced(cb),
     });
   }
@@ -289,7 +327,7 @@ export function createProjectSession(
   // late-arriving pointer and delete a still-referenced blob. Quota enforcement
   // (idb-blob-store) still applies in connected mode — only the destructive sweep
   // is skipped here.
-  return {
+  const session: ProjectSession = {
     project,
     awareness: connection.awareness,
     author,
@@ -304,10 +342,11 @@ export function createProjectSession(
     // assuming an empty doc. Fail-soft: a cache error must never block the join.
     whenReady: store.whenSynced.catch(() => undefined),
     destroy() {
+      destroyed = true;
       // Tear down blob-sync FIRST (while the connection's awareness is still live) so
       // the want-list withdrawal + expectation release actually land.
       blobSync?.destroy();
-      blobChannel?.destroy();
+      session.blobChannel?.destroy();
       connection.destroy();
       // Detach the cache provider but KEEP its data — the joiner's replica must
       // survive across sessions (y-indexeddb destroy() stops syncing, not delete).
@@ -315,6 +354,7 @@ export function createProjectSession(
       project.destroy();
     },
   };
+  return session;
 }
 
 /**
@@ -356,6 +396,8 @@ export function connectProjectSession(
    * destroy / stop-sharing). Omitted ⇒ no blob channel, behavior unchanged.
    */
   blobOpts?: {
+    onHostedStorageError?: () => void;
+    onInboundStored?: (hash: string, size: number) => void;
     store: BlobStore;
     socketFactory?: (url: string) => WebSocketLike;
     /**
@@ -373,7 +415,9 @@ export function connectProjectSession(
   if (session.connection) return session.connection;
   const author = session.author;
   const url = `${syncUrl.replace(/\/+$/, "")}/${encodeURIComponent(room)}`;
-  const makeSocket = deps.socketFactory ?? ((u: string) => new WebSocket(u) as unknown as WebSocketLike);
+  const makeSocket =
+    deps.socketFactory ??
+    ((u: string) => new WebSocket(u) as unknown as WebSocketLike);
   const connection = new CollabConnection(
     session.project,
     new WebSocketTransport(() => makeSocket(url)),
@@ -413,12 +457,17 @@ export function connectProjectSession(
   if (blobOpts?.store !== undefined && session.blobChannel === undefined) {
     const blobStore = blobOpts.store;
     let sync: BlobSyncHandle | undefined;
+    let destroyed = false;
     // §4.6: a verified inbound blob just landed → replan so its (now-present) hash is
-    // unexpected + dropped from the want-list. (This live-Share `blobOpts` shape carries
-    // no caller inbound hook, so there is nothing to compose here.)
+    // unexpected + dropped from the want-list, then notify byte consumers without
+    // writing a synthetic CRDT update just to invalidate their derived caches.
     const channel = openBlobChannel(syncUrl, room, {
       ...blobOpts,
-      onInboundStored: () => sync?.notifyInbound(),
+      onInboundStored: (hash, size) => {
+        if (destroyed) return;
+        sync?.notifyInbound();
+        blobOpts.onInboundStored?.(hash, size);
+      },
     });
     session.blobChannel = channel;
     // D1 online-only blob-sync over the freshly-opened share channel (same servable-only
@@ -437,11 +486,16 @@ export function connectProjectSession(
         return () => session.project.doc.off("update", h);
       },
       subscribeAwareness: (cb) =>
-        subscribePeerAwareness(connection.awareness, session.project.doc.clientID, cb),
+        subscribePeerAwareness(
+          connection.awareness,
+          session.project.doc.clientID,
+          cb,
+        ),
       subscribeSynced: (cb) => connection.onSynced(cb),
     });
     const innerDestroy = channel.destroy;
     channel.destroy = (): void => {
+      destroyed = true;
       sync?.destroy();
       innerDestroy();
     };
@@ -451,6 +505,7 @@ export function connectProjectSession(
 
 /** The blobOpts shape shared by connect + the A1 channel-auth guarantee. */
 export interface AgentBlobOpts {
+  onHostedStorageError?: () => void;
   store: BlobStore;
   socketFactory?: (url: string) => WebSocketLike;
   terminalSigner?: BlobTerminalSigner;
@@ -468,16 +523,43 @@ export interface AgentBlobOpts {
 }
 
 /** Build (and connect) a blob channel from `blobOpts` — terminal-auth'd when supplied. */
-function openBlobChannel(syncUrl: string, room: string, blobOpts: AgentBlobOpts): BlobChannelSession {
+function openBlobChannel(
+  syncUrl: string,
+  room: string,
+  blobOpts: AgentBlobOpts,
+): BlobChannelSession {
+  let destroyed = false;
   const channel = createBlobChannelSession(syncUrl, room, blobOpts.store, {
-    ...(blobOpts.socketFactory ? { socketFactory: blobOpts.socketFactory } : {}),
+    ...(blobOpts.socketFactory
+      ? { socketFactory: blobOpts.socketFactory }
+      : {}),
+    ...(blobOpts.onHostedStorageError
+      ? { onHostedStorageError: blobOpts.onHostedStorageError }
+      : {}),
     // A1: enforce authenticated completion when the grant-scoped terminal auth is
     // supplied — the SENDER (browser) rejects a forged/unsigned COMPLETE.
-    ...(blobOpts.terminalSigner ? { terminalSigner: blobOpts.terminalSigner } : {}),
-    ...(blobOpts.terminalVerifier ? { terminalVerifier: blobOpts.terminalVerifier } : {}),
-    ...(blobOpts.terminalScopeId !== undefined ? { terminalScopeId: blobOpts.terminalScopeId } : {}),
-    ...(blobOpts.onInboundStored !== undefined ? { onInboundStored: blobOpts.onInboundStored } : {}),
+    ...(blobOpts.terminalSigner
+      ? { terminalSigner: blobOpts.terminalSigner }
+      : {}),
+    ...(blobOpts.terminalVerifier
+      ? { terminalVerifier: blobOpts.terminalVerifier }
+      : {}),
+    ...(blobOpts.terminalScopeId !== undefined
+      ? { terminalScopeId: blobOpts.terminalScopeId }
+      : {}),
+    ...(blobOpts.onInboundStored !== undefined
+      ? {
+          onInboundStored: (hash: string, size: number) => {
+            if (!destroyed) blobOpts.onInboundStored?.(hash, size);
+          },
+        }
+      : {}),
   });
+  const innerDestroy = channel.destroy;
+  channel.destroy = (): void => {
+    destroyed = true;
+    innerDestroy();
+  };
   channel.connect();
   return channel;
 }
@@ -561,7 +643,7 @@ export interface BlobSyncDeps {
    * "what am I missing". The snapshot is deliberately never a serve input.
    */
   store: Pick<BlobStore, "has" | "get" | "isServable">;
-  channel: Pick<BlobChannelSession, "expect" | "unexpect" | "send">;
+  channel: Pick<BlobChannelSession, "expect" | "unexpect" | "send" | "persist">;
   /** Subscribe to doc updates (binary-pointer changes); returns an unsubscribe. */
   subscribeDoc: (cb: () => void) => () => void;
   /** Subscribe to peer awareness changes; returns an unsubscribe. */
@@ -626,6 +708,9 @@ export function wireBlobSync(deps: BlobSyncDeps): BlobSyncHandle {
   // Hashes with a broadcast in flight — a transient guard so overlapping passes don't
   // double-broadcast the SAME bytes (distinct from the durable attempt ledger).
   const inFlight = new Set<string>();
+  const hostedUploaded = new Set<string>();
+  const hostedAttempts = new Map<string, number>();
+  const hosting = new Set<string>();
   let currentRequestId = mintRequestId();
   let lastWantSig = ""; // signature of the last-published want set ("" = nothing wanted)
   let lastBinarySig = binarySig(deps.snapshot());
@@ -635,7 +720,8 @@ export function wireBlobSync(deps: BlobSyncDeps): BlobSyncHandle {
   let demandGen = 0;
   let disposed = false;
 
-  const attemptKey = (clientId: number, hash: string): string => `${clientId} ${hash}`;
+  const attemptKey = (clientId: number, hash: string): string =>
+    `${clientId} ${hash}`;
   const attemptCount = (clientId: number, hash: string): number =>
     attempts.get(attemptKey(clientId, hash)) ?? 0;
   const reserveAttempt = (clientId: number, hash: string): void => {
@@ -675,7 +761,9 @@ export function wireBlobSync(deps: BlobSyncDeps): BlobSyncHandle {
     const peerWants: PeerBlobWant[] = [];
     for (const [cid, state] of deps.awareness.getStates()) {
       if (cid === deps.clientId) continue;
-      const wl = decodeWantList((state as Record<string, unknown>)[BLOB_WANTS_FIELD]);
+      const wl = decodeWantList(
+        (state as Record<string, unknown>)[BLOB_WANTS_FIELD],
+      );
       if (wl !== undefined) peerWants.push({ clientId: cid, wants: wl });
     }
     // Serve authority = SERVABLE marker AND bytes held. Computed only for hashes a
@@ -685,7 +773,8 @@ export function wireBlobSync(deps: BlobSyncDeps): BlobSyncHandle {
     const servable = new Set<string>();
     await Promise.all(
       [...wanted].map(async (h) => {
-        if ((await deps.store.isServable(h)) && (await deps.store.has(h))) servable.add(h);
+        if ((await deps.store.isServable(h)) && (await deps.store.has(h)))
+          servable.add(h);
       }),
     );
 
@@ -693,6 +782,43 @@ export function wireBlobSync(deps: BlobSyncDeps): BlobSyncHandle {
     // so this plan is stale — perform NO side effects. A rerun is already queued (every
     // demand bump also `schedule()`s), so the fresh snapshot is handled next.
     if (disposed || planGen !== demandGen) return;
+
+    // Durable upload authority is the same local provenance marker as peer serving.
+    // A peer-written CRDT pointer alone cannot exfiltrate unrelated local bytes.
+    if (deps.channel.persist)
+      for (const pointer of demandPointers) {
+        if (hosting.size >= 2) break;
+        if (
+          !present.has(pointer.hash) ||
+          hostedUploaded.has(pointer.hash) ||
+          hosting.has(pointer.hash) ||
+          (hostedAttempts.get(pointer.hash) ?? 0) >= 2
+        )
+          continue;
+        if (!(await deps.store.isServable(pointer.hash))) continue;
+        if (disposed || planGen !== demandGen) return;
+        hosting.add(pointer.hash);
+        hostedAttempts.set(
+          pointer.hash,
+          (hostedAttempts.get(pointer.hash) ?? 0) + 1,
+        );
+        void (async () => {
+          const bytes = await deps.store.get(pointer.hash);
+          if (!disposed && bytes && bytes.byteLength === pointer.size) {
+            await deps.channel.persist!(
+              bytes,
+              pointer.hash,
+              "application/octet-stream",
+            );
+            hostedUploaded.add(pointer.hash);
+          }
+        })()
+          .catch(() => undefined)
+          .finally(() => {
+            hosting.delete(pointer.hash);
+            if (!disposed) schedule();
+          });
+      }
 
     // ---- REQUESTER: exact expectation reconciliation --------------------------------
     const demand = planBlobDemand({
@@ -722,7 +848,9 @@ export function wireBlobSync(deps: BlobSyncDeps): BlobSyncHandle {
     // 3. ADVERTISE (AFTER withdrawals): the want-list is the ACCEPTED expectations only,
     //    sorted + capped. Rotate requestId + write awareness ONLY when the set changed —
     //    re-publishing an unchanged set would loop our own awareness observer.
-    const wantHashes = [...activeExpects.keys()].sort().slice(0, BLOB_WANT_BATCH_MAX);
+    const wantHashes = [...activeExpects.keys()]
+      .sort()
+      .slice(0, BLOB_WANT_BATCH_MAX);
     const wantSig = wantHashes.join(",");
     if (wantSig !== lastWantSig) {
       lastWantSig = wantSig;
@@ -871,9 +999,22 @@ function binarySig(snap: ProjectSnapshot): string {
 }
 
 /** Subscribe to PEER awareness changes (this peer's OWN updates are filtered out). */
-function subscribePeerAwareness(awareness: Awareness, selfId: number, cb: () => void): () => void {
-  const handler = (changes: { added: number[]; updated: number[]; removed: number[] }): void => {
-    if ([...changes.added, ...changes.updated, ...changes.removed].some((id) => id !== selfId)) cb();
+function subscribePeerAwareness(
+  awareness: Awareness,
+  selfId: number,
+  cb: () => void,
+): () => void {
+  const handler = (changes: {
+    added: number[];
+    updated: number[];
+    removed: number[];
+  }): void => {
+    if (
+      [...changes.added, ...changes.updated, ...changes.removed].some(
+        (id) => id !== selfId,
+      )
+    )
+      cb();
   };
   awareness.on("update", handler);
   return () => awareness.off("update", handler);
@@ -895,7 +1036,10 @@ function subscribePeerAwareness(awareness: Awareness, selfId: number, cb: () => 
  * snapshots keep their already-recorded contributor labels (immutable history).
  * No-op for a blank name or a non-human author.
  */
-export function setSessionDisplayName(session: ProjectSession, name: string): void {
+export function setSessionDisplayName(
+  session: ProjectSession,
+  name: string,
+): void {
   const trimmed = name.trim();
   if (trimmed.length === 0 || session.author.kind !== "human") return;
   session.author.name = trimmed;
@@ -963,7 +1107,9 @@ export function applyAcceptedFileAsAgent(
     return;
   }
   agentProject.transactFile(fileId, (t) => applyMinimalDiff(t, target), agent);
-  project.applyUpdate(Y.encodeStateAsUpdate(agentProject.doc, Y.encodeStateVector(project.doc)));
+  project.applyUpdate(
+    Y.encodeStateAsUpdate(agentProject.doc, Y.encodeStateVector(project.doc)),
+  );
   agentProject.destroy();
 }
 
@@ -1014,13 +1160,21 @@ export function applyAcceptedFileSetAsAgent(
       // agent's clientID (ADR-0012) — same shape as the single-file path.
       const id = agentProject.create(c.path, "", agent);
       if (c.text.length > 0) {
-        agentProject.transactFile(id, (t) => applyMinimalDiff(t, c.text), agent);
+        agentProject.transactFile(
+          id,
+          (t) => applyMinimalDiff(t, c.text),
+          agent,
+        );
       }
     }
     for (const e of plan.edits) {
       const live = agentProject.fileText(e.fileId);
       if (live && live.toString() !== e.source) {
-        agentProject.transactFile(e.fileId, (t) => applyMinimalDiff(t, e.source), agent);
+        agentProject.transactFile(
+          e.fileId,
+          (t) => applyMinimalDiff(t, e.source),
+          agent,
+        );
       }
     }
     // Rename is metadata-only (path is not the key) so the Y.Text + its
@@ -1037,7 +1191,9 @@ export function applyAcceptedFileSetAsAgent(
     for (const b of binaryCreates) {
       agentProject.createBinary(b.path, b.asset, agent);
     }
-    project.applyUpdate(Y.encodeStateAsUpdate(agentProject.doc, Y.encodeStateVector(project.doc)));
+    project.applyUpdate(
+      Y.encodeStateAsUpdate(agentProject.doc, Y.encodeStateVector(project.doc)),
+    );
   } finally {
     agentProject.destroy();
   }
@@ -1093,7 +1249,8 @@ export function restoreProjectFromTree(
   let mainPath: string | null = null;
   if (manifest) {
     try {
-      mainPath = (JSON.parse(manifest.text) as { main?: string | null }).main ?? null;
+      mainPath =
+        (JSON.parse(manifest.text) as { main?: string | null }).main ?? null;
     } catch {
       /* a malformed manifest leaves main untouched */
     }
@@ -1101,7 +1258,8 @@ export function restoreProjectFromTree(
 
   const live = project.snapshot().files.filter((f) => !f.deleted);
   const idByPath = new Map<string, string>();
-  for (const f of live) if (!idByPath.has(f.path)) idByPath.set(f.path, f.fileId);
+  for (const f of live)
+    if (!idByPath.has(f.path)) idByPath.set(f.path, f.fileId);
 
   const wanted = new Set<string>();
   for (const file of fileEntries) {
@@ -1109,7 +1267,11 @@ export function restoreProjectFromTree(
     wanted.add(path);
     const existingId = idByPath.get(path);
     if (existingId) {
-      project.transactFile(existingId, (t) => applyMinimalDiff(t, file.text), author);
+      project.transactFile(
+        existingId,
+        (t) => applyMinimalDiff(t, file.text),
+        author,
+      );
     } else {
       project.create(path, file.text, author);
     }
@@ -1122,7 +1284,8 @@ export function restoreProjectFromTree(
   // on every restore/compare round-trip. Restore only touches it via the explicit
   // instructions write below, when the tree actually carries one.
   for (const f of live) {
-    if (!wanted.has(f.path) && !isReservedProjectPath(f.path)) project.delete(f.fileId, author);
+    if (!wanted.has(f.path) && !isReservedProjectPath(f.path))
+      project.delete(f.fileId, author);
   }
 
   // 14-D round-trip: a tree that CARRIES `.galley/instructions` (the export

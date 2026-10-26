@@ -62,7 +62,8 @@ export const BLOB_MAX_MAC_BYTES = 64;
 // Derived: with the chunk cap, totalChunks can never exceed this — a HEADER that
 // declares more is malformed (and would blow the in-flight chunk map). Computed
 // from the byte cap so the two stay in lockstep.
-export const BLOB_MAX_CHUNKS = Math.ceil(BLOB_MAX_TRANSFER_BYTES / BLOB_CHUNK_BYTES) + 1;
+export const BLOB_MAX_CHUNKS =
+  Math.ceil(BLOB_MAX_TRANSFER_BYTES / BLOB_CHUNK_BYTES) + 1;
 
 // Shared text codecs + the canonical sha256-hex shape, hoisted so the field
 // validators (below) and the binary codec (further down) both use them.
@@ -88,6 +89,8 @@ function assertU32(v: number, field: string): void {
 // --- Frame model -------------------------------------------------------------
 
 export const FrameType = {
+  /** Hosted channel only: request room-scoped bytes by verified identity. */
+  Request: 6,
   Header: 1,
   Data: 2,
   Ack: 3,
@@ -161,7 +164,19 @@ export interface CompleteFrame {
   mac?: string;
 }
 
-export type BlobFrame = HeaderFrame | DataFrame | AckFrame | AbortFrame | CompleteFrame;
+export interface RequestFrame {
+  kind: "request";
+  transferId: string;
+  hash: string;
+  size: number;
+}
+export type BlobFrame =
+  | HeaderFrame
+  | DataFrame
+  | AckFrame
+  | AbortFrame
+  | CompleteFrame
+  | RequestFrame;
 
 /** True iff `h` is a lowercase 64-char hex sha256 (the only accepted hash form). */
 export function isValidHash(h: string): boolean {
@@ -227,7 +242,8 @@ class Writer {
   }
   shortStr(s: string, max: number, field: string): void {
     const b = utf8.encode(s);
-    if (b.length > max) throw new BlobProtocolError(`${field} too long (${b.length} > ${max})`);
+    if (b.length > max)
+      throw new BlobProtocolError(`${field} too long (${b.length} > ${max})`);
     this.u8(b.length);
     this.bytes(b);
   }
@@ -259,13 +275,16 @@ class Reader {
     this.need(4);
     const b = this.buf;
     const p = this.pos;
-    const v = (b[p]! * 0x1000000 + (b[p + 1]! << 16) + (b[p + 2]! << 8) + b[p + 3]!) >>> 0;
+    const v =
+      (b[p]! * 0x1000000 + (b[p + 1]! << 16) + (b[p + 2]! << 8) + b[p + 3]!) >>>
+      0;
     this.pos += 4;
     return v;
   }
   shortStr(max: number, field: string): string {
     const n = this.u8();
-    if (n > max) throw new BlobProtocolError(`${field} too long (${n} > ${max})`);
+    if (n > max)
+      throw new BlobProtocolError(`${field} too long (${n} > ${max})`);
     this.need(n);
     const s = utf8dec.decode(this.buf.subarray(this.pos, this.pos + n));
     this.pos += n;
@@ -289,11 +308,28 @@ class Reader {
 export function encodeFrame(frame: BlobFrame): Uint8Array {
   const w = new Writer();
   switch (frame.kind) {
+    case "request": {
+      if (!isValidTransferId(frame.transferId) || !HEX64.test(frame.hash))
+        throw new BlobProtocolError("Invalid request");
+      assertU32(frame.size, "request.size");
+      if (frame.size > BLOB_MAX_TRANSFER_BYTES)
+        throw new BlobProtocolError("Request too large");
+      w.u8(FrameType.Request);
+      w.shortStr(frame.transferId, BLOB_MAX_TRANSFER_ID_BYTES, "transferId");
+      w.shortStr(frame.hash, 64, "hash");
+      w.u32(frame.size);
+      break;
+    }
     case "header": {
-      if (!HEX64.test(frame.hash)) throw new BlobProtocolError("header hash must be 64 lowercase hex chars");
+      if (!HEX64.test(frame.hash))
+        throw new BlobProtocolError(
+          "header hash must be 64 lowercase hex chars",
+        );
       assertU32(frame.size, "header.size");
       if (frame.size > BLOB_MAX_TRANSFER_BYTES)
-        throw new BlobProtocolError(`header.size ${frame.size} > BLOB_MAX_TRANSFER_BYTES`);
+        throw new BlobProtocolError(
+          `header.size ${frame.size} > BLOB_MAX_TRANSFER_BYTES`,
+        );
       assertU32(frame.totalChunks, "header.totalChunks");
       // The chunk count is DERIVED from size — there is exactly one valid value.
       // Rejecting any other on encode (and decode) closes the inconsistent-header
@@ -313,7 +349,9 @@ export function encodeFrame(frame: BlobFrame): Uint8Array {
     case "data": {
       assertU32(frame.index, "data.index");
       if (frame.bytes.length > BLOB_CHUNK_BYTES)
-        throw new BlobProtocolError(`chunk exceeds BLOB_CHUNK_BYTES (${frame.bytes.length})`);
+        throw new BlobProtocolError(
+          `chunk exceeds BLOB_CHUNK_BYTES (${frame.bytes.length})`,
+        );
       w.u8(FrameType.Data);
       w.shortStr(frame.transferId, BLOB_MAX_TRANSFER_ID_BYTES, "transferId");
       w.u32(frame.index);
@@ -337,7 +375,10 @@ export function encodeFrame(frame: BlobFrame): Uint8Array {
       break;
     }
     case "complete": {
-      if (!HEX64.test(frame.hash)) throw new BlobProtocolError("complete hash must be 64 lowercase hex chars");
+      if (!HEX64.test(frame.hash))
+        throw new BlobProtocolError(
+          "complete hash must be 64 lowercase hex chars",
+        );
       assertU32(frame.size, "complete.size");
       w.u8(FrameType.Complete);
       w.shortStr(frame.transferId, BLOB_MAX_TRANSFER_ID_BYTES, "transferId");
@@ -365,14 +406,33 @@ export function decodeFrame(buf: Uint8Array): BlobFrame {
   const tag = r.u8();
   let frame: BlobFrame;
   switch (tag) {
+    case FrameType.Request: {
+      const transferId = r.shortStr(BLOB_MAX_TRANSFER_ID_BYTES, "transferId");
+      const hash = r.shortStr(64, "hash");
+      const size = r.u32();
+      if (
+        !isValidTransferId(transferId) ||
+        !HEX64.test(hash) ||
+        size > BLOB_MAX_TRANSFER_BYTES
+      )
+        throw new BlobProtocolError("Invalid request");
+      frame = { kind: "request", transferId, hash, size };
+      break;
+    }
     case FrameType.Header: {
       const transferId = r.shortStr(BLOB_MAX_TRANSFER_ID_BYTES, "transferId");
-      if (!isValidTransferId(transferId)) throw new BlobProtocolError("header transferId invalid");
+      if (!isValidTransferId(transferId))
+        throw new BlobProtocolError("header transferId invalid");
       const hash = r.shortStr(64, "hash");
-      if (!HEX64.test(hash)) throw new BlobProtocolError("header hash must be 64 lowercase hex chars");
+      if (!HEX64.test(hash))
+        throw new BlobProtocolError(
+          "header hash must be 64 lowercase hex chars",
+        );
       const size = r.u32();
       if (size > BLOB_MAX_TRANSFER_BYTES)
-        throw new BlobProtocolError(`header size ${size} > BLOB_MAX_TRANSFER_BYTES`);
+        throw new BlobProtocolError(
+          `header size ${size} > BLOB_MAX_TRANSFER_BYTES`,
+        );
       const mime = r.shortStr(BLOB_MAX_MIME_BYTES, "mime");
       const totalChunks = r.u32();
       // Enforce the EXACT derived chunk count, not just the upper cap (rework
@@ -402,13 +462,19 @@ export function decodeFrame(buf: Uint8Array): BlobFrame {
       const transferId = r.shortStr(BLOB_MAX_TRANSFER_ID_BYTES, "transferId");
       const reason = r.shortStr(BLOB_MAX_REASON_BYTES, "reason");
       const mac = r.shortStr(BLOB_MAX_MAC_BYTES, "mac");
-      frame = mac.length > 0 ? { kind: "abort", transferId, reason, mac } : { kind: "abort", transferId, reason };
+      frame =
+        mac.length > 0
+          ? { kind: "abort", transferId, reason, mac }
+          : { kind: "abort", transferId, reason };
       break;
     }
     case FrameType.Complete: {
       const transferId = r.shortStr(BLOB_MAX_TRANSFER_ID_BYTES, "transferId");
       const hash = r.shortStr(64, "hash");
-      if (!HEX64.test(hash)) throw new BlobProtocolError("complete hash must be 64 lowercase hex chars");
+      if (!HEX64.test(hash))
+        throw new BlobProtocolError(
+          "complete hash must be 64 lowercase hex chars",
+        );
       const size = r.u32();
       const mac = r.shortStr(BLOB_MAX_MAC_BYTES, "mac");
       frame =
@@ -445,12 +511,19 @@ export interface FrameRouting {
 export function peekFrameRouting(buf: Uint8Array): FrameRouting {
   const r = new Reader(buf);
   const tag = r.u8();
-  if (tag !== FrameType.Header && tag !== FrameType.Data && tag !== FrameType.Ack && tag !== FrameType.Abort && tag !== FrameType.Complete) {
+  if (
+    tag !== FrameType.Header &&
+    tag !== FrameType.Data &&
+    tag !== FrameType.Ack &&
+    tag !== FrameType.Abort &&
+    tag !== FrameType.Complete
+  ) {
     throw new BlobProtocolError(`unknown frame tag: ${tag}`);
   }
   // transferId is the first field of every frame layout (u8-length-prefixed str).
   const transferId = r.shortStr(BLOB_MAX_TRANSFER_ID_BYTES, "transferId");
-  if (!isValidTransferId(transferId)) throw new BlobProtocolError("invalid transferId");
+  if (!isValidTransferId(transferId))
+    throw new BlobProtocolError("invalid transferId");
   return { tag: tag as FrameTypeValue, transferId };
 }
 
@@ -461,7 +534,10 @@ export function peekFrameRouting(buf: Uint8Array): FrameRouting {
  * anti-poisoning anchor. Content addressing means a peer that flips a byte
  * cannot make this pass for the original hash.
  */
-export async function verifyBlob(bytes: Uint8Array, header: HeaderFrame): Promise<boolean> {
+export async function verifyBlob(
+  bytes: Uint8Array,
+  header: HeaderFrame,
+): Promise<boolean> {
   if (bytes.length !== header.size) return false;
   const hash = await sha256Hex(bytes);
   return hash === header.hash;
@@ -510,7 +586,13 @@ export type BlobTerminalKind = "complete" | "abort";
 export type BlobTerminalKey = { readonly __blobTerminalKey: unique symbol };
 
 interface TerminalSubtle {
-  importKey(f: "raw", k: Uint8Array, a: string, e: boolean, u: string[]): Promise<BlobTerminalKey>;
+  importKey(
+    f: "raw",
+    k: Uint8Array,
+    a: string,
+    e: boolean,
+    u: string[],
+  ): Promise<BlobTerminalKey>;
   deriveKey(
     a: { name: string; hash: string; salt: Uint8Array; info: Uint8Array },
     base: BlobTerminalKey,
@@ -519,16 +601,29 @@ interface TerminalSubtle {
     u: string[],
   ): Promise<BlobTerminalKey>;
   sign(a: "HMAC", k: BlobTerminalKey, d: Uint8Array): Promise<ArrayBuffer>;
-  verify(a: "HMAC", k: BlobTerminalKey, sig: Uint8Array, d: Uint8Array): Promise<boolean>;
+  verify(
+    a: "HMAC",
+    k: BlobTerminalKey,
+    sig: Uint8Array,
+    d: Uint8Array,
+  ): Promise<boolean>;
 }
 
 function terminalSubtle(): TerminalSubtle | undefined {
-  return (globalThis as unknown as { crypto?: { subtle?: TerminalSubtle } }).crypto?.subtle;
+  return (globalThis as unknown as { crypto?: { subtle?: TerminalSubtle } })
+    .crypto?.subtle;
 }
 
 /** The normalized positional scope array (also the HKDF `info`). */
 function terminalScopeArray(s: BlobTerminalScope): unknown[] {
-  return ["scope", s.grantId, s.controlRoom, s.syncUrl.replace(/\/+$/, ""), s.projectId, s.shareRoom];
+  return [
+    "scope",
+    s.grantId,
+    s.controlRoom,
+    s.syncUrl.replace(/\/+$/, ""),
+    s.projectId,
+    s.shareRoom,
+  ];
 }
 
 /**
@@ -545,7 +640,8 @@ export function blobTerminalSigningBytes(
   size: number,
   reason: string | null,
 ): Uint8Array {
-  if (!Number.isFinite(size)) throw new BlobProtocolError("blob-terminal: non-finite size in signed set");
+  if (!Number.isFinite(size))
+    throw new BlobProtocolError("blob-terminal: non-finite size in signed set");
   const arr = [
     BLOB_TERMINAL_VERSION,
     terminalScopeArray(scope),
@@ -569,10 +665,20 @@ export async function deriveBlobTerminalKey(
   scope: BlobTerminalScope,
 ): Promise<BlobTerminalKey> {
   const subtle = terminalSubtle();
-  if (subtle === undefined) throw new BlobProtocolError("blob-terminal: WebCrypto required to derive key");
-  const base = await subtle.importKey("raw", responseKey, "HKDF", false, ["deriveKey"]);
+  if (subtle === undefined)
+    throw new BlobProtocolError(
+      "blob-terminal: WebCrypto required to derive key",
+    );
+  const base = await subtle.importKey("raw", responseKey, "HKDF", false, [
+    "deriveKey",
+  ]);
   return subtle.deriveKey(
-    { name: "HKDF", hash: "SHA-256", salt: BLOB_TERMINAL_SALT, info: utf8.encode(JSON.stringify(terminalScopeArray(scope))) },
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: BLOB_TERMINAL_SALT,
+      info: utf8.encode(JSON.stringify(terminalScopeArray(scope))),
+    },
     base,
     { name: "HMAC", hash: "SHA-256", length: 256 },
     false,
@@ -591,8 +697,13 @@ export async function signBlobTerminal(
   reason: string | null,
 ): Promise<string> {
   const subtle = terminalSubtle();
-  if (subtle === undefined) throw new BlobProtocolError("blob-terminal: WebCrypto required to sign");
-  const mac = await subtle.sign("HMAC", key, blobTerminalSigningBytes(scope, kind, transferId, hash, size, reason));
+  if (subtle === undefined)
+    throw new BlobProtocolError("blob-terminal: WebCrypto required to sign");
+  const mac = await subtle.sign(
+    "HMAC",
+    key,
+    blobTerminalSigningBytes(scope, kind, transferId, hash, size, reason),
+  );
   return bytesToBase64Url(new Uint8Array(mac));
 }
 
@@ -618,7 +729,12 @@ export async function verifyBlobTerminal(
     if (sigBytes === null) return false;
     const subtle = terminalSubtle();
     if (subtle === undefined) return false;
-    return await subtle.verify("HMAC", key, sigBytes, blobTerminalSigningBytes(scope, kind, transferId, hash, size, reason));
+    return await subtle.verify(
+      "HMAC",
+      key,
+      sigBytes,
+      blobTerminalSigningBytes(scope, kind, transferId, hash, size, reason),
+    );
   } catch {
     return false;
   }
@@ -657,11 +773,21 @@ export function planTransfer(
       kind: "data",
       transferId,
       index: i,
-      bytes: bytes.subarray(start, Math.min(start + BLOB_CHUNK_BYTES, bytes.length)),
+      bytes: bytes.subarray(
+        start,
+        Math.min(start + BLOB_CHUNK_BYTES, bytes.length),
+      ),
     });
   }
   return {
-    header: { kind: "header", transferId, hash, size: bytes.length, mime, totalChunks },
+    header: {
+      kind: "header",
+      transferId,
+      hash,
+      size: bytes.length,
+      mime,
+      totalChunks,
+    },
     data,
   };
 }

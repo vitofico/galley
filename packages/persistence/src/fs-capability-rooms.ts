@@ -28,13 +28,21 @@ import {
   type CapabilityRoomStore,
 } from "@galley/shared";
 import { KeyedMutex } from "./keyed-mutex.js";
+import { FsProjectStore } from "./fs.js";
+import { FsSessionStore } from "./fs-auth-stores.js";
 
 const SUBDIR = "capability-rooms";
+export class OwnedProjectLimitError extends Error {}
 
 export class FsCapabilityRoomRegistry implements CapabilityRoomStore {
+  private static readonly ownerLock = new KeyedMutex();
   private readonly lock = new KeyedMutex();
 
-  constructor(private readonly root: string) {}
+  constructor(
+    private readonly root: string,
+    private readonly isUserClosed?: (subject: string) => Promise<boolean>,
+    private readonly projectLimit?: (subject: string) => Promise<number | null>,
+  ) {}
 
   private dir(): string {
     return join(this.root, SUBDIR);
@@ -56,13 +64,65 @@ export class FsCapabilityRoomRegistry implements CapabilityRoomStore {
   }
 
   async put(record: CapabilityRoomRecord): Promise<void> {
-    if (!isCapabilityRoomId(record.roomId)) {
-      // A write with a hostile id is a caller bug — loud, never a silent file.
-      throw new Error("capability-room registry: invalid roomId");
-    }
-    await mkdir(this.dir(), { recursive: true });
-    await this.lock.run(record.roomId, () =>
-      writeJsonAtomic(this.file(record.roomId), record),
+    return FsCapabilityRoomRegistry.ownerLock.run(
+      record.createdBy,
+      async () => {
+        if (
+          record.revokedAtMs === undefined &&
+          (await new FsSessionStore(this.root).isUserClosed(record.createdBy))
+        )
+          throw new Error("Account is closed");
+        if (await this.isUserClosed?.(record.createdBy))
+          throw new Error("Account is closed");
+        if (!isCapabilityRoomId(record.roomId)) {
+          // A write with a hostile id is a caller bug — loud, never a silent file.
+          throw new Error("capability-room registry: invalid roomId");
+        }
+        if (
+          this.projectLimit &&
+          record.kind === "share" &&
+          record.revokedAtMs === undefined
+        ) {
+          const limit = await this.projectLimit(record.createdBy);
+          const ids = new Set(
+            (await this.list())
+              .filter(
+                (r) =>
+                  r.kind === "share" &&
+                  r.createdBy === record.createdBy &&
+                  r.revokedAtMs === undefined,
+              )
+              .map((r) => r.projectId ?? r.roomId),
+          );
+          for (const p of await new FsProjectStore(
+            this.root,
+          ).listProjectsForUser(record.createdBy))
+            if (
+              p.ownerId === record.createdBy &&
+              !p.ownerGroupId &&
+              !p.archived
+            )
+              ids.add(p.id);
+          ids.add(record.projectId ?? record.roomId);
+          if (limit !== null && ids.size > limit)
+            throw new OwnedProjectLimitError("Owned project limit");
+        }
+        await mkdir(this.dir(), { recursive: true });
+        await this.lock.run(record.roomId, () =>
+          writeJsonAtomic(this.file(record.roomId), record),
+        );
+        if (await this.isUserClosed?.(record.createdBy)) {
+          await this.remove(record.roomId);
+          throw new Error("Account is closed");
+        }
+        if (
+          record.revokedAtMs === undefined &&
+          (await new FsSessionStore(this.root).isUserClosed(record.createdBy))
+        ) {
+          await this.remove(record.roomId);
+          throw new Error("Account is closed");
+        }
+      },
     );
   }
 

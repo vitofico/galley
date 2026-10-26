@@ -42,6 +42,7 @@ import {
   signBlobTerminal,
   verifyBlobTerminal,
   type BlobFrame,
+  type RequestFrame,
   type HeaderFrame,
   type AbortFrame,
   type CompleteFrame,
@@ -135,7 +136,10 @@ export type BlobTerminalVerifier = (
 export function buildBlobTerminalAuth(
   responseKey: Uint8Array,
   scope: BlobTerminalScope,
-): { terminalSigner: BlobTerminalSigner; terminalVerifier: BlobTerminalVerifier } {
+): {
+  terminalSigner: BlobTerminalSigner;
+  terminalVerifier: BlobTerminalVerifier;
+} {
   let keyP: ReturnType<typeof deriveBlobTerminalKey> | undefined;
   const key = (): ReturnType<typeof deriveBlobTerminalKey> => {
     if (keyP === undefined) keyP = deriveBlobTerminalKey(responseKey, scope);
@@ -144,17 +148,33 @@ export function buildBlobTerminalAuth(
   return {
     terminalSigner: async (kind, transferId, hash, size, reason) => {
       try {
-        return await signBlobTerminal(await key(), scope, kind, transferId, hash, size, reason);
+        return await signBlobTerminal(
+          await key(),
+          scope,
+          kind,
+          transferId,
+          hash,
+          size,
+          reason,
+        );
       } catch {
         return undefined; // signing failure → unsigned (an enforcing peer rejects)
       }
     },
     terminalVerifier: (kind, transferId, hash, size, reason, mac) =>
-      key().then((k) => verifyBlobTerminal(k, scope, kind, transferId, hash, size, reason, mac)),
+      key().then((k) =>
+        verifyBlobTerminal(k, scope, kind, transferId, hash, size, reason, mac),
+      ),
   };
 }
 
 export interface BlobTransportOptions {
+  /** Trusted hosted channel only: bounded round-robin retry of pending pull requests. Default off. */
+  requestRetryMs?: number;
+  /** Releases host-side reassembly reservations even when the socket closed during verification/storage. */
+  onReceiveSettled?: (transferId: string) => void;
+  /** Hosted point-to-point channel only; never enabled for the peer relay. */
+  onRequest?: (request: RequestFrame) => void;
   /** Called with each VERIFIED + EXPECTED inbound blob. Must not throw (wrapped). */
   onBlob?: (blob: ReceivedBlob) => void | Promise<void>;
   /** Reconnect on an unexpected drop. Default true. */
@@ -225,7 +245,8 @@ const DEFAULTS: ResolvedOpts = {
 
 const defaultScheduler: SchedulerLike = {
   setTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
-  clearTimeout: (h) => globalThis.clearTimeout(h as ReturnType<typeof setTimeout>),
+  clearTimeout: (h) =>
+    globalThis.clearTimeout(h as ReturnType<typeof setTimeout>),
 };
 
 function asBytes(data: unknown): Uint8Array | undefined {
@@ -298,13 +319,20 @@ interface Outbound {
 export class BlobTransport {
   private socket: WebSocketLike | undefined;
   private bound:
-    | { open: (e: unknown) => void; message: (e: unknown) => void; drop: (e: unknown) => void }
+    | {
+        open: (e: unknown) => void;
+        message: (e: unknown) => void;
+        drop: (e: unknown) => void;
+      }
     | undefined;
   private wantConnected = false;
   private reconnectTimer: unknown;
   private attempt = 0;
   private sweepTimer: unknown;
 
+  private readonly requests = new Map<string, RequestFrame>();
+  private requestRetryTimer: unknown;
+  private readonly requestRetryMs: number;
   private readonly inbound = new Map<string, Inbound>();
   private readonly outbound = new Map<string, Outbound>();
   /** Live receiver-side expectations keyed by `hash:size`. */
@@ -324,7 +352,11 @@ export class BlobTransport {
   private readonly scheduler: SchedulerLike;
   private readonly now: () => number;
   private readonly mintTransferId: () => string;
-  private readonly onBlob: ((blob: ReceivedBlob) => void | Promise<void>) | undefined;
+  private readonly onReceiveSettled: ((transferId: string) => void) | undefined;
+  private readonly onRequest: ((request: RequestFrame) => void) | undefined;
+  private readonly onBlob:
+    | ((blob: ReceivedBlob) => void | Promise<void>)
+    | undefined;
   private readonly terminalSigner: BlobTerminalSigner | undefined;
   private readonly terminalVerifier: BlobTerminalVerifier | undefined;
 
@@ -332,20 +364,31 @@ export class BlobTransport {
     private readonly factory: () => WebSocketLike,
     options: BlobTransportOptions = {},
   ) {
+    this.requestRetryMs = options.requestRetryMs ?? 0;
+    if (
+      !Number.isFinite(this.requestRetryMs) ||
+      (this.requestRetryMs !== 0 &&
+        (this.requestRetryMs < 100 || this.requestRetryMs > 60000))
+    )
+      throw new Error("Invalid hosted request retry interval");
     this.opts = {
       reconnect: options.reconnect ?? DEFAULTS.reconnect,
       baseDelayMs: options.baseDelayMs ?? DEFAULTS.baseDelayMs,
       maxDelayMs: options.maxDelayMs ?? DEFAULTS.maxDelayMs,
       factor: options.factor ?? DEFAULTS.factor,
       idleTransferMs: options.idleTransferMs ?? DEFAULTS.idleTransferMs,
-      maxInflightReceives: options.maxInflightReceives ?? DEFAULTS.maxInflightReceives,
+      maxInflightReceives:
+        options.maxInflightReceives ?? DEFAULTS.maxInflightReceives,
       maxExpectedBytes: options.maxExpectedBytes ?? DEFAULTS.maxExpectedBytes,
-      requireExpectation: options.requireExpectation ?? DEFAULTS.requireExpectation,
+      requireExpectation:
+        options.requireExpectation ?? DEFAULTS.requireExpectation,
     };
     this.scheduler = options.scheduler ?? defaultScheduler;
     this.now = options.now ?? Date.now;
     this.mintTransferId = options.mintTransferId ?? randomToken;
     this.onBlob = options.onBlob;
+    this.onReceiveSettled = options.onReceiveSettled;
+    this.onRequest = options.onRequest;
     this.terminalSigner = options.terminalSigner;
     this.terminalVerifier = options.terminalVerifier;
   }
@@ -365,19 +408,74 @@ export class BlobTransport {
    */
   expect(hash: string, size: number): boolean {
     if (!isValidHash(hash)) return false;
-    if (!Number.isInteger(size) || size < 0 || size > BLOB_MAX_TRANSFER_BYTES) return false;
+    if (!Number.isInteger(size) || size < 0 || size > BLOB_MAX_TRANSFER_BYTES)
+      return false;
     const key = this.expKey(hash, size);
     if (this.expectations.has(key)) return true; // already expected (idempotent)
-    if (this.expectedBytesOutstanding + size > this.opts.maxExpectedBytes) return false;
+    if (this.expectedBytesOutstanding + size > this.opts.maxExpectedBytes)
+      return false;
     this.expectations.set(key, { hash, size });
     this.expectedBytesOutstanding += size;
     return true;
   }
 
+  /** Request hosted bytes. The channel must have a single trusted server endpoint. */
+  request(hash: string, size: number): boolean {
+    if (!this.expect(hash, size)) return false;
+    const key = this.expKey(hash, size);
+    if (this.requests.has(key)) return true;
+    const frame: RequestFrame = {
+      kind: "request",
+      transferId: this.mintTransferId(),
+      hash,
+      size,
+    };
+    this.requests.set(key, frame);
+    if (this.requestRetryMs === 0 || this.requests.size <= 2) this.send_(frame);
+    this.armRequestRetry();
+    return true;
+  }
   /** Drop a previously-registered expectation (e.g. the consumer gave up). */
   unexpect(hash: string, size: number): void {
     const key = this.expKey(hash, size);
+    this.requests.delete(key);
+    if (this.requests.size === 0) this.stopRequestRetry();
     if (this.expectations.delete(key)) this.expectedBytesOutstanding -= size;
+  }
+
+  private stopRequestRetry(): void {
+    if (this.requestRetryTimer !== undefined) {
+      this.scheduler.clearTimeout(this.requestRetryTimer);
+      this.requestRetryTimer = undefined;
+    }
+  }
+  private retryRequests(): void {
+    const budget = Math.min(2, this.requests.size);
+    let sent = 0;
+    for (const [key, frame] of this.requests) {
+      // Moving the visited entry to the tail gives each queued hash a turn,
+      // without allocating a second metadata queue or retaining payload bytes.
+      this.requests.delete(key);
+      this.requests.set(key, frame);
+      this.send_(frame);
+      if (++sent >= budget) break;
+    }
+  }
+  private armRequestRetry(): void {
+    if (
+      this.requestRetryMs === 0 ||
+      this.requestRetryTimer !== undefined ||
+      this.requests.size === 0 ||
+      !this.wantConnected ||
+      this.socket?.readyState !== OPEN
+    )
+      return;
+    this.requestRetryTimer = this.scheduler.setTimeout(() => {
+      this.requestRetryTimer = undefined;
+      if (this.socket?.readyState === OPEN && this.wantConnected)
+        this.retryRequests();
+      this.armRequestRetry();
+    }, this.requestRetryMs);
   }
 
   /** Whether `{hash,size}` is currently expected. */
@@ -400,14 +498,20 @@ export class BlobTransport {
     if (!isValidTransferId(transferId)) return false;
     // maxBytes must be a POSITIVE integer within the transfer cap (rd-A1 §6): a
     // zero/negative reservation reserves no usable capacity — refuse it.
-    if (!Number.isInteger(maxBytes) || maxBytes <= 0 || maxBytes > BLOB_MAX_TRANSFER_BYTES) return false;
+    if (
+      !Number.isInteger(maxBytes) ||
+      maxBytes <= 0 ||
+      maxBytes > BLOB_MAX_TRANSFER_BYTES
+    )
+      return false;
     const existing = this.transferReservations.get(transferId);
     if (existing !== undefined) return existing === maxBytes; // idempotent iff same cap
     // A reservation must not collide with a live inbound transfer already bound to
     // this id (a sender that pushed before we reserved) — fail closed rather than
     // double-charge / clobber.
     if (this.inbound.has(transferId)) return false;
-    if (this.expectedBytesOutstanding + maxBytes > this.opts.maxExpectedBytes) return false;
+    if (this.expectedBytesOutstanding + maxBytes > this.opts.maxExpectedBytes)
+      return false;
     this.transferReservations.set(transferId, maxBytes);
     this.expectedBytesOutstanding += maxBytes;
     return true;
@@ -431,7 +535,13 @@ export class BlobTransport {
     const inb = this.inbound.get(transferId);
     if (inb !== undefined && inb.reservedTransferId === transferId) {
       this.inbound.delete(transferId);
-      void this.emitTerminal("abort", transferId, inb.header.hash, inb.header.size, "withdrawn");
+      void this.emitTerminal(
+        "abort",
+        transferId,
+        inb.header.hash,
+        inb.header.size,
+        "withdrawn",
+      );
     }
     this.transferReservations.delete(transferId);
     this.expectedBytesOutstanding -= reserved;
@@ -458,6 +568,12 @@ export class BlobTransport {
     socket.binaryType = "arraybuffer";
     const open = (): void => {
       this.attempt = 0;
+      if (this.requestRetryMs === 0)
+        for (const request of this.requests.values()) this.send_(request);
+      else {
+        this.retryRequests();
+        this.armRequestRetry();
+      }
       // Resume outbound transfers that were mid-flight before a (re)connect. A
       // send-before-open or a drop before the first ACK could otherwise strand
       // the receiver: re-send the HEADER if it isn't confirmed, then re-prime the
@@ -485,6 +601,7 @@ export class BlobTransport {
   private handleDrop(socket: WebSocketLike): void {
     if (this.socket !== socket) return;
     this.unbind(socket);
+    this.stopRequestRetry();
     this.socket = undefined;
     // Inbound reassembly cannot survive a socket loss (the sender restarts on its
     // own reconnect); drop partial transfers + release their reserved bytes.
@@ -494,7 +611,10 @@ export class BlobTransport {
       this.failAllOutbound(new Error("blob channel disconnected"));
       return;
     }
-    const delay = Math.min(this.opts.maxDelayMs, this.opts.baseDelayMs * this.opts.factor ** this.attempt);
+    const delay = Math.min(
+      this.opts.maxDelayMs,
+      this.opts.baseDelayMs * this.opts.factor ** this.attempt,
+    );
     this.attempt += 1;
     this.reconnectTimer = this.scheduler.setTimeout(() => {
       this.reconnectTimer = undefined;
@@ -514,6 +634,7 @@ export class BlobTransport {
 
   disconnect(): void {
     this.wantConnected = false;
+    this.stopRequestRetry();
     if (this.reconnectTimer !== undefined) {
       this.scheduler.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;
@@ -526,6 +647,7 @@ export class BlobTransport {
     this.failAllOutbound(new Error("blob channel closed"));
     // Release all expectations + reservations + their reserved quota (leak-free).
     this.expectations.clear();
+    this.requests.clear();
     this.transferReservations.clear();
     this.expectedBytesOutstanding = 0;
     const socket = this.socket;
@@ -596,6 +718,11 @@ export class BlobTransport {
     size: number,
     reason: string | null,
   ): Promise<void> {
+    try {
+      this.onReceiveSettled?.(transferId);
+    } catch {
+      /* cleanup hook */
+    }
     let mac: string | undefined;
     if (this.terminalSigner !== undefined) {
       try {
@@ -605,10 +732,21 @@ export class BlobTransport {
       }
     }
     if (kind === "complete") {
-      const frame: CompleteFrame = { kind: "complete", transferId, hash, size, ...(mac ? { mac } : {}) };
+      const frame: CompleteFrame = {
+        kind: "complete",
+        transferId,
+        hash,
+        size,
+        ...(mac ? { mac } : {}),
+      };
       this.send_(frame);
     } else {
-      const frame: AbortFrame = { kind: "abort", transferId, reason: reason ?? "abort", ...(mac ? { mac } : {}) };
+      const frame: AbortFrame = {
+        kind: "abort",
+        transferId,
+        reason: reason ?? "abort",
+        ...(mac ? { mac } : {}),
+      };
       this.send_(frame);
     }
   }
@@ -621,19 +759,36 @@ export class BlobTransport {
    * Caller-side validation errors REJECT immediately (rework §C10) rather than
    * opening state that times out.
    */
-  send(bytes: Uint8Array, hash: string, mime: string, opts: BlobSendOptions = {}): BlobSendHandle {
+  send(
+    bytes: Uint8Array,
+    hash: string,
+    mime: string,
+    opts: BlobSendOptions = {},
+  ): BlobSendHandle {
     // §C10: validate BEFORE storing outbound state — bad args fail fast.
     if (!isValidHash(hash)) {
-      return { transferId: "", hash, done: Promise.reject(new Error("blob send: hash must be 64 lowercase hex")) };
+      return {
+        transferId: "",
+        hash,
+        done: Promise.reject(
+          new Error("blob send: hash must be 64 lowercase hex"),
+        ),
+      };
     }
     if (!isValidMime(mime)) {
-      return { transferId: "", hash, done: Promise.reject(new Error("blob send: mime too long")) };
+      return {
+        transferId: "",
+        hash,
+        done: Promise.reject(new Error("blob send: mime too long")),
+      };
     }
     if (bytes.length > BLOB_MAX_TRANSFER_BYTES) {
       return {
         transferId: "",
         hash,
-        done: Promise.reject(new Error(`blob exceeds BLOB_MAX_TRANSFER_BYTES (${bytes.length})`)),
+        done: Promise.reject(
+          new Error(`blob exceeds BLOB_MAX_TRANSFER_BYTES (${bytes.length})`),
+        ),
       };
     }
     // A1 export channel: honor a CALLER-SUPPLIED transferId (the receiver minted it
@@ -642,10 +797,20 @@ export class BlobTransport {
     // outbound under the same id) is refused rather than clobbered.
     if (opts.transferId !== undefined) {
       if (!isValidTransferId(opts.transferId)) {
-        return { transferId: "", hash, done: Promise.reject(new Error("blob send: transferId invalid")) };
+        return {
+          transferId: "",
+          hash,
+          done: Promise.reject(new Error("blob send: transferId invalid")),
+        };
       }
       if (this.outbound.has(opts.transferId)) {
-        return { transferId: opts.transferId, hash, done: Promise.reject(new Error("blob send: transferId already in flight")) };
+        return {
+          transferId: opts.transferId,
+          hash,
+          done: Promise.reject(
+            new Error("blob send: transferId already in flight"),
+          ),
+        };
       }
     }
     const transferId = opts.transferId ?? this.mintTransferId();
@@ -686,7 +851,12 @@ export class BlobTransport {
     while (out.nextToSend < out.data.length && out.nextToSend <= windowEnd) {
       const chunk = out.data[out.nextToSend];
       if (chunk === undefined) break; // bounds-guarded by the loop condition
-      const ok = this.send_({ kind: "data", transferId: out.header.transferId, index: chunk.index, bytes: chunk.bytes });
+      const ok = this.send_({
+        kind: "data",
+        transferId: out.header.transferId,
+        index: chunk.index,
+        bytes: chunk.bytes,
+      });
       if (!ok) return; // socket not open; resume on reconnect
       out.nextToSend += 1;
       out.lastActivity = this.now();
@@ -702,7 +872,8 @@ export class BlobTransport {
   }
 
   private failAllOutbound(err: Error): void {
-    for (const out of [...this.outbound.values()]) this.settleOutbound(out, false, err);
+    for (const out of [...this.outbound.values()])
+      this.settleOutbound(out, false, err);
   }
 
   // --- Receiver --------------------------------------------------------------
@@ -717,6 +888,9 @@ export class BlobTransport {
       return;
     }
     switch (frame.kind) {
+      case "request":
+        this.onRequest?.(frame);
+        break;
       case "header":
         this.onHeader(frame);
         break;
@@ -741,7 +915,11 @@ export class BlobTransport {
    * transfer's hash+size so the sender can authenticate it. `hint` supplies
    * hash/size when the inbound entry is already gone or never existed.
    */
-  private abortInbound(transferId: string, reason: string, hint?: { hash: string; size: number }): void {
+  private abortInbound(
+    transferId: string,
+    reason: string,
+    hint?: { hash: string; size: number },
+  ): void {
     const inb = this.releaseInbound(transferId); // frees the charge exactly once
     const hash = inb?.header.hash ?? hint?.hash ?? "0".repeat(64);
     const size = inb?.header.size ?? hint?.size ?? 0;
@@ -753,8 +931,15 @@ export class BlobTransport {
     if (existing !== undefined) {
       // A duplicate HEADER that EXACTLY matches the live transfer is a harmless
       // (re)connect retransmit — re-ACK our progress so the sender resyncs.
-      if (existing.header.hash === header.hash && existing.header.size === header.size) {
-        this.send_({ kind: "ack", transferId: header.transferId, index: existing.contiguous });
+      if (
+        existing.header.hash === header.hash &&
+        existing.header.size === header.size
+      ) {
+        this.send_({
+          kind: "ack",
+          transferId: header.transferId,
+          index: existing.contiguous,
+        });
         return;
       }
       // A1 export channel (rd-A1 §2): a reservation accepts SEQUENTIAL candidates,
@@ -782,18 +967,39 @@ export class BlobTransport {
       !this.isExpected(header.hash, header.size) &&
       !reservationBound
     ) {
-      void this.emitTerminal("abort", header.transferId, header.hash, header.size, "unexpected");
+      void this.emitTerminal(
+        "abort",
+        header.transferId,
+        header.hash,
+        header.size,
+        "unexpected",
+      );
       return;
     }
     // Bound concurrent inbound transfers (DoS): refuse a new one past the cap.
     if (this.inbound.size >= this.opts.maxInflightReceives) {
-      void this.emitTerminal("abort", header.transferId, header.hash, header.size, "too-many-inflight");
+      void this.emitTerminal(
+        "abort",
+        header.transferId,
+        header.hash,
+        header.size,
+        "too-many-inflight",
+      );
       return;
     }
     // decodeFrame already enforced size <= cap + exact totalChunks, but re-assert
     // before allocating the chunk array (belt-and-braces).
-    if (header.size > BLOB_MAX_TRANSFER_BYTES || header.totalChunks !== expectedChunks(header.size)) {
-      void this.emitTerminal("abort", header.transferId, header.hash, header.size, "bad-header");
+    if (
+      header.size > BLOB_MAX_TRANSFER_BYTES ||
+      header.totalChunks !== expectedChunks(header.size)
+    ) {
+      void this.emitTerminal(
+        "abort",
+        header.transferId,
+        header.hash,
+        header.size,
+        "bad-header",
+      );
       return;
     }
     // A reservation caps the inbound at its reserved maxBytes: a header declaring
@@ -801,7 +1007,13 @@ export class BlobTransport {
     // live for a conformant retry; releasing it here would let a hostile oversize
     // header cancel the legitimate transfer).
     if (reservationBound && header.size > reservedMaxBytes!) {
-      void this.emitTerminal("abort", header.transferId, header.hash, header.size, "exceeds-reserved");
+      void this.emitTerminal(
+        "abort",
+        header.transferId,
+        header.hash,
+        header.size,
+        "exceeds-reserved",
+      );
       return;
     }
     // §E15 byte quota (rework rd3 §2 — release EXACTLY once). The reservation for
@@ -812,11 +1024,21 @@ export class BlobTransport {
     // maxBytes is already counted; released on delivery via releaseInbound). An
     // UNEXPECTED-but-accepted transfer (requireExpectation off) charges its OWN
     // reservation here and releases it itself (charged=true).
-    const alreadyReserved = this.isExpected(header.hash, header.size) || reservationBound;
+    const alreadyReserved =
+      this.isExpected(header.hash, header.size) || reservationBound;
     let charged = false;
     if (!alreadyReserved) {
-      if (this.expectedBytesOutstanding + header.size > this.opts.maxExpectedBytes) {
-        void this.emitTerminal("abort", header.transferId, header.hash, header.size, "quota-exceeded");
+      if (
+        this.expectedBytesOutstanding + header.size >
+        this.opts.maxExpectedBytes
+      ) {
+        void this.emitTerminal(
+          "abort",
+          header.transferId,
+          header.hash,
+          header.size,
+          "quota-exceeded",
+        );
         return;
       }
       this.expectedBytesOutstanding += header.size;
@@ -836,7 +1058,11 @@ export class BlobTransport {
     if (header.totalChunks === 0) void this.finishInbound(header.transferId);
   }
 
-  private onData(frame: { transferId: string; index: number; bytes: Uint8Array }): void {
+  private onData(frame: {
+    transferId: string;
+    index: number;
+    bytes: Uint8Array;
+  }): void {
     const inb = this.inbound.get(frame.transferId);
     if (inb === undefined) return; // no header / already finished / aborted
     if (frame.index < 0 || frame.index >= inb.header.totalChunks) {
@@ -846,7 +1072,11 @@ export class BlobTransport {
     if (inb.chunks[frame.index] !== undefined) {
       // Duplicate chunk (a reconnect resend): re-ACK our contiguous prefix so the
       // sender advances, but don't double-count toward completion.
-      this.send_({ kind: "ack", transferId: frame.transferId, index: inb.contiguous });
+      this.send_({
+        kind: "ack",
+        transferId: frame.transferId,
+        index: inb.contiguous,
+      });
       return;
     }
     // Running byte ceiling: a peer can't exceed its declared size (anti-DoS).
@@ -861,11 +1091,19 @@ export class BlobTransport {
     // Advance the CONTIGUOUS cursor over any now-filled prefix (rework §A2). ACK
     // carries the highest contiguous index, NOT this arbitrary index — so an
     // out-of-order chunk doesn't falsely advance the sender's window.
-    while (inb.contiguous + 1 < inb.header.totalChunks && inb.chunks[inb.contiguous + 1] !== undefined) {
+    while (
+      inb.contiguous + 1 < inb.header.totalChunks &&
+      inb.chunks[inb.contiguous + 1] !== undefined
+    ) {
       inb.contiguous += 1;
     }
-    this.send_({ kind: "ack", transferId: frame.transferId, index: inb.contiguous });
-    if (inb.received === inb.header.totalChunks) void this.finishInbound(frame.transferId);
+    this.send_({
+      kind: "ack",
+      transferId: frame.transferId,
+      index: inb.contiguous,
+    });
+    if (inb.received === inb.header.totalChunks)
+      void this.finishInbound(frame.transferId);
   }
 
   private async finishInbound(transferId: string): Promise<void> {
@@ -880,7 +1118,13 @@ export class BlobTransport {
       const c = inb.chunks[i];
       if (c === undefined) {
         // A gap (shouldn't happen once received === totalChunks, but be safe).
-        void this.emitTerminal("abort", transferId, inb.header.hash, inb.header.size, "missing-chunk");
+        void this.emitTerminal(
+          "abort",
+          transferId,
+          inb.header.hash,
+          inb.header.size,
+          "missing-chunk",
+        );
         return;
       }
       ordered.push(c);
@@ -896,7 +1140,13 @@ export class BlobTransport {
       ok = false;
     }
     if (!ok) {
-      void this.emitTerminal("abort", transferId, inb.header.hash, inb.header.size, "verify-failed");
+      void this.emitTerminal(
+        "abort",
+        transferId,
+        inb.header.hash,
+        inb.header.size,
+        "verify-failed",
+      );
       return;
     }
     // §E13 acceptance + rd-A1 §3 (dual-match quota leak fix): the blob is accepted
@@ -910,9 +1160,16 @@ export class BlobTransport {
     if (this.opts.requireExpectation) {
       const hashExpected = this.isExpected(inb.header.hash, inb.header.size);
       const stillReserved =
-        inb.reservedTransferId !== undefined && this.transferReservations.has(inb.reservedTransferId);
+        inb.reservedTransferId !== undefined &&
+        this.transferReservations.has(inb.reservedTransferId);
       if (!hashExpected && !stillReserved) {
-        void this.emitTerminal("abort", transferId, inb.header.hash, inb.header.size, "unexpected");
+        void this.emitTerminal(
+          "abort",
+          transferId,
+          inb.header.hash,
+          inb.header.size,
+          "unexpected",
+        );
         return;
       }
       // Consume the hash-expectation if present (exactly once) — the reservation
@@ -932,14 +1189,28 @@ export class BlobTransport {
           hash: inb.header.hash,
           size: inb.header.size,
           mime: inb.header.mime,
-          ...(inb.reservedTransferId !== undefined ? { transferId: inb.reservedTransferId } : {}),
+          ...(inb.reservedTransferId !== undefined
+            ? { transferId: inb.reservedTransferId }
+            : {}),
         });
       } catch {
-        void this.emitTerminal("abort", transferId, inb.header.hash, inb.header.size, "store-failed");
+        void this.emitTerminal(
+          "abort",
+          transferId,
+          inb.header.hash,
+          inb.header.size,
+          "store-failed",
+        );
         return;
       }
     }
-    void this.emitTerminal("complete", transferId, inb.header.hash, inb.header.size, null);
+    void this.emitTerminal(
+      "complete",
+      transferId,
+      inb.header.hash,
+      inb.header.size,
+      null,
+    );
   }
 
   /**
@@ -973,11 +1244,20 @@ export class BlobTransport {
     // unresolved and fails closed via the idle sweep. Without a verifier,
     // completion is ADVISORY (forgeable): resolve as before.
     if (this.terminalVerifier !== undefined) {
-      if (frame.hash !== out.header.hash || frame.size !== out.header.size) return;
+      if (frame.hash !== out.header.hash || frame.size !== out.header.size)
+        return;
       const verifier = this.terminalVerifier;
-      void verifier("complete", frame.transferId, frame.hash, frame.size, null, frame.mac).then((okay) => {
+      void verifier(
+        "complete",
+        frame.transferId,
+        frame.hash,
+        frame.size,
+        null,
+        frame.mac,
+      ).then((okay) => {
         const live = this.outbound.get(frame.transferId);
-        if (okay && live === out && !out.settled) this.settleOutbound(out, true);
+        if (okay && live === out && !out.settled)
+          this.settleOutbound(out, true);
         // An invalid MAC: ignore (do NOT resolve) — fails closed.
       });
       return;
@@ -996,16 +1276,29 @@ export class BlobTransport {
       if (this.terminalVerifier !== undefined) {
         const verifier = this.terminalVerifier;
         const captured = out;
-        void verifier("abort", frame.transferId, captured.header.hash, captured.header.size, frame.reason, frame.mac).then(
-          (okay) => {
-            const live = this.outbound.get(frame.transferId);
-            if (okay && live === captured && !captured.settled) {
-              this.settleOutbound(captured, false, new Error(`receiver aborted: ${frame.reason}`));
-            }
-          },
-        );
+        void verifier(
+          "abort",
+          frame.transferId,
+          captured.header.hash,
+          captured.header.size,
+          frame.reason,
+          frame.mac,
+        ).then((okay) => {
+          const live = this.outbound.get(frame.transferId);
+          if (okay && live === captured && !captured.settled) {
+            this.settleOutbound(
+              captured,
+              false,
+              new Error(`receiver aborted: ${frame.reason}`),
+            );
+          }
+        });
       } else {
-        this.settleOutbound(out, false, new Error(`receiver aborted: ${frame.reason}`));
+        this.settleOutbound(
+          out,
+          false,
+          new Error(`receiver aborted: ${frame.reason}`),
+        );
       }
     }
     // An abort for an INBOUND transfer drops our reassembly state + frees bytes
@@ -1023,7 +1316,10 @@ export class BlobTransport {
       this.sweepTimer = undefined;
       this.sweepIdle();
       if (this.wantConnected) {
-        this.sweepTimer = this.scheduler.setTimeout(tick, this.opts.idleTransferMs);
+        this.sweepTimer = this.scheduler.setTimeout(
+          tick,
+          this.opts.idleTransferMs,
+        );
       }
     };
     this.sweepTimer = this.scheduler.setTimeout(tick, this.opts.idleTransferMs);
@@ -1037,7 +1333,11 @@ export class BlobTransport {
     }
     for (const out of [...this.outbound.values()]) {
       if (out.lastActivity < cutoff && !out.settled) {
-        this.send_({ kind: "abort", transferId: out.header.transferId, reason: "idle-timeout" });
+        this.send_({
+          kind: "abort",
+          transferId: out.header.transferId,
+          reason: "idle-timeout",
+        });
         this.settleOutbound(out, false, new Error("transfer idle timeout"));
       }
     }

@@ -11,6 +11,7 @@
  * no token/secret ever logged.
  */
 import { Hono } from "hono";
+import { OwnedProjectLimitError } from "@galley/persistence";
 import type { Context } from "hono";
 import type {
   CapabilityRoomStore,
@@ -88,14 +89,30 @@ function resolveCookieCfg(cookie: AuthRouterDeps["cookie"]): CookieCfg {
   return { name, secure };
 }
 
-function setSessionCookie(cfg: CookieCfg, id: string, maxAgeSec: number): string {
-  const attrs = [`${cfg.name}=${id}`, "HttpOnly", "SameSite=Lax", "Path=/", `Max-Age=${maxAgeSec}`];
+function setSessionCookie(
+  cfg: CookieCfg,
+  id: string,
+  maxAgeSec: number,
+): string {
+  const attrs = [
+    `${cfg.name}=${id}`,
+    "HttpOnly",
+    "SameSite=Lax",
+    "Path=/",
+    `Max-Age=${maxAgeSec}`,
+  ];
   if (cfg.secure) attrs.push("Secure");
   return attrs.join("; ");
 }
 
 function clearSessionCookie(cfg: CookieCfg): string {
-  const attrs = [`${cfg.name}=`, "HttpOnly", "SameSite=Lax", "Path=/", "Max-Age=0"];
+  const attrs = [
+    `${cfg.name}=`,
+    "HttpOnly",
+    "SameSite=Lax",
+    "Path=/",
+    "Max-Age=0",
+  ];
   if (cfg.secure) attrs.push("Secure");
   return attrs.join("; ");
 }
@@ -105,7 +122,10 @@ function clearSessionCookie(cfg: CookieCfg): string {
  * token's `name`, else `email`, else nothing (the SPA falls back to the opaque
  * userId). Display only — authorization always uses `userId`.
  */
-function displayFromClaims(claims: { name?: unknown; email?: unknown }): string | undefined {
+function displayFromClaims(claims: {
+  name?: unknown;
+  email?: unknown;
+}): string | undefined {
   for (const value of [claims.name, claims.email]) {
     if (typeof value === "string" && value.trim() !== "") return value;
   }
@@ -139,8 +159,20 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
     const pkce = await generatePkce(random);
     const state = randomToken(random);
     const nonce = randomToken(random);
-    await loginStateStore.put({ state, codeVerifier: pkce.codeVerifier, nonce, returnTo, expiresAtMs: now() + stateTtlMs });
-    return c.redirect(buildAuthorizationUrl(config, { state, nonce, codeChallenge: pkce.codeChallenge }));
+    await loginStateStore.put({
+      state,
+      codeVerifier: pkce.codeVerifier,
+      nonce,
+      returnTo,
+      expiresAtMs: now() + stateTtlMs,
+    });
+    return c.redirect(
+      buildAuthorizationUrl(config, {
+        state,
+        nonce,
+        codeChallenge: pkce.codeChallenge,
+      }),
+    );
   });
 
   // IdP redirect-back: validate state, exchange code, verify the ID token, open a session.
@@ -152,8 +184,15 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
 
     let tokenJson: unknown;
     try {
-      const tr = buildTokenRequest(config, { code: parsed.code, codeVerifier: ls.codeVerifier });
-      const resp = await fetchImpl(tr.url, { method: tr.method, headers: tr.headers, body: tr.body });
+      const tr = buildTokenRequest(config, {
+        code: parsed.code,
+        codeVerifier: ls.codeVerifier,
+      });
+      const resp = await fetchImpl(tr.url, {
+        method: tr.method,
+        headers: tr.headers,
+        body: tr.body,
+      });
       if (!resp.ok) return c.text("token exchange failed", 502);
       tokenJson = await resp.json();
     } catch {
@@ -177,7 +216,10 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
     if (!verified.ok) return c.text("id token rejected", 401);
 
     const createdAtMs = now();
-    const userId = await userIdFromOidc(verified.claims.iss, verified.claims.sub);
+    const userId = await userIdFromOidc(
+      verified.claims.iss,
+      verified.claims.sub,
+    );
     const display = displayFromClaims(verified.claims);
     const { id } = await sessionStore.create({
       userId,
@@ -186,7 +228,10 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
       oidc: { iss: verified.claims.iss, sub: verified.claims.sub },
       ...(display !== undefined ? { display } : {}),
     });
-    c.header("set-cookie", setSessionCookie(cookieCfg, id, Math.floor(sessionTtlMs / 1000)));
+    c.header(
+      "set-cookie",
+      setSessionCookie(cookieCfg, id, Math.floor(sessionTtlMs / 1000)),
+    );
     return c.redirect(ls.returnTo); // already same-origin-validated at login
   });
 
@@ -268,7 +313,8 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
         return constJson(c, 403, { ok: false, code: "forbidden" });
       }
       const session = await sessionOf(c);
-      if (!session) return constJson(c, 401, { ok: false, code: "unauthenticated" });
+      if (!session)
+        return constJson(c, 401, { ok: false, code: "unauthenticated" });
       // M1: Content-Length is mandatory — absent (e.g. a chunked request) → 411
       // BEFORE any body byte is read; malformed or over-cap → 413. Only then is
       // the (now declared-bounded) body read, and re-measured in UTF-8 BYTES as
@@ -277,7 +323,10 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
       if (declared === undefined) {
         return constJson(c, 411, { ok: false, code: "length-required" });
       }
-      if (!/^\d{1,9}$/.test(declared) || Number(declared) > MAX_CAPABILITY_BODY_BYTES) {
+      if (
+        !/^\d{1,9}$/.test(declared) ||
+        Number(declared) > MAX_CAPABILITY_BODY_BYTES
+      ) {
         return constJson(c, 413, { ok: false, code: "too-large" });
       }
       const contentType = c.req.header("content-type") ?? "";
@@ -297,12 +346,19 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
       } catch {
         return constJson(c, 400, { ok: false, code: "invalid" });
       }
-      const result = await registerCapabilityRoom(store, {
-        body,
-        userId: session.userId,
-        sessionExpiresAtMs: session.expiresAtMs,
-        nowMs: now(),
-      });
+      let result;
+      try {
+        result = await registerCapabilityRoom(store, {
+          body,
+          userId: session.userId,
+          sessionExpiresAtMs: session.expiresAtMs,
+          nowMs: now(),
+        });
+      } catch (error) {
+        if (error instanceof OwnedProjectLimitError)
+          return constJson(c, 403, { ok: false, code: "project-limit" });
+        throw error;
+      }
       return constJson(c, result.status, result.body);
     });
 
@@ -311,7 +367,8 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
         return constJson(c, 403, { ok: false, code: "forbidden" });
       }
       const session = await sessionOf(c);
-      if (!session) return constJson(c, 401, { ok: false, code: "unauthenticated" });
+      if (!session)
+        return constJson(c, 401, { ok: false, code: "unauthenticated" });
       const result = await revokeCapabilityRoom(store, {
         roomId: c.req.param("roomId"),
         userId: session.userId,

@@ -13,11 +13,25 @@
  *   groups/<id>/members.json   { "<userId>": "<role>" }
  */
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile, readdir, rename } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  writeFile,
+  readdir,
+  rename,
+  rm,
+} from "node:fs/promises";
 import { join } from "node:path";
-import type { Group, GroupId, GroupMember, GroupRole, GroupStore } from "@galley/shared";
+import type {
+  Group,
+  GroupId,
+  GroupMember,
+  GroupRole,
+  GroupStore,
+} from "@galley/shared";
 import type { IdGenerator } from "./in-memory.js";
 import { KeyedMutex } from "./keyed-mutex.js";
+import { FsSessionStore } from "./fs-auth-stores.js";
 
 /**
  * Group ids are used as a path segment, so validate before any `path.join` / FS
@@ -27,7 +41,8 @@ import { KeyedMutex } from "./keyed-mutex.js";
 const SAFE_KEY = /^[A-Za-z0-9_-]{1,128}$/;
 
 function assertSafeId(id: string): void {
-  if (!SAFE_KEY.test(id)) throw new Error(`illegal group id: ${JSON.stringify(id)}`);
+  if (!SAFE_KEY.test(id))
+    throw new Error(`illegal group id: ${JSON.stringify(id)}`);
 }
 
 async function readJson<T>(path: string): Promise<T | null> {
@@ -54,7 +69,8 @@ function adminCount(roles: Record<string, GroupRole>): number {
 }
 
 export class FsGroupStore implements GroupStore {
-  private readonly lock = new KeyedMutex();
+  private static readonly locks = new KeyedMutex();
+  private readonly lock = FsGroupStore.locks;
   constructor(
     private readonly root: string,
     private readonly newId: IdGenerator = () => randomUUID(),
@@ -71,6 +87,8 @@ export class FsGroupStore implements GroupStore {
     // existence check, and so members.json is written before any member op races.
     return this.lock.run(id, async () => {
       const dir = this.dir(id);
+      if (await new FsSessionStore(this.root).isUserClosed(adminUserId))
+        throw new Error("Account is closed");
       if ((await readJson<Group>(join(dir, "group.json"))) !== null) {
         throw new Error(`group ${id} already exists`);
       }
@@ -78,8 +96,14 @@ export class FsGroupStore implements GroupStore {
       const group: Group = { id, name };
       // Membership first, then group.json as the commit marker — so a crash
       // mid-create never leaves a readable group with no admin.
-      await writeJsonAtomic(join(dir, "members.json"), { [adminUserId]: "admin" });
+      await writeJsonAtomic(join(dir, "members.json"), {
+        [adminUserId]: "admin",
+      });
       await writeJsonAtomic(join(dir, "group.json"), group);
+      if (await new FsSessionStore(this.root).isUserClosed(adminUserId)) {
+        await rm(dir, { recursive: true, force: true });
+        throw new Error("Account is closed");
+      }
       return group;
     });
   }
@@ -89,13 +113,21 @@ export class FsGroupStore implements GroupStore {
   }
 
   private async members(id: GroupId): Promise<Record<string, GroupRole>> {
-    return (await readJson<Record<string, GroupRole>>(join(this.dir(id), "members.json"))) ?? {};
+    return (
+      (await readJson<Record<string, GroupRole>>(
+        join(this.dir(id), "members.json"),
+      )) ?? {}
+    );
   }
 
   addMember(groupId: GroupId, userId: string, role: GroupRole): Promise<void> {
     return this.lock.run(groupId, async () => {
-      if ((await this.getGroup(groupId)) === null) throw new Error(`unknown group ${groupId}`);
+      if (await new FsSessionStore(this.root).isUserClosed(userId))
+        throw new Error("Account is closed");
+      if ((await this.getGroup(groupId)) === null)
+        throw new Error(`unknown group ${groupId}`);
       const roles = await this.members(groupId);
+      const previous = { ...roles };
       // The last-admin invariant: never demote the sole remaining admin to member.
       // OWN-property only (roles is parsed JSON) so a magic userId can't read an
       // inherited value here either.
@@ -109,6 +141,13 @@ export class FsGroupStore implements GroupStore {
       }
       roles[userId] = role;
       await writeJsonAtomic(join(this.dir(groupId), "members.json"), roles);
+      if (await new FsSessionStore(this.root).isUserClosed(userId)) {
+        await writeJsonAtomic(
+          join(this.dir(groupId), "members.json"),
+          previous,
+        );
+        throw new Error("Account is closed");
+      }
     });
   }
 
@@ -124,13 +163,31 @@ export class FsGroupStore implements GroupStore {
       await writeJsonAtomic(join(this.dir(groupId), "members.json"), roles);
     });
   }
+  /** Account cleanup checks the final membership and removes an empty group atomically. */
+  removeAccountMember(groupId: GroupId, userId: string): Promise<void> {
+    return this.lock.run(groupId, async () => {
+      const roles = await this.members(groupId);
+      if (!Object.hasOwn(roles, userId)) return;
+      if (Object.keys(roles).length === 1) {
+        await rm(this.dir(groupId), { recursive: true, force: true });
+        return;
+      }
+      if (roles[userId] === "admin" && adminCount(roles) === 1)
+        throw new Error(`cannot remove the last admin of group ${groupId}`);
+      delete roles[userId];
+      await writeJsonAtomic(join(this.dir(groupId), "members.json"), roles);
+    });
+  }
 
-  async getMembership(groupId: GroupId, userId: string): Promise<GroupRole | null> {
+  async getMembership(
+    groupId: GroupId,
+    userId: string,
+  ): Promise<GroupRole | null> {
     const roles = await this.members(groupId);
     // OWN-property only — see FsProjectStore.getMembership: a magic userId
     // (`__proto__`/`constructor`/`toString`/…) must never resolve an inherited
     // Object.prototype member and forge group access.
-    return Object.hasOwn(roles, userId) ? roles[userId] ?? null : null;
+    return Object.hasOwn(roles, userId) ? (roles[userId] ?? null) : null;
   }
 
   async listMembers(groupId: GroupId): Promise<GroupMember[]> {
@@ -150,7 +207,9 @@ export class FsGroupStore implements GroupStore {
     }
     const out: Group[] = [];
     for (const id of ids.sort()) {
-      const roles = await readJson<Record<string, GroupRole>>(join(this.dir(id), "members.json"));
+      const roles = await readJson<Record<string, GroupRole>>(
+        join(this.dir(id), "members.json"),
+      );
       if (roles && Object.hasOwn(roles, userId)) {
         const g = await this.getGroup(id);
         if (g) out.push(g);

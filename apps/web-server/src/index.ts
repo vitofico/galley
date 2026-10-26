@@ -52,6 +52,7 @@ export interface WebServerAppOptions {
    * client-side probing would mis-detect.
    */
   authRouter?: Hono;
+  accountLifecycleRouter?: Hono;
   /**
    * Serve-time runtime config (roadmap #5 slice 5): the server-compile service
    * URL, sourced from the `GALLEY_COMPILE_URL` env in `server.ts`. When set
@@ -83,6 +84,10 @@ export interface WebServerAppOptions {
    * derivation is byte-for-byte unchanged).
    */
   syncUrl?: string | null | undefined;
+  /** Optional hosted execution mount; same-origin paths only, absent by default. */
+  hostedRunsApiPath?: string | null | undefined;
+  hostedAccountPath?: string | null | undefined;
+  hostedStorage?: boolean;
   /**
    * Service-authenticated internal membership-read wiring (Wave 13 cloud enabler).
    * When present, a `/internal/projects/:projectId/membership/:userId` route is
@@ -223,6 +228,8 @@ export interface RuntimeConfigValues {
   syncUrl?: string;
   /** OIDC auth is active — mirrors the auth-router mount exactly (14-E). */
   auth?: true;
+  hostedRuns?: { apiPath: string; accountPath?: string };
+  hostedStorage?: true;
 }
 
 export function renderRuntimeConfigScript(values: RuntimeConfigValues): string {
@@ -234,6 +241,8 @@ export function renderRuntimeConfigScript(values: RuntimeConfigValues): string {
   if (values.compileUrl !== undefined) config["compileUrl"] = values.compileUrl;
   if (values.syncUrl !== undefined) config["syncUrl"] = values.syncUrl;
   if (values.auth === true) config["auth"] = true;
+  if (values.hostedRuns !== undefined) config["hostedRuns"] = values.hostedRuns;
+  if (values.hostedStorage === true) config["hostedStorage"] = true;
   const json = JSON.stringify(config)
     .replace(/</g, "\\u003c")
     .replace(/>/g, "\\u003e")
@@ -258,7 +267,9 @@ export function injectRuntimeConfigTag(html: string): string {
   }
   const firstScript = html.search(/<script\b/i);
   if (firstScript >= 0) {
-    return html.slice(0, firstScript) + RUNTIME_CONFIG_TAG + html.slice(firstScript);
+    return (
+      html.slice(0, firstScript) + RUNTIME_CONFIG_TAG + html.slice(firstScript)
+    );
   }
   return RUNTIME_CONFIG_TAG + html;
 }
@@ -279,15 +290,42 @@ export function createWebServerApp(options: WebServerAppOptions): Hono {
   const csp = options.csp === undefined ? DEFAULT_CSP : options.csp;
   const compileUrl = normalizeRuntimeUrl(options.compileUrl);
   const syncUrl = normalizeRuntimeUrl(options.syncUrl);
+  const hostedApi = normalizeRuntimeUrl(options.hostedRunsApiPath);
+  const hostedAccount = normalizeRuntimeUrl(options.hostedAccountPath);
+  const path = (value: string) =>
+    /^\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+$/.test(value);
+  if (
+    (hostedApi &&
+      (!path(hostedApi) || !hostedApi.endsWith("/api/agent-runs"))) ||
+    (hostedAccount && (!hostedApi || !path(hostedAccount)))
+  ) {
+    throw new Error(
+      "Hosted execution requires a same-origin /api/agent-runs path and optional same-origin account path",
+    );
+  }
+  const hostedRuns = hostedApi
+    ? {
+        apiPath: hostedApi,
+        ...(hostedAccount ? { accountPath: hostedAccount } : {}),
+      }
+    : null;
   // 14-E: the served auth flag mirrors the router mount EXACTLY — same option,
   // same process, so the SPA gate can trust it without probing /auth/me.
   const authEnabled = options.authRouter !== undefined;
   const runtimeConfig: RuntimeConfigValues | null =
-    compileUrl !== null || syncUrl !== null || authEnabled
+    compileUrl !== null ||
+    syncUrl !== null ||
+    authEnabled ||
+    hostedRuns !== null ||
+    options.hostedStorage === true
       ? {
           ...(compileUrl !== null ? { compileUrl } : {}),
           ...(syncUrl !== null ? { syncUrl } : {}),
           ...(authEnabled ? { auth: true as const } : {}),
+          ...(hostedRuns ? { hostedRuns } : {}),
+          ...(options.hostedStorage === true
+            ? { hostedStorage: true as const }
+            : {}),
         }
       : null;
   const app = new Hono();
@@ -300,7 +338,10 @@ export function createWebServerApp(options: WebServerAppOptions): Hono {
     c.res.headers.set("x-content-type-options", "nosniff");
     c.res.headers.set("x-frame-options", "DENY");
     c.res.headers.set("referrer-policy", "no-referrer");
-    c.res.headers.set("permissions-policy", "camera=(), microphone=(), geolocation=(), browsing-topics=()");
+    c.res.headers.set(
+      "permissions-policy",
+      "camera=(), microphone=(), geolocation=(), browsing-topics=()",
+    );
     if (csp !== null) c.res.headers.set("content-security-policy", csp);
   });
 
@@ -322,8 +363,13 @@ export function createWebServerApp(options: WebServerAppOptions): Hono {
   // than falling through to the index.html shell — the mount order is
   // security-load-bearing, pinned by internal-membership-router.test.ts.
   if (options.internalMembership) {
-    app.route("/internal", createInternalMembershipRouter(options.internalMembership));
+    app.route(
+      "/internal",
+      createInternalMembershipRouter(options.internalMembership),
+    );
   }
+  if (options.accountLifecycleRouter)
+    app.route("/internal/accounts", options.accountLifecycleRouter);
 
   // Serve-time runtime config (slice 5 + 14-E). Registered BEFORE the SPA
   // wildcard and ONLY when a compile URL is configured or auth is on —
@@ -347,7 +393,11 @@ export function createWebServerApp(options: WebServerAppOptions): Hono {
 
   // Serve a resolved file with the right headers, or null if absent. The caching
   // policy is by path (hashed assets are immutable; index.html must revalidate).
-  async function serve(c: Context, relPath: string, head: boolean): Promise<Response | null> {
+  async function serve(
+    c: Context,
+    relPath: string,
+    head: boolean,
+  ): Promise<Response | null> {
     let bytes = await files.read(relPath);
     if (bytes === null) return null;
     // Runtime config injection (slice 5 + 14-E): ONLY the SPA shell (index.html
@@ -355,7 +405,9 @@ export function createWebServerApp(options: WebServerAppOptions): Hono {
     // (assets, any other .html) are never rewritten; unconfigured, the shell
     // bytes are byte-for-byte the build output.
     if (runtimeConfig !== null && relPath === INDEX) {
-      bytes = new TextEncoder().encode(injectRuntimeConfigTag(new TextDecoder().decode(bytes)));
+      bytes = new TextEncoder().encode(
+        injectRuntimeConfigTag(new TextDecoder().decode(bytes)),
+      );
     }
     const headers: Record<string, string> = {
       "content-type": contentTypeFor(relPath),
@@ -410,6 +462,7 @@ export function createWebServerApp(options: WebServerAppOptions): Hono {
 /** Hashed Vite assets (under assets/) are content-addressed → cache forever. */
 function cacheControlFor(relPath: string): string {
   if (relPath === INDEX) return "no-cache";
-  if (relPath.startsWith("assets/")) return "public, max-age=31536000, immutable";
+  if (relPath.startsWith("assets/"))
+    return "public, max-age=31536000, immutable";
   return "public, max-age=3600";
 }
