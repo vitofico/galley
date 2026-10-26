@@ -6,8 +6,7 @@
  *
  * Three states, all decided by ONE `/auth/me` round-trip (the pure logic lives
  * in `auth-gate.ts`):
- *   - checking      → a quiet full-bleed paper surface (no flash: it is the
- *                     same color the body already paints);
+ *   - checking      → the same paper and print treatment as route loading;
  *   - unauthenticated → the full-screen sign-in card (below) — `/auth/login`
  *                     with the current location as `returnTo`;
  *   - authenticated → the app renders normally; the user is published via
@@ -22,6 +21,7 @@ import {
   type AuthState,
 } from "../auth-gate.js";
 import "./auth-gate.css";
+import { BrandLoading } from "./BrandLoading.js";
 
 /** The polished first-impression screen: brand, one line, one action. */
 function SignInScreen() {
@@ -71,16 +71,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }, []);
 
   if (state === null) {
-    // Minimal, non-flashing: the same paper the body already paints, with an
-    // accessible busy announcement and nothing visual to flash.
+    // Session readiness owns the duration; there is no minimum splash delay.
     return (
-      <div
-        className="auth-gate-checking"
-        data-testid="auth-checking"
-        role="status"
-        aria-busy="true"
-        aria-label="Checking your session"
-      />
+      <div data-testid="auth-checking">
+        <BrandLoading label="Checking your session…" />
+      </div>
     );
   }
   if (state.kind === "unauthenticated") return <SignInScreen />;

@@ -1,7 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { IdbProjectStore, InMemoryKeyValueBackend } from "../idb-project-store.js";
+import {
+  IdbProjectStore,
+  InMemoryKeyValueBackend,
+} from "../idb-project-store.js";
 import {
   collectTags,
+  formatProjectUpdatedLabel,
   filterProjects,
   normalizeProjectName,
   sortProjects,
@@ -68,10 +72,19 @@ describe("sortProjects", () => {
 });
 
 describe("collectTags (#12.4)", () => {
-  const P = (id: string, tags?: string[]): Project => ({ id, name: id, ownerId: "u", ...(tags ? { tags } : {}) });
+  const P = (id: string, tags?: string[]): Project => ({
+    id,
+    name: id,
+    ownerId: "u",
+    ...(tags ? { tags } : {}),
+  });
 
   it("de-duplicates and sorts tags across projects, tolerating absent tags", () => {
-    const projects = [P("a", ["physics", "draft"]), P("b"), P("c", ["draft", "alpha"])];
+    const projects = [
+      P("a", ["physics", "draft"]),
+      P("b"),
+      P("c", ["draft", "alpha"]),
+    ];
     expect(collectTags(projects)).toEqual(["alpha", "draft", "physics"]);
   });
 
@@ -106,30 +119,78 @@ describe("filterProjects (#12.4)", () => {
   ];
 
   it("hides archived projects unless showArchived", () => {
-    const ids = filterProjects(projects, { query: "", tag: null, showArchived: false }).map((p) => p.id);
+    const ids = filterProjects(projects, {
+      query: "",
+      tag: null,
+      showArchived: false,
+    }).map((p) => p.id);
     expect(ids).toEqual(["a", "b", "d"]);
-    const withArch = filterProjects(projects, { query: "", tag: null, showArchived: true }).map((p) => p.id);
+    const withArch = filterProjects(projects, {
+      query: "",
+      tag: null,
+      showArchived: true,
+    }).map((p) => p.id);
     expect(withArch).toContain("c");
   });
 
   it("matches the query against name OR a tag, case-insensitively", () => {
-    expect(filterProjects(projects, { query: "rela", tag: null, showArchived: false }).map((p) => p.id)).toEqual(["a"]);
+    expect(
+      filterProjects(projects, {
+        query: "rela",
+        tag: null,
+        showArchived: false,
+      }).map((p) => p.id),
+    ).toEqual(["a"]);
     // "physics" is a TAG of 'a' (its name doesn't contain it) → still matches.
-    expect(filterProjects(projects, { query: "PHYSICS", tag: null, showArchived: false }).map((p) => p.id)).toEqual(["a"]);
+    expect(
+      filterProjects(projects, {
+        query: "PHYSICS",
+        tag: null,
+        showArchived: false,
+      }).map((p) => p.id),
+    ).toEqual(["a"]);
   });
 
   it("filters to an exact tag, and composes with archived visibility", () => {
-    expect(filterProjects(projects, { query: "", tag: "draft", showArchived: false }).map((p) => p.id)).toEqual(["a", "b"]);
+    expect(
+      filterProjects(projects, {
+        query: "",
+        tag: "draft",
+        showArchived: false,
+      }).map((p) => p.id),
+    ).toEqual(["a", "b"]);
     // physics tag: 'a' (visible) and 'c' (archived) — only 'a' unless archived shown.
-    expect(filterProjects(projects, { query: "", tag: "physics", showArchived: false }).map((p) => p.id)).toEqual(["a"]);
-    expect(filterProjects(projects, { query: "", tag: "physics", showArchived: true }).map((p) => p.id)).toEqual(["a", "c"]);
+    expect(
+      filterProjects(projects, {
+        query: "",
+        tag: "physics",
+        showArchived: false,
+      }).map((p) => p.id),
+    ).toEqual(["a"]);
+    expect(
+      filterProjects(projects, {
+        query: "",
+        tag: "physics",
+        showArchived: true,
+      }).map((p) => p.id),
+    ).toEqual(["a", "c"]);
   });
 
   it("tag filter + query compose (both must hold)", () => {
     expect(
-      filterProjects(projects, { query: "chem", tag: "draft", showArchived: false }).map((p) => p.id),
+      filterProjects(projects, {
+        query: "chem",
+        tag: "draft",
+        showArchived: false,
+      }).map((p) => p.id),
     ).toEqual(["b"]);
-    expect(filterProjects(projects, { query: "rela", tag: "draft", showArchived: false }).map((p) => p.id)).toEqual(["a"]);
+    expect(
+      filterProjects(projects, {
+        query: "rela",
+        tag: "draft",
+        showArchived: false,
+      }).map((p) => p.id),
+    ).toEqual(["a"]);
   });
 });
 
@@ -137,7 +198,11 @@ describe("LibraryApp store interactions (load / create / delete / per-user)", ()
   it("loads only the projects the user owns or is a member of", async () => {
     const store = makeStore();
     await store.createProject({ id: "mine-1", name: "Mine", ownerId: "alice" });
-    await store.createProject({ id: "theirs-1", name: "Theirs", ownerId: "bob" });
+    await store.createProject({
+      id: "theirs-1",
+      name: "Theirs",
+      ownerId: "bob",
+    });
 
     const forAlice = await store.listProjectsForUser("alice");
     expect(names(sortProjects(forAlice))).toEqual(["Mine"]);
@@ -145,14 +210,20 @@ describe("LibraryApp store interactions (load / create / delete / per-user)", ()
     // a shared project the user is a member of also shows up
     await store.addMember("theirs-1", "alice", "editor");
     const forAliceShared = await store.listProjectsForUser("alice");
-    expect(names(sortProjects(forAliceShared)).sort()).toEqual(["Mine", "Theirs"]);
+    expect(names(sortProjects(forAliceShared)).sort()).toEqual([
+      "Mine",
+      "Theirs",
+    ]);
   });
 
   it("reflects a newly created project after reload", async () => {
     const store = makeStore();
     expect(await store.listProjectsForUser("alice")).toEqual([]);
 
-    const created = await store.createProject({ name: normalizeProjectName("  Draft ")!, ownerId: "alice" });
+    const created = await store.createProject({
+      name: normalizeProjectName("  Draft ")!,
+      ownerId: "alice",
+    });
     expect(created.name).toBe("Draft");
 
     const after = await store.listProjectsForUser("alice");
@@ -190,9 +261,46 @@ describe("LibraryApp store interactions (load / create / delete / per-user)", ()
     const list = sortProjects(await store.listProjectsForUser("alice"));
     expect(collectTags(list)).toEqual(["physics"]);
     // Default view hides the archived Beta.
-    expect(filterProjects(list, { query: "", tag: null, showArchived: false }).map((p) => p.name)).toEqual(["Alpha"]);
+    expect(
+      filterProjects(list, { query: "", tag: null, showArchived: false }).map(
+        (p) => p.name,
+      ),
+    ).toEqual(["Alpha"]);
     // Tag filter narrows to Alpha; showing archived brings Beta back.
-    expect(filterProjects(list, { query: "", tag: "physics", showArchived: false }).map((p) => p.name)).toEqual(["Alpha"]);
-    expect(filterProjects(list, { query: "", tag: null, showArchived: true }).map((p) => p.name).sort()).toEqual(["Alpha", "Beta"]);
+    expect(
+      filterProjects(list, {
+        query: "",
+        tag: "physics",
+        showArchived: false,
+      }).map((p) => p.name),
+    ).toEqual(["Alpha"]);
+    expect(
+      filterProjects(list, { query: "", tag: null, showArchived: true })
+        .map((p) => p.name)
+        .sort(),
+    ).toEqual(["Alpha", "Beta"]);
+  });
+});
+
+describe("stored project edit metadata", () => {
+  const now = Date.UTC(2026, 9, 26, 12);
+  it("formats actual timestamps without inventing compiled metadata", () => {
+    expect(formatProjectUpdatedLabel(now - 30_000, now)).toBe(
+      "Edited just now",
+    );
+    expect(formatProjectUpdatedLabel(now - 120_000, now)).toBe(
+      "Edited 2 minutes ago",
+    );
+    expect(formatProjectUpdatedLabel(now - 7_200_000, now)).toBe(
+      "Edited 2 hours ago",
+    );
+    expect(formatProjectUpdatedLabel(now - 86_400_000, now)).toBe(
+      "Edited yesterday",
+    );
+  });
+  it("handles a device clock behind the stored edit time", () => {
+    expect(formatProjectUpdatedLabel(now + 60_000, now)).toBe(
+      "Edited just now",
+    );
   });
 });
