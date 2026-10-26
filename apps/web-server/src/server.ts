@@ -66,16 +66,34 @@
  *                                      startup. See server-config.ts.
  */
 import { Server as HttpServer } from "node:http";
-import { readFile } from "node:fs/promises";
+import { readFile, access } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import type { Hono } from "hono";
 import type { OidcProviderConfig } from "@galley/shared";
-import { remoteJwks, discoverOidcProvider, createServiceTokenVerifier } from "@galley/auth";
-import { FsCapabilityRoomRegistry, FsProjectStore, FsGroupStore } from "@galley/persistence";
-import { createWebServerApp, type StaticFiles, type WebServerAppOptions } from "./index.js";
+import {
+  remoteJwks,
+  discoverOidcProvider,
+  createServiceTokenVerifier,
+  createAccountResourcePolicyReader,
+} from "@galley/auth";
+import {
+  FsCapabilityRoomRegistry,
+  FsProjectStore,
+  FsGroupStore,
+} from "@galley/persistence";
+import {
+  createWebServerApp,
+  type StaticFiles,
+  type WebServerAppOptions,
+} from "./index.js";
 import { createAuthRouter } from "./auth-router.js";
+import {
+  FsAccountLifecycle,
+  createAccountLifecycleRouter,
+  readLifecycleKey,
+} from "./account-lifecycle.js";
 import {
   isOidcEnabled,
   isOidcHttpAllowed,
@@ -85,7 +103,9 @@ import {
 
 const port = Number.parseInt(process.env.PORT ?? "8080", 10);
 if (!Number.isInteger(port) || port < 0 || port > 65535) {
-  throw new Error(`PORT must be an integer 0-65535; got ${JSON.stringify(process.env.PORT)}`);
+  throw new Error(
+    `PORT must be an integer 0-65535; got ${JSON.stringify(process.env.PORT)}`,
+  );
 }
 
 // Default to the workspace web build. In the runtime image the whole monorepo is
@@ -113,7 +133,12 @@ const files: StaticFiles = {
 };
 
 const cspEnv = process.env.CSP?.trim();
-const csp = cspEnv === undefined || cspEnv === "" ? undefined : cspEnv === "off" ? null : cspEnv;
+const csp =
+  cspEnv === undefined || cspEnv === ""
+    ? undefined
+    : cspEnv === "off"
+      ? null
+      : cspEnv;
 
 // Serve-time compile-URL runtime config. Passed through verbatim; the app
 // normalizes (trim, empty → absent) and escapes it (see index.ts).
@@ -124,6 +149,8 @@ const compileUrl = process.env.GALLEY_COMPILE_URL ?? null;
 // ingress path) point the SPA there without baking a deployment-specific
 // `VITE_GALLEY_SYNC_URL` into the shared image. Same passthrough as compileUrl.
 const syncUrl = process.env.GALLEY_SYNC_URL ?? null;
+const hostedRunsApiPath = process.env.GALLEY_HOSTED_RUNS_API_PATH ?? null;
+const hostedAccountPath = process.env.GALLEY_HOSTED_ACCOUNT_PATH ?? null;
 
 /**
  * Build the OIDC auth router from env, or null when auth is OFF (the default).
@@ -141,7 +168,9 @@ async function buildAuthRouter(): Promise<Hono | null> {
   const clientId = required("GALLEY_OIDC_CLIENT_ID");
   const baseUrl = required("GALLEY_PUBLIC_BASE_URL").replace(/\/$/, "");
   const clientSecret = process.env.GALLEY_OIDC_CLIENT_SECRET?.trim();
-  const scopes = process.env.GALLEY_OIDC_SCOPES?.trim().split(/\s+/).filter(Boolean);
+  const scopes = process.env.GALLEY_OIDC_SCOPES?.trim()
+    .split(/\s+/)
+    .filter(Boolean);
 
   // Dev/local escape hatch, default OFF: `GALLEY_OIDC_ALLOW_HTTP=1` lets
   // discovery accept a plain-http IdP. Resolved ONCE here (so the dev-only
@@ -177,13 +206,39 @@ async function buildAuthRouter(): Promise<Hono | null> {
     );
   }
 
+  const policyUrl = process.env.GALLEY_STORAGE_POLICY_URL?.trim();
+  const policy = policyUrl
+    ? createAccountResourcePolicyReader({
+        url: policyUrl,
+        key: await readLifecycleKey(required("GALLEY_STORAGE_POLICY_KEY_FILE")),
+      })
+    : undefined;
+  if (policy && !dataDir)
+    throw new Error("Resource policy requires GALLEY_DATA_DIR");
   return createAuthRouter({
     config,
     sessionStore,
     loginStateStore,
     jwks: remoteJwks(config.jwksUri),
     cookie: { secure: process.env.GALLEY_INSECURE_COOKIES !== "1" },
-    ...(dataDir ? { capabilityRooms: { store: new FsCapabilityRoomRegistry(dataDir) } } : {}),
+    ...(dataDir
+      ? {
+          capabilityRooms: {
+            store: new FsCapabilityRoomRegistry(
+              dataDir,
+              async (subject) =>
+                "isUserClosed" in sessionStore
+                  ? (
+                      sessionStore as import("@galley/persistence").FsSessionStore
+                    ).isUserClosed(subject)
+                  : false,
+              policy
+                ? async (subject) => (await policy(subject)).maxOwnedProjects
+                : undefined,
+            ),
+          },
+        }
+      : {}),
   });
 }
 
@@ -203,7 +258,9 @@ function required(name: string): string {
  * The project/group stores read the SAME shared `GALLEY_DATA_DIR` volume the sync
  * relay authorizes against.
  */
-async function buildInternalMembership(): Promise<WebServerAppOptions["internalMembership"]> {
+async function buildInternalMembership(): Promise<
+  WebServerAppOptions["internalMembership"]
+> {
   const cfg = resolveInternalMembershipConfig(process.env);
   if (!cfg) return undefined;
   const verify = await createServiceTokenVerifier({
@@ -218,14 +275,89 @@ async function buildInternalMembership(): Promise<WebServerAppOptions["internalM
   };
 }
 
-Promise.all([buildAuthRouter(), buildInternalMembership()])
-  .then(([authRouter, internalMembership]) => {
+async function buildAccountLifecycle(): Promise<Hono | undefined> {
+  const path = process.env.GALLEY_ACCOUNT_LIFECYCLE_KEY_FILE?.trim();
+  if (!path) return undefined;
+  const key = await readLifecycleKey(path);
+  const dataDir = required("GALLEY_DATA_DIR"),
+    sessionDir = required("GALLEY_SESSION_DIR"),
+    persistDir = required("GALLEY_SYNC_PERSIST_DIR");
+  const target = new URL(required("GALLEY_SYNC_INTERNAL_URL"));
+  if (
+    !["http:", "https:"].includes(target.protocol) ||
+    target.username ||
+    target.password ||
+    target.search ||
+    target.hash ||
+    target.pathname !== "/"
+  )
+    throw new Error("Invalid GALLEY_SYNC_INTERNAL_URL");
+  return createAccountLifecycleRouter(
+    new FsAccountLifecycle({
+      dataDir,
+      sessionDir,
+      persistDir,
+      retireRoom: async (room) => {
+        const response = await fetch(
+          new URL("/internal/rooms/retire", target),
+          {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${Buffer.from(key).toString("base64url")}`,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({ room }),
+            redirect: "error",
+            signal: AbortSignal.timeout(30_000),
+          },
+        );
+        if (!response.ok || (await response.text()) !== '{"retired":true}')
+          throw new Error("Room retirement pending");
+      },
+    }),
+    key,
+  );
+}
+
+Promise.all(
+  [
+    process.env.GALLEY_DATA_DIR,
+    process.env.GALLEY_SESSION_DIR,
+    process.env.GALLEY_SYNC_PERSIST_DIR,
+  ]
+    .filter((dir): dir is string => Boolean(dir))
+    .map(async (dir) => {
+      try {
+        await access(resolve(dir, "RESTORE-QUARANTINE.json"));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+        throw error;
+      }
+      throw new Error(
+        "Restored data requires lifecycle reconciliation before serving",
+      );
+    }),
+)
+  .then(() =>
+    Promise.all([
+      buildAuthRouter(),
+      buildInternalMembership(),
+      buildAccountLifecycle(),
+    ] as const),
+  )
+  .then(([authRouter, internalMembership, accountLifecycleRouter]) => {
     const base =
-      csp === undefined ? { files, compileUrl, syncUrl } : { files, csp, compileUrl, syncUrl };
+      csp === undefined
+        ? { files, compileUrl, syncUrl }
+        : { files, csp, compileUrl, syncUrl };
     const app = createWebServerApp({
       ...base,
+      hostedRunsApiPath,
+      hostedAccountPath,
+      hostedStorage: process.env.GALLEY_SYNC_HOSTED_BLOBS === "1",
       ...(authRouter ? { authRouter } : {}),
       ...(internalMembership ? { internalMembership } : {}),
+      ...(accountLifecycleRouter ? { accountLifecycleRouter } : {}),
     });
     const server = serve({ fetch: app.fetch, port, hostname: "0.0.0.0" });
 

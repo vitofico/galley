@@ -25,6 +25,12 @@ interface GalleyRuntimeConfig {
   readonly syncUrl?: string;
   /** OIDC auth is active (14-E) — mirrors the web-server's auth-router mount. */
   readonly auth?: true;
+  /** Optional same-origin hosted execution adapter. Commercial policy stays at the host. */
+  readonly hostedRuns?: {
+    readonly apiPath: string;
+    readonly accountPath?: string;
+  };
+  readonly hostedStorage?: true;
 }
 
 interface Window {

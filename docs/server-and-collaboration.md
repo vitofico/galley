@@ -33,7 +33,7 @@ The collaboration core is `packages/collab` (framework-agnostic; Yjs only):
   a single sync connection + IndexedDB store carry the whole project. Edits
   from multiple peers — humans and the agent — merge conflict-free.
 - **Sharing is explicit.** Collaboration is never on by default. The Share
-  action mints a fresh, unguessable room id (deliberately *not* the stable
+  action mints a fresh, unguessable room id (deliberately _not_ the stable
   local project id) and produces a `/join/<room>` link.
 - **Presence.** `CollabConnection` speaks the standard `y-protocols` sync +
   awareness messages; awareness carries each peer's `Presence` state (at
@@ -46,7 +46,7 @@ The collaboration core is `packages/collab` (framework-agnostic; Yjs only):
 - **The agent is just another peer.** Accepting an agent run applies its
   search/replace blocks to the shared doc as a single author-tagged Yjs
   transaction (`applyAgentEdits`, ADR-0006) — with the same fail-safe semantics
-  as the single-user path: each block must match exactly once in the *current*
+  as the single-user path: each block must match exactly once in the _current_
   document, application is all-or-nothing, and a stale block is a surfaced
   conflict, never a clobber. The human Accept gate applies to every surface;
   see [`editing-and-diff.md`](editing-and-diff.md).
@@ -97,7 +97,7 @@ data the user already has.
   `max(floor, 2× the content size)`, so steady editing never triggers a recompute
   on the hot path.
 - **Provider failure ≠ out of space** — if the quota provider is temporarily
-  unavailable, growth writes fail **closed** with a *distinct* signal
+  unavailable, growth writes fail **closed** with a _distinct_ signal
   (quota-unavailable), never "you are out of storage"; a transient flap resolves
   on its own and writes resume.
 
@@ -129,16 +129,20 @@ additive awareness **want-list** (the hashes it needs); a peer authorized to
 disclose those bytes answers on the byte channel. Two roles, kept structurally
 separate so requester state can never become serve authority:
 
-- **Requester (demand).** The peer-writable project snapshot is used *only* to
-  decide what bytes *this* peer needs — its referenced-and-missing binary
+- **Requester (demand).** The peer-writable project snapshot is used _only_ to
+  decide what bytes _this_ peer needs — its referenced-and-missing binary
   pointers (including tombstoned ones, whose bytes are retained for restore). The
-  session `expect()`s each missing blob on the byte channel *before* advertising
+  session `expect()`s each missing blob on the byte channel _before_ advertising
   it, and reconciles exactly: a pointer that disappears, becomes locally
   available, or changes size is `unexpect`ed and dropped from the want-list.
+  Verified storage also notifies derived byte consumers independently of document
+  updates: bytes may arrive after their CRDT pointer, so preview resolution must
+  retry its local read without requiring another edit. Connected and live Share
+  sessions compose this notification with demand tracking and stop it on teardown.
 - **Holder (serve).** A peer serves a wanted hash **only if it is
   servable** — i.e. it holds a durable, device-local `servable:` provenance
   marker for that hash **and** the verified bytes are present. "I reference this
-  hash in my snapshot" is *not* authorization: the snapshot is peer-writable, so a
+  hash in my snapshot" is _not_ authorization: the snapshot is peer-writable, so a
   hostile room member could otherwise name a victim's pending (not-yet-Accepted)
   hash and pull pre-Accept bytes. A marker is earned only after a **trusted local
   action lands** (local upload/paste/drag-drop, a committed import/restore, or a
@@ -147,7 +151,7 @@ separate so requester state can never become serve authority:
   merely finding the hash in the live snapshot.
 
 **Non-transitive by design.** Bytes pulled from a peer are stored as a **neutral
-cache** — renderable and exportable locally, but *not* re-servable (generic
+cache** — renderable and exportable locally, but _not_ re-servable (generic
 `put()` never grants a marker). This trades gossip availability for
 confidentiality: D1 requires at least one **locally-authorized** holder to stay
 online, an honest limitation of an online-only design. (If that peer later
@@ -254,3 +258,12 @@ projection consumers diverge deliberately:
   default projection, and restoring one never touches `.galley/instructions`:
   rolling a document back to last week must not clobber the agent steering
   written since.
+
+# Optional lifecycle and resource policies
+
+See [account lifecycle and resource policy](account-lifecycle-and-resource-policy.md)
+for service-authenticated export/closure/purge, durable room retirement,
+injected shared-account storage limits, and optional hosted binary persistence
+with bounded retained checkpoints. Hosted storage uses a separate channel and
+preserves the existing peer relay and terminal MAC contract. These are opt-in
+self-host mechanisms.

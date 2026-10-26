@@ -9,7 +9,22 @@
  * only, exactly as before.
  */
 import { createServer, type IncomingMessage } from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
+import {
+  DURABLE_DELIVERY_MESSAGE,
+  DURABLE_DELIVERY_MAX_CLIENTS,
+  encodeDurableDelivery,
+  readDurableDeliveryBody,
+  CollabProject,
+  materializeProject,
+} from "@galley/collab";
+import { createHash } from "node:crypto";
+import {
+  HostedBlobHandler,
+  HOSTED_BLOB_SUBPROTOCOL,
+} from "./hosted-blob-handler.js";
+import type { HostedStorage } from "@galley/shared";
 import { createBlobRelay, BLOB_SUBPROTOCOL } from "./blob-handler.js";
 import type { CrdtStore } from "@galley/shared";
 import * as Y from "yjs";
@@ -57,7 +72,8 @@ export const StorageFullReason = {
   /** The quota provider is temporarily unavailable (fail-closed for growth). */
   QuotaUnavailable: 3,
 } as const;
-export type StorageFullReason = (typeof StorageFullReason)[keyof typeof StorageFullReason];
+export type StorageFullReason =
+  (typeof StorageFullReason)[keyof typeof StorageFullReason];
 
 /**
  * Encode a {@link messageStorageFull} control frame. Wire format (its OWN ws
@@ -78,7 +94,10 @@ export type StorageFullReason = (typeof StorageFullReason)[keyof typeof StorageF
  * do not decode it will show what looks like working sync while diverging; the
  * next under-cap sync re-offers the full missing diff and heals.
  */
-export function encodeStorageFull(reason: StorageFullReason, cap: number): Uint8Array {
+export function encodeStorageFull(
+  reason: StorageFullReason,
+  cap: number,
+): Uint8Array {
   const enc = encoding.createEncoder();
   encoding.writeVarUint(enc, messageStorageFull);
   encoding.writeVarUint(enc, reason);
@@ -184,9 +203,14 @@ const PERSISTABLE_ROOM_ID = /^[A-Za-z0-9_-]{1,128}$/;
 // restored log again and storage would snowball.
 const RESTORED_FROM_STORE = Symbol("galley-sync-restored-from-store");
 
-type AwarenessChange = { added: number[]; updated: number[]; removed: number[] };
+type AwarenessChange = {
+  added: number[];
+  updated: number[];
+  removed: number[];
+};
 
 interface Room {
+  name: string;
   doc: Y.Doc;
   awareness: Awareness;
   /** Each open connection → the awareness client ids it controls (for cleanup). */
@@ -256,6 +280,10 @@ interface Room {
   caps?: CapsCache;
   /** A getCaps resolution is in flight (dedupes the lazy background refresh). */
   capsInFlight: boolean;
+  /** Small request token prevents a reaped room's resolution mutating its replacement. */
+  capsRequest?: object;
+  persistenceFailed: boolean;
+  durabilityToken: object;
   /** A `store.compact` is chained + running (the in-flight flag: no double-fire). */
   compacting: boolean;
   /**
@@ -298,6 +326,7 @@ export interface SyncServerHandle {
   readonly roomContentBytes: (room: string) => number;
   readonly roomExactContentBytes: (room: string) => number;
   readonly roomLogBytes: (room: string) => number;
+  retireRoom(room: string): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -310,9 +339,9 @@ export interface SyncServerHandle {
  * `crdtStore` is configured. A stateless room holds nothing server-resident, so a
  * quota is N/A there by definition and is ignored.
  *
- * SCOPE: "content" here means CRDT bytes (the Yjs document). Binary assets/blobs
- * are NOT counted — blobs never persist server-side (a separate ws subprotocol
- * forwards them peer-to-peer), so they never touch a room's `crdtStore`.
+ * SCOPE: per-room maxContentBytes limits CRDT bytes. An optional aggregate
+ * provider can also reserve hosted asset/history bytes against that same owner
+ * budget. The peer relay itself stays unpersisted and keyless.
  *
  * The shape is a CROSS-REPO CONTRACT (the cloud consumer builds against it
  * verbatim); do not reshape it.
@@ -326,6 +355,11 @@ export interface StorageQuota {
    * provider-failure semantics. Never blocks reads.
    */
   getCaps(roomId: string): Promise<{ maxContentBytes?: number }>;
+  /** Optional shared-account budget. Called synchronously before applying growth. */
+  allowGrowth?(roomId: string, bytes: number): boolean;
+  attachLiveReconciler?(reconcile: () => void): void;
+  recordContent?(roomId: string, upperBoundBytes: number): void;
+  retire?(roomId: string): void;
   /** Flat raw append-log hard ceiling (bytes). Absent ⇒ no hard ceiling. */
   maxLogBytes?: number;
   /** Compaction high-water floor (bytes); defaults to 16 MiB. */
@@ -342,13 +376,24 @@ type CapsCache =
   | { kind: "failed"; until: number };
 
 export interface SyncServerOptions {
+  /** Optional fsync-backed, token-bound acknowledgement after live delivery. Default off. */
+  durableDelivery?: boolean;
+  /** Optional durable room-scoped bytes and retained CRDT history. */
+  hostedStorage?: HostedStorage;
+  /** Optional service-only room retirement key, never a browser credential. */
+  lifecycleKey?: Uint8Array;
+  /** Periodically revalidate active authenticated connections. Default off. */
+  revalidateConnections?: boolean;
   /**
    * Optional authorization gate at the ws upgrade (roadmap #4 slice 5). Returns
    * whether this connection may join `room`. Omitted (the default) → rooms are
    * OPEN, exactly as before (the no-auth local/collab path is unchanged). When
    * provided, a denied connection is closed with 1008 BEFORE any doc data is sent.
    */
-  authorizeUpgrade?: (ctx: { room: string; req: IncomingMessage }) => boolean | Promise<boolean>;
+  authorizeUpgrade?: (ctx: {
+    room: string;
+    req: IncomingMessage;
+  }) => boolean | Promise<boolean>;
 
   /**
    * Optional Origin allowlist for the ws upgrade (#22.2 S2 — CSWSH defense),
@@ -494,12 +539,43 @@ function asBytes(data: unknown): Uint8Array | undefined {
  * Start the sync server. `port = 0` binds an ephemeral port (resolved on the
  * handle) — handy for tests. Resolves once the server is listening.
  */
-export function startSyncServer(port = 0, options: SyncServerOptions = {}): Promise<SyncServerHandle> {
+export function startSyncServer(
+  port = 0,
+  options: SyncServerOptions = {},
+): Promise<SyncServerHandle> {
+  if (options.lifecycleKey && options.lifecycleKey.byteLength !== 32)
+    throw new Error("Lifecycle key must contain 32 bytes");
+  if (options.durableDelivery && !options.crdtStore?.flush)
+    throw new Error("Durable delivery requires persistent flush support");
   const rooms = new Map<string, Room>();
+  let durableProbes = 0;
+  const retired = new Set<string>();
+  const retireRoom = async (name: string): Promise<void> => {
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(name)) throw new Error("Invalid room");
+    if (options.crdtStore && !options.crdtStore.retire)
+      throw new Error("Store retirement unavailable");
+    retired.add(name);
+    blobRelay.closeRoom(name);
+    hostedBlobs?.closeRoom(name);
+    const room = rooms.get(name);
+    if (room) {
+      rooms.delete(name);
+      for (const connection of room.conns.keys()) drop(connection);
+      room.awareness.destroy();
+      room.doc.destroy();
+      await room.whenWritten;
+    }
+    await options.crdtStore?.retire?.(name);
+    await options.hostedStorage?.retire(name);
+    options.storageQuota?.retire?.(name);
+  };
   // Normalize the Origin allowlist once. Empty → the check is OFF (default). A
   // non-empty list is fail-closed: only listed origins (exact match) are allowed.
   const allowedOrigins = (options.allowedOrigins ?? []).filter(Boolean);
-  const maxAwarenessMetaPerRoom = Math.max(1, options.maxAwarenessMetaPerRoom ?? MAX_AWARENESS_META_PER_ROOM);
+  const maxAwarenessMetaPerRoom = Math.max(
+    1,
+    options.maxAwarenessMetaPerRoom ?? MAX_AWARENESS_META_PER_ROOM,
+  );
   // Per-room storage caps (B2). ABSENT ⇒ the admission peek + accounting never run
   // and the relay is byte-for-byte the previous behavior. Only ever active for a
   // room that BOTH has this configured AND persists (room.store !== undefined).
@@ -518,7 +594,165 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
   // A plain HTTP server carries the WebSocket upgrade AND a health endpoint, so
   // orchestrators (k8s) and test harnesses (Playwright's webServer) can poll
   // readiness over HTTP. WebSocket clients connect to ws://host:port/<room>.
-  const httpServer = createServer((_req, res) => {
+  const httpServer = createServer((req, res) => {
+    const history =
+      /^\/history\/([A-Za-z0-9_-]{1,128})(?:\/(\d{13}-[a-f0-9]{64}))?$/.exec(
+        req.url ?? "",
+      );
+    if (history && options.hostedStorage) {
+      res.setHeader("cache-control", "no-store");
+      const origin = req.headers.origin;
+      const allowedOrigin = allowedOrigins.find(
+        (allowed) => allowed === origin,
+      );
+      if (allowedOrigin) {
+        res.setHeader("access-control-allow-origin", allowedOrigin);
+        res.setHeader("access-control-allow-credentials", "true");
+        res.setHeader("vary", "Origin");
+      }
+      if (req.method === "OPTIONS" && allowedOrigin) {
+        res.setHeader("access-control-allow-methods", "GET, POST");
+        res.setHeader("access-control-allow-headers", "content-type");
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+      void (async () => {
+        const roomName = history[1]!;
+        const cap = options.capabilityRooms;
+        const allowed =
+          !retired.has(roomName) &&
+          (!origin || Boolean(allowedOrigin)) &&
+          (cap?.isCapabilityRoom(roomName)
+            ? await cap.authorize(roomName)
+            : await options.authorizeUpgrade?.({ room: roomName, req }));
+        if (
+          !allowed ||
+          (req.method !== "GET" && req.method !== "POST") ||
+          (req.method === "POST" && !allowedOrigin)
+        ) {
+          res.writeHead(403);
+          res.end();
+          req.resume();
+          return;
+        }
+        if (req.method === "POST") {
+          if (history[2]) {
+            res.writeHead(405);
+            res.end();
+            return;
+          }
+          let raw = "";
+          for await (const chunk of req) {
+            raw += chunk.toString();
+            if (Buffer.byteLength(raw) > 1024)
+              throw new Error("Oversize history request");
+          }
+          const body: unknown = raw ? JSON.parse(raw) : {};
+          if (
+            !body ||
+            typeof body !== "object" ||
+            ("expectedTreeHash" in body &&
+              (typeof body.expectedTreeHash !== "string" ||
+                !/^[a-f0-9]{64}$/.test(body.expectedTreeHash)))
+          )
+            throw new Error("Invalid history request");
+          if (!rooms.has(roomName) && rooms.size >= MAX_ROOMS) {
+            res.writeHead(503);
+            res.end();
+            return;
+          }
+          const room = getRoom(roomName);
+          try {
+            await room.ready;
+            await room.whenWritten;
+            if (room.loadFailed) throw new Error("Room unavailable");
+            if ("expectedTreeHash" in body) {
+              const outcome = materializeProject(
+                new CollabProject(room.doc).snapshot(),
+              );
+              if (
+                !outcome.ok ||
+                createHash("sha256")
+                  .update(JSON.stringify(outcome.result.files))
+                  .digest("hex") !== body.expectedTreeHash
+              ) {
+                res.writeHead(409);
+                res.end();
+                reapRoomIfEmpty(roomName, room);
+                return;
+              }
+            }
+            const checkpoint = await options.hostedStorage!.checkpoint(
+              roomName,
+              Y.encodeStateAsUpdate(room.doc),
+            );
+            res.writeHead(201, { "content-type": "application/json" });
+            res.end(JSON.stringify(checkpoint));
+            return;
+          } finally {
+            reapRoomIfEmpty(roomName, room);
+          }
+        }
+        if (history[2]) {
+          const bytes = await options.hostedStorage!.getCheckpoint(
+            roomName,
+            history[2],
+          );
+          res.writeHead(bytes ? 200 : 404, {
+            "content-type": "application/octet-stream",
+          });
+          res.end(bytes);
+          return;
+        }
+        const items = await options.hostedStorage!.listCheckpoints(roomName);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(items));
+      })().catch(() => {
+        if (!res.headersSent) res.writeHead(503);
+        res.end();
+      });
+      return;
+    }
+    if (req.url === "/internal/rooms/retire" && options.lifecycleKey) {
+      const expected = Buffer.from(
+        `Bearer ${Buffer.from(options.lifecycleKey).toString("base64url")}`,
+      );
+      const supplied = Buffer.from(req.headers.authorization ?? "");
+      res.setHeader("cache-control", "no-store");
+      if (
+        req.method !== "POST" ||
+        req.headers.cookie ||
+        supplied.length !== expected.length ||
+        !timingSafeEqual(supplied, expected)
+      ) {
+        res.writeHead(401);
+        res.end();
+        req.resume();
+        return;
+      }
+      void (async () => {
+        let raw = "";
+        for await (const chunk of req) {
+          raw += chunk.toString();
+          if (Buffer.byteLength(raw) > 1024) throw new Error("Oversize");
+        }
+        const body: unknown = JSON.parse(raw);
+        if (
+          !body ||
+          typeof body !== "object" ||
+          typeof (body as { room?: unknown }).room !== "string"
+        )
+          throw new Error("Invalid body");
+        await retireRoom((body as { room: string }).room);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end('{"retired":true}');
+      })().catch(() => {
+        if (!res.headersSent) res.writeHead(503);
+        res.end();
+      });
+      return;
+    }
     res.writeHead(200, { "content-type": "text/plain" });
     res.end("galley-sync ok");
   });
@@ -530,7 +764,11 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
   // is unchanged. Returning `false` for an offered-but-unknown protocol leaves
   // the connection plain (the sync path), preserving back-compat.
   const handleProtocols = (protocols: Set<string>): string | false =>
-    protocols.has(BLOB_SUBPROTOCOL) ? BLOB_SUBPROTOCOL : false;
+    options.hostedStorage && protocols.has(HOSTED_BLOB_SUBPROTOCOL)
+      ? HOSTED_BLOB_SUBPROTOCOL
+      : protocols.has(BLOB_SUBPROTOCOL)
+        ? BLOB_SUBPROTOCOL
+        : false;
   const wss = new WebSocketServer({
     server: httpServer,
     maxPayload: MAX_WS_PAYLOAD_BYTES,
@@ -539,6 +777,9 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
   // The blob relay shares the sync server's room namespace + auth. A connection
   // only reaches it AFTER the SAME upgrade authorization the sync path uses.
   const blobRelay = createBlobRelay();
+  const hostedBlobs = options.hostedStorage
+    ? new HostedBlobHandler(options.hostedStorage)
+    : undefined;
 
   // ── Storage-cap accounting + admission (B2) ────────────────────────────────
   // Every helper below is a no-op unless `quota` is configured AND the room
@@ -554,6 +795,7 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
     const exact = Y.encodeStateAsUpdate(room.doc).byteLength;
     room.lastExactContentBytes = exact;
     room.bytesAppendedSinceExact = 0;
+    quota?.recordContent?.(room.name, exact);
     return exact;
   };
 
@@ -567,7 +809,9 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
    * over-cap frames within the per-connection rate limit.
    */
   const reconcileExact = (room: Room): number =>
-    room.bytesAppendedSinceExact === 0 ? room.lastExactContentBytes : recomputeExact(room);
+    room.bytesAppendedSinceExact === 0
+      ? room.lastExactContentBytes
+      : recomputeExact(room);
 
   /** The room is demonstrably accepting writes → end the full episode. */
   const markUnderCap = (room: Room): void => {
@@ -590,33 +834,59 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
    */
   const ensureCaps = (name: string, room: Room, now: number): void => {
     const c = room.caps;
-    const fresh = c !== undefined && (c.kind === "ok" ? c.expiresAt > now : c.until > now);
+    const fresh =
+      c !== undefined && (c.kind === "ok" ? c.expiresAt > now : c.until > now);
     if (fresh || room.capsInFlight) return;
     room.capsInFlight = true;
+    const request = {};
+    room.capsRequest = request;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => reject(new Error("getCaps deadline")), CAPS_RESOLVE_TIMEOUT_MS);
+      timer = setTimeout(
+        () => reject(new Error("getCaps deadline")),
+        CAPS_RESOLVE_TIMEOUT_MS,
+      );
       timer.unref(); // a pending deadline must never keep the process alive
     });
     // Promise.resolve().then() so a SYNCHRONOUS throw inside getCaps is captured;
     // race against the deadline so a hang cannot outlive CAPS_RESOLVE_TIMEOUT_MS.
-    void Promise.race([Promise.resolve().then(() => quota!.getCaps(name)), deadline])
+    void Promise.race([
+      Promise.resolve().then(() => quota!.getCaps(name)),
+      deadline,
+    ])
       .then(
         (caps) => {
           const r = rooms.get(name);
-          if (r !== undefined) {
-            r.caps = { kind: "ok", maxContentBytes: caps.maxContentBytes, expiresAt: Date.now() + CAPS_TTL_MS };
+          if (r !== undefined && r.capsRequest === request) {
+            const retry = r.caps?.kind !== "ok" || r.notifiedFull.size > 0;
+            r.caps = {
+              kind: "ok",
+              maxContentBytes: caps.maxContentBytes,
+              expiresAt: Date.now() + CAPS_TTL_MS,
+            };
+            // Refused updates remain only on their originating peer. Ask for
+            // that missing state again after admission resolves; replays pass
+            // the same quota gate and no update payload is buffered here.
+            if (retry && r.conns.size > 0) {
+              const encoder = encoding.createEncoder();
+              encoding.writeVarUint(encoder, messageSync);
+              syncProtocol.writeSyncStep1(encoder, r.doc);
+              const frame = encoding.toUint8Array(encoder);
+              for (const peer of r.conns.keys()) sendRaw(peer, frame);
+            }
           }
         },
         () => {
           const r = rooms.get(name);
-          if (r !== undefined) r.caps = { kind: "failed", until: Date.now() + CAPS_FAIL_TTL_MS };
+          if (r !== undefined && r.capsRequest === request)
+            r.caps = { kind: "failed", until: Date.now() + CAPS_FAIL_TTL_MS };
         },
       )
       .finally(() => {
         clearTimeout(timer); // cancel the deadline if getCaps won the race
         const r = rooms.get(name);
-        if (r !== undefined) r.capsInFlight = false;
+        if (r !== undefined && r.capsRequest === request)
+          r.capsInFlight = false;
       });
   };
 
@@ -653,6 +923,7 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
           room.logBytes = freshEncode + tail;
           room.lastExactContentBytes = freshEncode;
           room.bytesAppendedSinceExact = tail; // upper bound → preserves bound ≥ exact
+          quota?.recordContent?.(name, freshEncode + tail);
           room.logEpoch++; // rebased: any in-flight append's failure-rollback is now stale
         },
         () => {
@@ -674,13 +945,16 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
   const maybeCompact = (name: string, room: Room): void => {
     if (room.store === undefined || room.compacting) return;
     const floor = quota!.compactionFloorBytes ?? DEFAULT_COMPACTION_FLOOR_BYTES;
-    if (room.logBytes <= Math.max(floor, 2 * room.lastExactContentBytes)) return;
+    if (room.logBytes <= Math.max(floor, 2 * room.lastExactContentBytes))
+      return;
     const exact = recomputeExact(room);
     if (room.logBytes <= Math.max(floor, 2 * exact)) return;
     scheduleCompaction(name, room);
   };
 
-  type GrowthDecision = { admit: true } | { admit: false; reason: StorageFullReason; cap: number };
+  type GrowthDecision =
+    | { admit: true }
+    | { admit: false; reason: StorageFullReason; cap: number };
 
   /**
    * Decide whether a growth write of `declaredLen` incoming payload bytes may be
@@ -689,7 +963,12 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
    * under-cap admit ends the full episode; a genuine over-cap refusal does not.
    * Does NOT apply anything — the caller performs the delete-escape + apply.
    */
-  const evaluateGrowth = (name: string, room: Room, declaredLen: number, now: number): GrowthDecision => {
+  const evaluateGrowth = (
+    name: string,
+    room: Room,
+    declaredLen: number,
+    now: number,
+  ): GrowthDecision => {
     const caps = room.caps;
     if (
       caps === undefined ||
@@ -703,9 +982,24 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
       // Never yet resolved, a cached provider failure, or a past-grace stale value:
       // fail closed for GROWTH with a DISTINCT reason — a transient flap or a hung
       // provider must never read as "out of space".
-      return { admit: false, reason: StorageFullReason.QuotaUnavailable, cap: 0 };
+      return {
+        admit: false,
+        reason: StorageFullReason.QuotaUnavailable,
+        cap: 0,
+      };
     }
     const maxContent = caps.maxContentBytes; // undefined ⇒ unlimited content
+    if (quota!.allowGrowth && !quota!.allowGrowth(name, declaredLen)) {
+      // Reclaim delete-inflated bounds across live rooms before refusing a shared budget.
+      for (const other of rooms.values())
+        if (other.bytesAppendedSinceExact > 0) reconcileExact(other);
+      if (!quota!.allowGrowth(name, declaredLen))
+        return {
+          admit: false,
+          reason: StorageFullReason.ContentCap,
+          cap: maxContent ?? 0,
+        };
+    }
     const maxLog = quota!.maxLogBytes;
 
     // (2) Hard log ceiling — the ceiling is about the COMPACTED footprint, so a
@@ -714,7 +1008,11 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
     if (maxLog !== undefined && room.logBytes + declaredLen > maxLog) {
       const exact = reconcileExact(room);
       if (exact + declaredLen > maxLog) {
-        return { admit: false, reason: StorageFullReason.LogCeiling, cap: maxLog };
+        return {
+          admit: false,
+          reason: StorageFullReason.LogCeiling,
+          cap: maxLog,
+        };
       }
       scheduleCompaction(name, room); // compactable under the ceiling → relieve + admit
     }
@@ -738,7 +1036,11 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
       markUnderCap(room);
       return { admit: true };
     }
-    return { admit: false, reason: StorageFullReason.ContentCap, cap: maxContent };
+    return {
+      admit: false,
+      reason: StorageFullReason.ContentCap,
+      cap: maxContent,
+    };
   };
 
   /**
@@ -748,9 +1050,15 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
    * must reach the client, since this frame is its only divergence signal — while
    * an identical repeat is suppressed to avoid flooding.
    */
-  const emitStorageFull = (room: Room, ws: WebSocket, reason: StorageFullReason, cap: number): void => {
+  const emitStorageFull = (
+    room: Room,
+    ws: WebSocket,
+    reason: StorageFullReason,
+    cap: number,
+  ): void => {
     const last = room.notifiedFull.get(ws);
-    if (last !== undefined && last.reason === reason && last.cap === cap) return;
+    if (last !== undefined && last.reason === reason && last.cap === cap)
+      return;
     room.notifiedFull.set(ws, { reason, cap });
     sendRaw(ws, encodeStorageFull(reason, cap));
   };
@@ -776,6 +1084,7 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
     try {
       const peek = decoding.clone(decoder);
       subtype = decoding.readVarUint(peek);
+      ensureCaps(name, room, Date.now()); // reads may refresh policy but never wait on it
       if (subtype !== syncStep2 && subtype !== syncUpdate) {
         // SyncStep1 (read) or any non-growth subtype: never gated.
         return true;
@@ -835,6 +1144,7 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
         ? options.crdtStore
         : undefined;
     const room: Room = {
+      name,
       doc,
       awareness,
       conns,
@@ -846,8 +1156,13 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
       bytesAppendedSinceExact: 0,
       logEpoch: 0,
       capsInFlight: false,
+      persistenceFailed: false,
+      durabilityToken: {},
       compacting: false,
-      notifiedFull: new Map<WebSocket, { reason: StorageFullReason; cap: number }>(),
+      notifiedFull: new Map<
+        WebSocket,
+        { reason: StorageFullReason; cap: number }
+      >(),
     };
     if (persist !== undefined) room.store = persist;
 
@@ -869,8 +1184,13 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
         if (quota !== undefined) {
           room.logBytes += appendedBytes;
           room.bytesAppendedSinceExact += appendedBytes;
+          quota.recordContent?.(
+            name,
+            room.lastExactContentBytes + room.bytesAppendedSinceExact,
+          );
         }
         const written = persist.appendUpdate(name, update).catch(() => {
+          room.persistenceFailed = true;
           // eslint-disable-next-line no-console
           console.error("[galley/sync] failed to persist a CRDT update");
           // SEC: the LOG write never landed, so roll its bytes back out of the log
@@ -892,37 +1212,45 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
       encoding.writeVarUint(encoder, messageSync);
       syncProtocol.writeUpdate(encoder, update);
       const frame = encoding.toUint8Array(encoder);
-      for (const conn of conns.keys()) if (conn !== origin) sendRaw(conn, frame);
+      for (const conn of conns.keys())
+        if (conn !== origin) sendRaw(conn, frame);
     });
 
     // Relay awareness changes, tracking which client ids each connection owns.
-    awareness.on("update", ({ added, updated, removed }: AwarenessChange, origin: unknown) => {
-      if (origin !== null && conns.has(origin as WebSocket)) {
-        const ws = origin as WebSocket;
-        const owned = conns.get(ws)!;
-        // Derive ownership from the FINAL state, not the raw add/remove arrays: a
-        // crafted frame can list the same id as added AND removed, which would
-        // otherwise leave `owned` out of sync with what's actually live (and so
-        // missed by close-cleanup). An id is owned iff it has a live state now.
-        for (const id of new Set([...added, ...updated, ...removed])) {
-          if (awareness.getStates().has(id)) owned.add(id);
-          else owned.delete(id);
+    awareness.on(
+      "update",
+      ({ added, updated, removed }: AwarenessChange, origin: unknown) => {
+        if (origin !== null && conns.has(origin as WebSocket)) {
+          const ws = origin as WebSocket;
+          const owned = conns.get(ws)!;
+          // Derive ownership from the FINAL state, not the raw add/remove arrays: a
+          // crafted frame can list the same id as added AND removed, which would
+          // otherwise leave `owned` out of sync with what's actually live (and so
+          // missed by close-cleanup). An id is owned iff it has a live state now.
+          for (const id of new Set([...added, ...updated, ...removed])) {
+            if (awareness.getStates().has(id)) owned.add(id);
+            else owned.delete(id);
+          }
+          // Cumulative per-connection cap (L2-S3): a peer that accrues an implausible
+          // number of LIVE awareness ids across frames is abusive — terminate it
+          // (the close handler frees the ids it owns). The PER-FRAME cap in the
+          // message handler bounds a single-frame burst; this bounds the running sum.
+          if (owned.size > MAX_AWARENESS_CLIENTS_PER_CONN) {
+            drop(ws);
+          }
         }
-        // Cumulative per-connection cap (L2-S3): a peer that accrues an implausible
-        // number of LIVE awareness ids across frames is abusive — terminate it
-        // (the close handler frees the ids it owns). The PER-FRAME cap in the
-        // message handler bounds a single-frame burst; this bounds the running sum.
-        if (owned.size > MAX_AWARENESS_CLIENTS_PER_CONN) {
-          drop(ws);
-        }
-      }
-      const changed = [...added, ...updated, ...removed];
-      const encoder = encoding.createEncoder();
-      encoding.writeVarUint(encoder, messageAwareness);
-      encoding.writeVarUint8Array(encoder, encodeAwarenessUpdate(awareness, changed));
-      const frame = encoding.toUint8Array(encoder);
-      for (const conn of conns.keys()) if (conn !== origin) sendRaw(conn, frame);
-    });
+        const changed = [...added, ...updated, ...removed];
+        const encoder = encoding.createEncoder();
+        encoding.writeVarUint(encoder, messageAwareness);
+        encoding.writeVarUint8Array(
+          encoder,
+          encodeAwarenessUpdate(awareness, changed),
+        );
+        const frame = encoding.toUint8Array(encoder);
+        for (const conn of conns.keys())
+          if (conn !== origin) sendRaw(conn, frame);
+      },
+    );
 
     if (persist !== undefined) {
       // Load-on-room-create (B1.3): restore the persisted log into the fresh
@@ -947,12 +1275,15 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
             room.logBytes = loaded;
             room.lastExactContentBytes = Y.encodeStateAsUpdate(doc).byteLength;
             room.bytesAppendedSinceExact = 0;
+            quota.recordContent?.(name, room.lastExactContentBytes);
             ensureCaps(name, room, Date.now());
           }
         } catch {
           room.loadFailed = true;
           // eslint-disable-next-line no-console
-          console.error("[galley/sync] failed to load persisted room state; refusing joins");
+          console.error(
+            "[galley/sync] failed to load persisted room state; refusing joins",
+          );
         }
       })();
     }
@@ -998,6 +1329,11 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
   };
 
   wss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
+    ws.pause();
+    const closePending = (code: number, reason: string): void => {
+      ws.close(code, reason);
+      ws.resume();
+    };
     ws.binaryType = "arraybuffer";
     const roomName = (req.url ?? "/").slice(1).split("?")[0] || "default";
 
@@ -1014,7 +1350,8 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
     // (#1 slice 2) Which authorization path does this room take? A pure
     // NAMESPACE test only — the registry is consulted later, in step (c).
     const cap = options.capabilityRooms;
-    const isCapabilityRoom = cap !== undefined && cap.isCapabilityRoom(roomName);
+    const isCapabilityRoom =
+      cap !== undefined && cap.isCapabilityRoom(roomName);
 
     // Origin allowlist (default OFF; #22.2 S2 — CSWSH defense). Checked BEFORE the
     // auth gate and any room join: a cross-site page (wrong/absent Origin) is closed
@@ -1031,11 +1368,11 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
     if (allowedOrigins.length > 0) {
       if (origin !== undefined) {
         if (!allowedOrigins.includes(origin)) {
-          ws.close(1008, "forbidden origin");
+          closePending(1008, "forbidden origin");
           return;
         }
       } else if (!isCapabilityRoom) {
-        ws.close(1008, "forbidden origin");
+        closePending(1008, "forbidden origin");
         return;
       }
     }
@@ -1044,22 +1381,60 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
     // room or sending any doc data; a denied connection is closed (1008) and never
     // joins. Errors fail closed.
     const proceed = (): void => {
+      if (retired.has(roomName)) {
+        closePending(1008, "room retired");
+        return;
+      }
       // The client may have disconnected while an async gate was pending — don't
       // resurrect a room/connection for a dead socket (resource leak).
       if (ws.readyState !== 1 /* OPEN */) return;
+      if (options.revalidateConnections) {
+        let checking = false;
+        const timer = setInterval(() => {
+          if (checking) return;
+          checking = true;
+          void Promise.resolve()
+            .then(() =>
+              isCapabilityRoom
+                ? cap!.authorize(roomName)
+                : (options.authorizeUpgrade?.({ room: roomName, req }) ?? true),
+            )
+            .then(
+              (allowed) => {
+                if (!allowed) drop(ws);
+              },
+              () => drop(ws),
+            )
+            .finally(() => {
+              checking = false;
+            });
+        }, 1000);
+        timer.unref();
+        ws.once("close", () => clearInterval(timer));
+      }
       // The blob channel (galley-blob-v1 subprotocol) takes the SAME room + the
       // SAME auth gate as the sync socket, but routes to the near-stateless blob
       // relay — it never allocates a Y.Doc/Awareness Room. Authorization has
       // already passed at this point (this is inside the authorized path).
+      if (ws.protocol === HOSTED_BLOB_SUBPROTOCOL && hostedBlobs) {
+        hostedBlobs.handleConnection(ws, roomName, async () =>
+          isCapabilityRoom
+            ? cap!.authorize(roomName)
+            : (options.authorizeUpgrade?.({ room: roomName, req }) ?? true),
+        );
+        ws.resume();
+        return;
+      }
       if (ws.protocol === BLOB_SUBPROTOCOL) {
         blobRelay.handleConnection(ws, roomName);
+        ws.resume();
         return;
       }
       // Reject creation of a NEW room past the cap (existing rooms still join):
       // 1013 = "try again later". This only bites a flood of distinct rooms; a
       // normal single-room collab session is unaffected.
       if (!rooms.has(roomName) && rooms.size >= MAX_ROOMS) {
-        ws.close(1013, "too many rooms");
+        closePending(1013, "too many rooms");
         return;
       }
       const room = getRoom(roomName);
@@ -1082,7 +1457,7 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
         if (rooms.get(roomName) !== room) {
           // The room was torn down while this joiner was parked (server
           // shutdown, or a failed-load reap by an earlier parked joiner).
-          ws.close(1013, "room unavailable");
+          closePending(1013, "room unavailable");
           return;
         }
         if (room.loadFailed) {
@@ -1090,7 +1465,7 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
           // the real persisted state. 1013 = "try again later"; the failed
           // room is reaped once its parked joiners drain, so a later join
           // RETRIES the load fresh (a transient store fault heals itself).
-          ws.close(1013, "room state unavailable");
+          closePending(1013, "room state unavailable");
           reapRoomIfEmpty(roomName, room);
           return;
         }
@@ -1121,7 +1496,7 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
           allowed = false;
         }
         if (allowed) proceed();
-        else ws.close(1008, "unauthorized");
+        else closePending(1008, "unauthorized");
       })();
       return;
     }
@@ -1140,13 +1515,12 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
           allowed = false;
         }
         if (allowed) proceed();
-        else ws.close(1008, "unauthorized");
+        else closePending(1008, "unauthorized");
       })();
     }
   });
 
   function onAuthorized(ws: WebSocket, roomName: string, room: Room): void {
-
     // Initial sync: server -> client step1, plus any current awareness.
     const hello = encoding.createEncoder();
     encoding.writeVarUint(hello, messageSync);
@@ -1157,7 +1531,9 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
       encoding.writeVarUint(enc, messageAwareness);
       encoding.writeVarUint8Array(
         enc,
-        encodeAwarenessUpdate(room.awareness, [...room.awareness.getStates().keys()]),
+        encodeAwarenessUpdate(room.awareness, [
+          ...room.awareness.getStates().keys(),
+        ]),
       );
       sendRaw(ws, encoding.toUint8Array(enc));
     }
@@ -1168,6 +1544,99 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
     // resets lazily on the first message after it elapses; no timers to leak.
     let windowStart = Date.now();
     let windowCount = 0;
+    const pendingDurable = new Set<string>();
+    const durableProbe = (token: string, expected: Uint8Array): void => {
+      const unavailable = () =>
+        sendRaw(ws, encodeDurableDelivery({ kind: "unavailable", token }));
+      const store = room.store;
+      if (
+        !options.durableDelivery ||
+        !store?.flush ||
+        room.persistenceFailed ||
+        pendingDurable.size >= 8 ||
+        durableProbes >= 64 ||
+        pendingDurable.has(token)
+      ) {
+        unavailable();
+        return;
+      }
+      // Parse the bounded vector before taking a pending slot. The requested
+      // clocks bind the acknowledgement to this client's actual document state.
+      const dec = decoding.createDecoder(expected);
+      const count = decoding.readVarUint(dec);
+      if (count > DURABLE_DELIVERY_MAX_CLIENTS) {
+        unavailable();
+        return;
+      }
+      const clocks = new Map<number, number>();
+      for (let i = 0; i < count; i++) {
+        if (!decoding.hasContent(dec))
+          throw new Error("Truncated durability vector");
+        const client = decoding.readVarUint(dec);
+        if (!decoding.hasContent(dec))
+          throw new Error("Truncated durability clock");
+        const clock = decoding.readVarUint(dec);
+        if (
+          !Number.isSafeInteger(client) ||
+          !Number.isSafeInteger(clock) ||
+          clocks.has(client)
+        )
+          throw new Error("Invalid durability vector");
+        clocks.set(client, clock);
+      }
+      if (decoding.hasContent(dec))
+        throw new Error("Trailing durability vector");
+      const generation = room.durabilityToken,
+        priorWrites = room.whenWritten;
+      pendingDurable.add(token);
+      durableProbes++;
+      let responded = false;
+      const finish = (complete: boolean): void => {
+        if (responded) return;
+        responded = true;
+        sendRaw(
+          ws,
+          encodeDurableDelivery({
+            kind: complete ? "complete" : "unavailable",
+            token,
+          }),
+        );
+      };
+      const timer = setTimeout(() => finish(false), 10000);
+      timer.unref();
+      void (async () => {
+        await priorWrites;
+        const current = rooms.get(roomName);
+        if (
+          !current ||
+          current.durabilityToken !== generation ||
+          current.persistenceFailed ||
+          current.loadFailed
+        )
+          return false;
+        const actual = Y.decodeStateVector(Y.encodeStateVector(current.doc));
+        for (const [client, clock] of clocks)
+          if ((actual.get(client) ?? 0) < clock) return false;
+        await store.flush!(roomName);
+        const latest = rooms.get(roomName);
+        return (
+          latest?.durabilityToken === generation &&
+          !latest.persistenceFailed &&
+          !retired.has(roomName)
+        );
+      })()
+        .then(finish, () => {
+          const current = rooms.get(roomName);
+          if (current?.durabilityToken === generation)
+            current.persistenceFailed = true;
+          finish(false);
+        })
+        .finally(() => {
+          clearTimeout(timer);
+          pendingDurable.delete(token);
+          durableProbes--;
+        });
+    };
 
     ws.addEventListener("message", (event: unknown) => {
       // A connection latched for abuse must not process ANY further queued frame
@@ -1211,13 +1680,21 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
             encoding.writeVarUint(encoder, messageSync);
             // origin = ws: the doc 'update' handler then skips echoing to ws.
             syncProtocol.readSyncMessage(decoder, encoder, room.doc, ws);
-            if (encoding.length(encoder) > 1) sendRaw(ws, encoding.toUint8Array(encoder));
+            if (encoding.length(encoder) > 1)
+              sendRaw(ws, encoding.toUint8Array(encoder));
+          } else if (type === DURABLE_DELIVERY_MESSAGE) {
+            const frame = readDurableDeliveryBody(decoder);
+            if (frame.kind !== "request")
+              throw new Error("Invalid client durability frame");
+            durableProbe(frame.token, frame.stateVector);
           } else if (type === messageQueryAwareness) {
             const encoder = encoding.createEncoder();
             encoding.writeVarUint(encoder, messageAwareness);
             encoding.writeVarUint8Array(
               encoder,
-              encodeAwarenessUpdate(room.awareness, [...room.awareness.getStates().keys()]),
+              encodeAwarenessUpdate(room.awareness, [
+                ...room.awareness.getStates().keys(),
+              ]),
             );
             sendRaw(ws, encoding.toUint8Array(encoder));
           } else if (type === messageAwareness) {
@@ -1234,7 +1711,10 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
             // 1–2 small entries that re-declare existing ids (newIds = 0).
             let info: { declared: number; newIds: number; stateBytes: number };
             try {
-              info = inspectAwarenessUpdate(awarenessUpdate, room.awareness.meta);
+              info = inspectAwarenessUpdate(
+                awarenessUpdate,
+                room.awareness.meta,
+              );
             } catch {
               // A structurally malformed awareness sub-body — nothing was applied,
               // so just drop this FRAME and keep the connection, matching the outer
@@ -1292,12 +1772,18 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
       // never races data onto disk.
       reapRoomIfEmpty(roomName, room);
     });
+    ws.resume();
   }
 
+  quota?.attachLiveReconciler?.(() => {
+    for (const room of rooms.values())
+      if (room.bytesAppendedSinceExact > 0) reconcileExact(room);
+  });
   return new Promise((resolve) => {
     httpServer.listen(port, () => {
       const address = httpServer.address();
-      const boundPort = typeof address === "object" && address !== null ? address.port : port;
+      const boundPort =
+        typeof address === "object" && address !== null ? address.port : port;
       resolve({
         port: boundPort,
         roomCount: () => rooms.size,
@@ -1314,7 +1800,9 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
         blobTransferCount: (room: string) => blobRelay.transferCount(room),
         roomContentBytes: (room: string) => {
           const r = rooms.get(room);
-          return r === undefined ? 0 : r.lastExactContentBytes + r.bytesAppendedSinceExact;
+          return r === undefined
+            ? 0
+            : r.lastExactContentBytes + r.bytesAppendedSinceExact;
         },
         roomExactContentBytes: (room: string) => {
           const r = rooms.get(room);
@@ -1324,15 +1812,19 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
           const r = rooms.get(room);
           return r === undefined ? 0 : r.logBytes;
         },
+        retireRoom,
         close: () =>
           new Promise<void>((res, rej) => {
             blobRelay.closeAll();
+            hostedBlobs?.closeAll();
             // Flush-on-shutdown (B1.3): compact every persisted room's log to
             // ONE snapshot, chained behind its `whenWritten` barrier (strictly
             // after every append that was issued) and AWAITED before this
             // promise resolves — a graceful shutdown never races process exit.
             // Same skips as the reap: failed loads and never-dirtied rooms.
-            const flushes: Promise<void>[] = [];
+            const flushes: Promise<void>[] = hostedBlobs
+              ? [hostedBlobs.whenIdle()]
+              : [];
             for (const [name, room] of rooms) {
               for (const conn of room.conns.keys()) conn.close();
               const store = room.store;
@@ -1341,7 +1833,9 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
                   room.whenWritten.then(() =>
                     store.compact(name).catch(() => {
                       // eslint-disable-next-line no-console
-                      console.error("[galley/sync] failed to compact persisted room state");
+                      console.error(
+                        "[galley/sync] failed to compact persisted room state",
+                      );
                     }),
                   ),
                 );
@@ -1358,7 +1852,9 @@ export function startSyncServer(port = 0, options: SyncServerOptions = {}): Prom
             // destroyed doc.
             rooms.clear();
             void Promise.all(flushes).then(() =>
-              wss.close(() => httpServer.close((err) => (err ? rej(err) : res()))),
+              wss.close(() =>
+                httpServer.close((err) => (err ? rej(err) : res())),
+              ),
             );
           }),
       });

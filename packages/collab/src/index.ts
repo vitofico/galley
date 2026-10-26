@@ -70,7 +70,10 @@ export type {
   MaterializeOutcome,
   MaterializeOptions,
 } from "./materialize.js";
-export { CollabConnection, AGENT_WORKER_PRESENCE_FIELD } from "./collab-connection.js";
+export {
+  CollabConnection,
+  AGENT_WORKER_PRESENCE_FIELD,
+} from "./collab-connection.js";
 export type {
   Presence,
   ConnectionStatus,
@@ -90,7 +93,11 @@ export type {
 // `writeUstar` is the reusable deterministic archive core, shared with the
 // git-repo export in @galley/persistence (same roadmap item, export breadth).
 export { bundleProject, writeUstar } from "./project-bundle.js";
-export type { ProjectBundle, BundleOutcome, UstarEntry } from "./project-bundle.js";
+export type {
+  ProjectBundle,
+  BundleOutcome,
+  UstarEntry,
+} from "./project-bundle.js";
 // MCP pending-proposal mailbox (roadmap #16.1, ADR-0020): the shared CRDT
 // contract between the local MCP kernel and the browser's mandatory Accept gate.
 export {
@@ -246,6 +253,7 @@ export {
 export type {
   BlobFrame,
   HeaderFrame,
+  RequestFrame,
   DataFrame,
   AckFrame,
   AbortFrame,
@@ -303,4 +311,18 @@ export {
   BLOB_WANTS_FIELD,
   BLOB_WANT_BATCH_MAX,
 } from "./blob-sync-planner.js";
-export type { BlobPointer, BlobWantList, PeerBlobWant } from "./blob-sync-planner.js";
+export type {
+  BlobPointer,
+  BlobWantList,
+  PeerBlobWant,
+} from "./blob-sync-planner.js";
+
+export {
+  DURABLE_DELIVERY_MESSAGE,
+  DURABLE_DELIVERY_MAX_VECTOR_BYTES,
+  DURABLE_DELIVERY_MAX_CLIENTS,
+  encodeDurableDelivery,
+  decodeDurableDelivery,
+  readDurableDeliveryBody,
+} from "./durable-delivery.js";
+export type { DurableDeliveryFrame } from "./durable-delivery.js";

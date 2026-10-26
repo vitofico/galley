@@ -94,7 +94,10 @@ export interface ProjectPatch {
  * has no `key: undefined` slots under exactOptionalPropertyTypes). Pure — the
  * single merge rule shared by every `ProjectStore` adapter.
  */
-export function applyProjectPatch(project: Project, patch: ProjectPatch): Project {
+export function applyProjectPatch(
+  project: Project,
+  patch: ProjectPatch,
+): Project {
   const next: Project = { ...project };
   if (patch.name !== undefined) next.name = patch.name;
   if (patch.tags !== undefined) next.tags = patch.tags;
@@ -180,7 +183,11 @@ export interface Version {
 
 /** Project CRUD + membership. Creating a project makes its owner a member with role `owner`. */
 export interface ProjectStore {
-  createProject(input: { id?: ProjectId; name: string; ownerId: UserId }): Promise<Project>;
+  createProject(input: {
+    id?: ProjectId;
+    name: string;
+    ownerId: UserId;
+  }): Promise<Project>;
   getProject(id: ProjectId): Promise<Project | null>;
   /**
    * Patch a project's mutable metadata (name/tags/archived/timestamps; roadmap
@@ -190,9 +197,16 @@ export interface ProjectStore {
   updateProject(id: ProjectId, patch: ProjectPatch): Promise<Project>;
   listProjectsForUser(userId: UserId): Promise<Project[]>;
   deleteProject(id: ProjectId): Promise<void>;
-  addMember(projectId: ProjectId, userId: UserId, role: ProjectRole): Promise<void>;
+  addMember(
+    projectId: ProjectId,
+    userId: UserId,
+    role: ProjectRole,
+  ): Promise<void>;
   removeMember(projectId: ProjectId, userId: UserId): Promise<void>;
-  getMembership(projectId: ProjectId, userId: UserId): Promise<ProjectRole | null>;
+  getMembership(
+    projectId: ProjectId,
+    userId: UserId,
+  ): Promise<ProjectRole | null>;
   listMembers(projectId: ProjectId): Promise<ProjectMember[]>;
 }
 
@@ -205,6 +219,10 @@ export interface CrdtStore {
   appendUpdate(projectId: ProjectId, update: Uint8Array): Promise<void>;
   loadUpdates(projectId: ProjectId): Promise<Uint8Array[]>;
   compact(projectId: ProjectId): Promise<void>;
+  /** Optional drain + software fsync barrier. Rejects rather than acknowledging unavailable durability. */
+  flush?(projectId: ProjectId): Promise<void>;
+  /** Optional irreversible retirement: deny later loads/writes and erase this room's persisted state. */
+  retire?(projectId: ProjectId): Promise<void>;
 }
 
 /**
@@ -231,4 +249,23 @@ export interface VersionStore {
   ): Promise<Version>;
   listVersions(projectId: ProjectId): Promise<Version[]>;
   getVersionTree(versionId: string): Promise<VersionedFile[] | null>;
+}
+
+/** An immutable hosted CRDT checkpoint; bytes remain a projection, never a live merge input. */
+export interface HostedCheckpoint {
+  id: string;
+  createdAt: number;
+  size: number;
+}
+/** Optional room-scoped binary persistence and bounded retained history (separate from peer completion). */
+export interface HostedStorage {
+  putAsset(room: string, hash: string, bytes: Uint8Array): Promise<void>;
+  getAsset(room: string, hash: string): Promise<Uint8Array | undefined>;
+  checkpoint(
+    room: string,
+    bytes: Uint8Array,
+  ): Promise<HostedCheckpoint | undefined>;
+  listCheckpoints(room: string): Promise<HostedCheckpoint[]>;
+  getCheckpoint(room: string, id: string): Promise<Uint8Array | undefined>;
+  retire(room: string): Promise<void>;
 }

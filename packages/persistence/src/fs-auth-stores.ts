@@ -10,9 +10,17 @@
  * anything that isn't a base64url token (no `.`/`/`/`\`/NUL → no path traversal)
  * BEFORE touching the disk.
  */
-import { randomBytes } from "node:crypto";
-import { mkdir, readFile, writeFile, rm, readdir, rename } from "node:fs/promises";
-import { join } from "node:path";
+import { randomBytes, createHash } from "node:crypto";
+import {
+  mkdir,
+  readFile,
+  writeFile,
+  rm,
+  readdir,
+  rename,
+  open,
+} from "node:fs/promises";
+import { join, dirname } from "node:path";
 import type {
   OidcLoginState,
   OidcLoginStateStore,
@@ -39,8 +47,24 @@ async function readJson<T>(path: string): Promise<T | null> {
 
 async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
   const tmp = `${path}.tmp-${randomBytes(6).toString("hex")}`;
-  await writeFile(tmp, JSON.stringify(value));
-  await rename(tmp, path);
+  try {
+    const file = await open(tmp, "wx", 0o600);
+    try {
+      await file.writeFile(JSON.stringify(value));
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    await rename(tmp, path);
+    const dir = await open(dirname(path), "r");
+    try {
+      await dir.sync();
+    } finally {
+      await dir.close();
+    }
+  } finally {
+    await rm(tmp, { force: true });
+  }
 }
 
 export class FsSessionStore implements SessionStore {
@@ -48,16 +72,25 @@ export class FsSessionStore implements SessionStore {
   constructor(
     private readonly root: string,
     private readonly newId: () => string = newToken,
+    private readonly accountFenceRoot?: string,
   ) {}
 
   private file(id: string): string {
     return join(this.root, "sessions", `${id}.json`);
   }
 
-  async create(record: SessionRecord): Promise<{ id: string; record: SessionRecord }> {
+  async create(
+    record: SessionRecord,
+  ): Promise<{ id: string; record: SessionRecord }> {
+    if (await this.isUserClosed(record.userId))
+      throw new Error("Account is closed");
     const id = this.newId();
     await mkdir(join(this.root, "sessions"), { recursive: true });
     await this.lock.run(id, () => writeJsonAtomic(this.file(id), record));
+    if (await this.isUserClosed(record.userId)) {
+      await this.delete(id);
+      throw new Error("Account is closed");
+    }
     return { id, record };
   }
 
@@ -70,6 +103,10 @@ export class FsSessionStore implements SessionStore {
     if (!SAFE_KEY.test(id)) return null;
     const rec = await readJson<SessionRecord>(this.file(id));
     if (!rec) return null;
+    if (await this.isUserClosed(rec.userId)) {
+      await this.delete(id);
+      return null;
+    }
     // Fail closed on a MALFORMED expiry (#1 slice 2 session re-audit): a record
     // whose `expiresAtMs` is missing, non-numeric, NaN, or INFINITE (JSON
     // `1e999` parses to Infinity — security round M3) would otherwise compare
@@ -104,9 +141,67 @@ export class FsSessionStore implements SessionStore {
       // → Infinity, or a corrupt/hand-placed file on the shared volume) is inert
       // — `getValid` rejects it on every access — but the sweep used to skip it,
       // so it lingered forever. Reap it too.
-      if (rec && (!Number.isFinite(rec.expiresAtMs) || rec.expiresAtMs <= nowMs)) {
+      if (
+        rec &&
+        (!Number.isFinite(rec.expiresAtMs) || rec.expiresAtMs <= nowMs)
+      ) {
         await this.delete(id);
       }
+    }
+  }
+  private accountFile(userId: string, root = this.root): string {
+    return join(
+      root,
+      "closed-accounts",
+      `${createHash("sha256").update(userId).digest("hex")}.json`,
+    );
+  }
+  async isUserClosed(userId: string): Promise<boolean> {
+    return (
+      (await this.accountClosure(userId)) !== null ||
+      (this.accountFenceRoot !== undefined &&
+        (await readJson(this.accountFile(userId, this.accountFenceRoot))) !==
+          null)
+    );
+  }
+  async accountClosure(
+    userId: string,
+  ): Promise<Record<string, unknown> | null> {
+    return readJson(this.accountFile(userId));
+  }
+  async closeUser(
+    userId: string,
+    record: Record<string, unknown>,
+  ): Promise<void> {
+    await mkdir(join(this.root, "closed-accounts"), {
+      recursive: true,
+      mode: 0o700,
+    });
+    await this.lock.run(
+      `account:${createHash("sha256").update(userId).digest("hex")}`,
+      async () => {
+        const prior = await this.accountClosure(userId);
+        if (prior && prior.operationId !== record.operationId)
+          throw new Error("Account closure conflict");
+        await writeJsonAtomic(this.accountFile(userId), record);
+      },
+    );
+    await this.revokeUser(userId);
+  }
+  async revokeUser(userId: string): Promise<void> {
+    let names: string[];
+    try {
+      names = await readdir(join(this.root, "sessions"));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+    for (const name of names) {
+      if (!name.endsWith(".json") || !SAFE_KEY.test(name.slice(0, -5)))
+        continue;
+      const id = name.slice(0, -5);
+      const record = await readJson<SessionRecord>(this.file(id));
+      if (record?.userId === userId) await this.delete(id);
     }
   }
 }

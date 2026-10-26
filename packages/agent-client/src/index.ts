@@ -5,9 +5,9 @@
  * UNSIGNED proposals in the `@galley/collab` mailbox behind the browser's
  * manual in-editor Accept gate: connect → publish → flush → disconnect.
  * `flush()` proves the records were APPLIED TO THE LIVE RELAY ROOM — delivery,
- * not persistence: the relay holds no storage and reaps a room's doc on last
- * disconnect, so a delivered record survives only while some peer (the editor
- * side, in the A2 topology) keeps the room open.
+ * by default. `requireDurableDelivery: true` additionally requires the relay's
+ * opt-in persistent-store flush acknowledgement. Unsupported/failed durability
+ * rejects; legacy delivery-only mode stays available for ephemeral relays.
  * Generic by design (a self-hoster's CI bot lands drafts with it the same way
  * a cloud document sink does); the record/limit contracts are re-exported from
  * `@galley/collab` so a consumer needs only this package.

@@ -16,7 +16,10 @@ export type { IdGenerator } from "./in-memory.js";
 export { FsProjectStore, FsCrdtStore } from "./fs.js";
 export { FsGroupStore } from "./fs-groups.js";
 export { PgCrdtStore } from "./pg.js";
-export { membershipAuthorizer, projectOrGroupMembershipAuthorizer } from "./authorizer.js";
+export {
+  membershipAuthorizer,
+  projectOrGroupMembershipAuthorizer,
+} from "./authorizer.js";
 export { GitVersionStore } from "./git-version-store.js";
 export type { SecondsClock } from "./git-version-store.js";
 // The commit-message format (roadmap #11/#12) — also on the `/browser` barrel,
@@ -60,4 +63,13 @@ export { createBrowserRemoteSync } from "./browser-remote-sync.js";
 // Export-as-git-repo core (roadmap #17.5) — browser-safe, also on the
 // `@galley/persistence/browser` barrel for the web UI.
 export { exportProjectAsGitRepo } from "./project-export-git.js";
-export type { GitRepoExport, GitExportOutcome, GitExportOptions } from "./project-export-git.js";
+export type {
+  GitRepoExport,
+  GitExportOutcome,
+  GitExportOptions,
+} from "./project-export-git.js";
+export { OwnedProjectLimitError } from "./fs-capability-rooms.js";
+
+export { FsHostedStorage } from "./fs-hosted-storage.js";
+export type { HostedStorageBudget } from "./fs-hosted-storage.js";
+export type { HostedCheckpoint, HostedStorage } from "@galley/shared";

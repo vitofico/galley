@@ -40,13 +40,20 @@ export type {
   DiscoveredEndpoints,
   DiscoverOidcOptions,
 } from "./verify.js";
-export { createServiceTokenVerifier, SERVICE_TOKEN_ALGS } from "./service-token.js";
+export {
+  createServiceTokenVerifier,
+  SERVICE_TOKEN_ALGS,
+} from "./service-token.js";
 export type {
   ServiceTokenClaims,
   ServiceTokenVerifier,
   ServiceTokenVerifierOptions,
 } from "./service-token.js";
-export { authorizeSyncUpgrade, authorizeCapabilityRoomUpgrade, parseCookie } from "./upgrade.js";
+export {
+  authorizeSyncUpgrade,
+  authorizeCapabilityRoomUpgrade,
+  parseCookie,
+} from "./upgrade.js";
 export type { AuthorizeSyncUpgradeOptions } from "./upgrade.js";
 export {
   registerCapabilityRoom,
@@ -61,3 +68,7 @@ export type {
   RegisterCapabilityRoomInput,
   RevokeCapabilityRoomInput,
 } from "./capability-rooms.js";
+export {
+  createAccountResourcePolicyReader,
+  type AccountResourcePolicy,
+} from "./account-resource-policy.js";

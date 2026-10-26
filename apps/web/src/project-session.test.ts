@@ -11,7 +11,13 @@ import {
   type BinaryFileSnapshot,
   type ProjectSnapshot,
 } from "@galley/collab";
-import type { Author, ProjectId, Version, VersionedFile, VersionStore } from "@galley/shared";
+import type {
+  Author,
+  ProjectId,
+  Version,
+  VersionedFile,
+  VersionStore,
+} from "@galley/shared";
 import {
   applyAcceptedFileAsAgent,
   applyAcceptedFileSetAsAgent,
@@ -28,7 +34,12 @@ import { DEMO_HISTORY } from "./demo/einstein-1905.js";
 
 const PRE: Author = { kind: "human", userId: "pre" };
 const HUMAN: Author = { kind: "human", userId: "u" };
-const LOCAL = { enabled: true, project: true, syncUrl: undefined, room: undefined };
+const LOCAL = {
+  enabled: true,
+  project: true,
+  syncUrl: undefined,
+  room: undefined,
+};
 
 const SEED: SeedFile[] = [
   { path: "/main.typ", text: '#import "/lib.typ": x\n#x' },
@@ -43,9 +54,13 @@ function fakeStore(preload?: { files: SeedFile[]; main: string }): {
 } {
   let destroyed = false;
   let name: string | undefined;
-  const factory: DraftStoreFactory = (dbName: string, doc: Y.Doc): DraftStore => {
+  const factory: DraftStoreFactory = (
+    dbName: string,
+    doc: Y.Doc,
+  ): DraftStore => {
     name = dbName;
-    if (preload) new CollabProject(doc).seedIfPristine(preload.files, preload.main, PRE);
+    if (preload)
+      new CollabProject(doc).seedIfPristine(preload.files, preload.main, PRE);
     return {
       whenSynced: Promise.resolve(),
       destroy() {
@@ -67,12 +82,20 @@ function fakeVersions(opts: { failList?: boolean; existing?: number } = {}): {
   created: { projectId: ProjectId; name: string; tree: VersionedFile[] }[];
   listed: () => number;
 } {
-  const created: { projectId: ProjectId; name: string; tree: VersionedFile[] }[] = [];
+  const created: {
+    projectId: ProjectId;
+    name: string;
+    tree: VersionedFile[];
+  }[] = [];
   let listCalls = 0;
   const store: VersionStore = {
     createVersion(projectId, input, tree): Promise<Version> {
       created.push({ projectId, name: input.name, tree });
-      return Promise.resolve({ id: `v${created.length}`, projectId, name: input.name });
+      return Promise.resolve({
+        id: `v${created.length}`,
+        projectId,
+        name: input.name,
+      });
     },
     listVersions(projectId): Promise<Version[]> {
       listCalls += 1;
@@ -92,7 +115,10 @@ function fakeVersions(opts: { failList?: boolean; existing?: number } = {}): {
 
 describe("createProjectSession (local-draft persistence)", () => {
   it("seeds the initial files after the store has synced (fresh project)", async () => {
-    const session = createProjectSession(SEED, "/main.typ", LOCAL, { draftStore: fakeStore().factory, versionStore: fakeVersions().store });
+    const session = createProjectSession(SEED, "/main.typ", LOCAL, {
+      draftStore: fakeStore().factory,
+      versionStore: fakeVersions().store,
+    });
     await session.whenReady;
     const input = session.project.toProjectInput()!;
     expect(input.main).toBe("/main.typ");
@@ -101,7 +127,10 @@ describe("createProjectSession (local-draft persistence)", () => {
   });
 
   it("restores a persisted project and does NOT re-seed (no duplication)", async () => {
-    const store = fakeStore({ files: [{ path: "/restored.typ", text: "R" }], main: "/restored.typ" });
+    const store = fakeStore({
+      files: [{ path: "/restored.typ", text: "R" }],
+      main: "/restored.typ",
+    });
     const session = createProjectSession(SEED, "/main.typ", LOCAL, {
       draftStore: store.factory,
       versionStore: fakeVersions().store,
@@ -113,13 +142,22 @@ describe("createProjectSession (local-draft persistence)", () => {
   });
 
   it("registers this peer's author AFTER seeding, so spans attribute and the seed survives", async () => {
-    const session = createProjectSession(SEED, "/main.typ", LOCAL, { draftStore: fakeStore().factory, versionStore: fakeVersions().store });
+    const session = createProjectSession(SEED, "/main.typ", LOCAL, {
+      draftStore: fakeStore().factory,
+      versionStore: fakeVersions().store,
+    });
     await session.whenReady;
     const mainId = session.project.mainFileId()!;
     expect(session.project.getFile(mainId)!.path).toBe("/main.typ"); // seed survived registration
-    const self = authorForClientID(session.project, session.project.doc.clientID);
+    const self = authorForClientID(
+      session.project,
+      session.project.doc.clientID,
+    );
     expect(self?.kind).toBe("human");
-    const ranges = textAttributedRanges(session.project, session.project.fileText(mainId)!);
+    const ranges = textAttributedRanges(
+      session.project,
+      session.project.fileText(mainId)!,
+    );
     expect(ranges[0]?.author?.kind).toBe("human");
     session.destroy();
   });
@@ -248,10 +286,16 @@ describe("createProjectSession demo-history seeding (project-model redesign §2)
       SEED,
       "/main.typ",
       { enabled: true, project: true, syncUrl: undefined, room: "proj-x" },
-      { draftStore: fakeStore().factory, versionStore: versions.store, demoHistory: true },
+      {
+        draftStore: fakeStore().factory,
+        versionStore: versions.store,
+        demoHistory: true,
+      },
     );
     await session.whenReady;
-    expect(versions.created.map((c) => c.name)).toEqual(DEMO_HISTORY.map((h) => h.name));
+    expect(versions.created.map((c) => c.name)).toEqual(
+      DEMO_HISTORY.map((h) => h.name),
+    );
     expect(versions.created.every((c) => c.projectId === "proj-x")).toBe(true);
     session.destroy();
   });
@@ -270,7 +314,7 @@ describe("createProjectSession demo-history seeding (project-model redesign §2)
     session.destroy();
   });
 
-  it("defaults the projectId to \"default\" when the config has no room (ProjectApp parity)", async () => {
+  it('defaults the projectId to "default" when the config has no room (ProjectApp parity)', async () => {
     const versions = fakeVersions();
     const session = createProjectSession(SEED, "/main.typ", LOCAL, {
       draftStore: fakeStore().factory,
@@ -289,7 +333,10 @@ describe("createProjectSession demo-history seeding (project-model redesign §2)
     // may trigger history seeding — so the store must not even be consulted,
     // even with demoHistory requested.
     const versions = fakeVersions();
-    const store = fakeStore({ files: [{ path: "/restored.typ", text: "R" }], main: "/restored.typ" });
+    const store = fakeStore({
+      files: [{ path: "/restored.typ", text: "R" }],
+      main: "/restored.typ",
+    });
     const session = createProjectSession(SEED, "/main.typ", LOCAL, {
       draftStore: store.factory,
       versionStore: versions.store,
@@ -366,8 +413,10 @@ describe("createProjectSession — hydration-gated blob GC (wave-13)", () => {
       readyState: 0,
     }) as never;
   const flush = () => new Promise((r) => setTimeout(r, 0));
-  const seedBlob = async (store: PersistentBlobStore, ...b: number[]): Promise<string> =>
-    (await store.put(new Uint8Array(b))).hash;
+  const seedBlob = async (
+    store: PersistentBlobStore,
+    ...b: number[]
+  ): Promise<string> => (await store.put(new Uint8Array(b))).hash;
 
   it("LOCAL: sweeps orphan blobs AFTER whenReady (the text-only seed references none)", async () => {
     const store = new PersistentBlobStore(new InMemoryBlobBackend());
@@ -389,7 +438,10 @@ describe("createProjectSession — hydration-gated blob GC (wave-13)", () => {
     const orphan = await seedBlob(store, 4, 5, 6);
     let release!: () => void;
     const gate = new Promise<void>((res) => (release = res));
-    const slowFactory: DraftStoreFactory = () => ({ whenSynced: gate, destroy() {} });
+    const slowFactory: DraftStoreFactory = () => ({
+      whenSynced: gate,
+      destroy() {},
+    });
     const session = createProjectSession(SEED, "/main.typ", LOCAL, {
       draftStore: slowFactory,
       versionStore: fakeVersions().store,
@@ -438,16 +490,24 @@ describe("connectProjectSession (live Share upgrade, #14-C)", () => {
     }) as never;
 
   it("exposes the local author and upgrades a LOCAL session to a connection in place", async () => {
-    const session = createProjectSession(SEED, "/main.typ", LOCAL, { draftStore: fakeStore().factory, versionStore: fakeVersions().store });
+    const session = createProjectSession(SEED, "/main.typ", LOCAL, {
+      draftStore: fakeStore().factory,
+      versionStore: fakeVersions().store,
+    });
     await session.whenReady;
     expect(session.author.kind).toBe("human");
     expect(session.connection).toBeUndefined();
 
     // The content-bearing project keeps its seeded files after the upgrade.
     const before = session.project.snapshot().files.map((f) => f.path);
-    const conn = connectProjectSession(session, "ws://localhost:1234", "share-x", {
-      socketFactory: fakeSocket,
-    });
+    const conn = connectProjectSession(
+      session,
+      "ws://localhost:1234",
+      "share-x",
+      {
+        socketFactory: fakeSocket,
+      },
+    );
     expect(conn).toBeDefined();
     expect(session.connection).toBe(conn);
     expect(session.project.snapshot().files.map((f) => f.path)).toEqual(before);
@@ -455,25 +515,48 @@ describe("connectProjectSession (live Share upgrade, #14-C)", () => {
   });
 
   it("reuses the session author (write-once) so it does not throw and attribution survives", async () => {
-    const session = createProjectSession(SEED, "/main.typ", LOCAL, { draftStore: fakeStore().factory, versionStore: fakeVersions().store });
+    const session = createProjectSession(SEED, "/main.typ", LOCAL, {
+      draftStore: fakeStore().factory,
+      versionStore: fakeVersions().store,
+    });
     await session.whenReady;
-    const selfBefore = authorForClientID(session.project, session.project.doc.clientID);
+    const selfBefore = authorForClientID(
+      session.project,
+      session.project.doc.clientID,
+    );
     expect(() =>
-      connectProjectSession(session, "ws://localhost:1234", "share-y", { socketFactory: fakeSocket }),
+      connectProjectSession(session, "ws://localhost:1234", "share-y", {
+        socketFactory: fakeSocket,
+      }),
     ).not.toThrow();
-    expect(authorForClientID(session.project, session.project.doc.clientID)).toEqual(selfBefore);
+    expect(
+      authorForClientID(session.project, session.project.doc.clientID),
+    ).toEqual(selfBefore);
     session.destroy();
   });
 
   it("is idempotent — a second call returns the same connection (no duplicate socket)", async () => {
-    const session = createProjectSession(SEED, "/main.typ", LOCAL, { draftStore: fakeStore().factory, versionStore: fakeVersions().store });
+    const session = createProjectSession(SEED, "/main.typ", LOCAL, {
+      draftStore: fakeStore().factory,
+      versionStore: fakeVersions().store,
+    });
     await session.whenReady;
-    const first = connectProjectSession(session, "ws://localhost:1234", "share-z", {
-      socketFactory: fakeSocket,
-    });
-    const second = connectProjectSession(session, "ws://localhost:1234", "share-z2", {
-      socketFactory: fakeSocket,
-    });
+    const first = connectProjectSession(
+      session,
+      "ws://localhost:1234",
+      "share-z",
+      {
+        socketFactory: fakeSocket,
+      },
+    );
+    const second = connectProjectSession(
+      session,
+      "ws://localhost:1234",
+      "share-z2",
+      {
+        socketFactory: fakeSocket,
+      },
+    );
     expect(second).toBe(first);
     session.destroy();
   });
@@ -497,7 +580,14 @@ describe("ensureAuthenticatedBlobChannel (A1 §1 channel-auth guarantee)", () =>
     shareRoom: "share-1",
   });
   const scopeIdOf = (grantId: string): string =>
-    JSON.stringify(["blob-terminal-scope", grantId, "c", "ws://x", "p", "share-1"]);
+    JSON.stringify([
+      "blob-terminal-scope",
+      grantId,
+      "c",
+      "ws://x",
+      "p",
+      "share-1",
+    ]);
   // Build authenticated blobOpts for a given grantId — the scope identity differs by
   // grantId, simulating a re-consent that minted a fresh grant.
   const authOpts = (grantId = "g") => {
@@ -518,15 +608,27 @@ describe("ensureAuthenticatedBlobChannel (A1 §1 channel-auth guarantee)", () =>
     });
     await session.whenReady;
     // A plain Share opened the channel with {store}-only (advisory) opts.
-    connectProjectSession(session, "ws://localhost:1234", "share-1", { socketFactory: fakeSocket }, "editor", {
-      store: new PersistentBlobStore(new InMemoryBlobBackend()),
-      socketFactory: fakeSocket,
-    });
+    connectProjectSession(
+      session,
+      "ws://localhost:1234",
+      "share-1",
+      { socketFactory: fakeSocket },
+      "editor",
+      {
+        store: new PersistentBlobStore(new InMemoryBlobBackend()),
+        socketFactory: fakeSocket,
+      },
+    );
     expect(session.blobChannel?.authenticated).toBe(false);
     const advisory = session.blobChannel;
 
     // The agent reuse path guarantees an authenticated channel for its scope.
-    const upgraded = ensureAuthenticatedBlobChannel(session, "ws://localhost:1234", "share-1", authOpts());
+    const upgraded = ensureAuthenticatedBlobChannel(
+      session,
+      "ws://localhost:1234",
+      "share-1",
+      authOpts(),
+    );
     expect(upgraded).toBeDefined();
     expect(upgraded!.authenticated).toBe(true);
     // The advisory channel was REPLACED (a new instance).
@@ -541,12 +643,24 @@ describe("ensureAuthenticatedBlobChannel (A1 §1 channel-auth guarantee)", () =>
       versionStore: fakeVersions().store,
     });
     await session.whenReady;
-    connectProjectSession(session, "ws://localhost:1234", "share-1", { socketFactory: fakeSocket }, "editor", authOpts("g"));
+    connectProjectSession(
+      session,
+      "ws://localhost:1234",
+      "share-1",
+      { socketFactory: fakeSocket },
+      "editor",
+      authOpts("g"),
+    );
     const authed = session.blobChannel;
     expect(authed?.authenticated).toBe(true);
     expect(authed?.terminalScopeId).toBe(scopeIdOf("g"));
     // Same grantId/scope → untouched.
-    const same = ensureAuthenticatedBlobChannel(session, "ws://localhost:1234", "share-1", authOpts("g"));
+    const same = ensureAuthenticatedBlobChannel(
+      session,
+      "ws://localhost:1234",
+      "share-1",
+      authOpts("g"),
+    );
     expect(same).toBe(authed);
     session.destroy();
   });
@@ -558,7 +672,14 @@ describe("ensureAuthenticatedBlobChannel (A1 §1 channel-auth guarantee)", () =>
     });
     await session.whenReady;
     // Connected with the OLD grant's auth.
-    connectProjectSession(session, "ws://localhost:1234", "share-1", { socketFactory: fakeSocket }, "editor", authOpts("old-grant"));
+    connectProjectSession(
+      session,
+      "ws://localhost:1234",
+      "share-1",
+      { socketFactory: fakeSocket },
+      "editor",
+      authOpts("old-grant"),
+    );
     const oldChannel = session.blobChannel;
     expect(oldChannel?.terminalScopeId).toBe(scopeIdOf("old-grant"));
 
@@ -582,10 +703,26 @@ describe("ensureAuthenticatedBlobChannel (A1 §1 channel-auth guarantee)", () =>
     const oldKernel = buildBlobTerminalAuth(KEY, scopeOf("old-grant"));
     const newAuth = buildBlobTerminalAuth(KEY, scopeOf("new-grant"));
     const hash = "a".repeat(64);
-    const newMac = await newKernel.terminalSigner("complete", "t", hash, 3, null);
-    const oldMac = await oldKernel.terminalSigner("complete", "t", hash, 3, null);
-    expect(await newAuth.terminalVerifier("complete", "t", hash, 3, null, newMac)).toBe(true);
-    expect(await newAuth.terminalVerifier("complete", "t", hash, 3, null, oldMac)).toBe(false);
+    const newMac = await newKernel.terminalSigner(
+      "complete",
+      "t",
+      hash,
+      3,
+      null,
+    );
+    const oldMac = await oldKernel.terminalSigner(
+      "complete",
+      "t",
+      hash,
+      3,
+      null,
+    );
+    expect(
+      await newAuth.terminalVerifier("complete", "t", hash, 3, null, newMac),
+    ).toBe(true);
+    expect(
+      await newAuth.terminalVerifier("complete", "t", hash, 3, null, oldMac),
+    ).toBe(false);
     session.destroy();
   });
 
@@ -595,9 +732,20 @@ describe("ensureAuthenticatedBlobChannel (A1 §1 channel-auth guarantee)", () =>
       versionStore: fakeVersions().store,
     });
     await session.whenReady;
-    connectProjectSession(session, "ws://localhost:1234", "share-1", { socketFactory: fakeSocket }, "editor");
+    connectProjectSession(
+      session,
+      "ws://localhost:1234",
+      "share-1",
+      { socketFactory: fakeSocket },
+      "editor",
+    );
     expect(session.blobChannel).toBeUndefined();
-    const ch = ensureAuthenticatedBlobChannel(session, "ws://localhost:1234", "share-1", authOpts());
+    const ch = ensureAuthenticatedBlobChannel(
+      session,
+      "ws://localhost:1234",
+      "share-1",
+      authOpts(),
+    );
     expect(ch?.authenticated).toBe(true);
     expect(session.blobChannel?.authenticated).toBe(true);
     session.destroy();
@@ -609,16 +757,28 @@ describe("ensureAuthenticatedBlobChannel (A1 §1 channel-auth guarantee)", () =>
       versionStore: fakeVersions().store,
     });
     await session.whenReady;
-    connectProjectSession(session, "ws://localhost:1234", "share-1", { socketFactory: fakeSocket }, "editor", {
-      store: new PersistentBlobStore(new InMemoryBlobBackend()),
-      socketFactory: fakeSocket,
-    });
+    connectProjectSession(
+      session,
+      "ws://localhost:1234",
+      "share-1",
+      { socketFactory: fakeSocket },
+      "editor",
+      {
+        store: new PersistentBlobStore(new InMemoryBlobBackend()),
+        socketFactory: fakeSocket,
+      },
+    );
     const advisory = session.blobChannel;
     // No verifier in opts → cannot authenticate → channel left as-is.
-    const result = ensureAuthenticatedBlobChannel(session, "ws://localhost:1234", "share-1", {
-      store: new PersistentBlobStore(new InMemoryBlobBackend()),
-      socketFactory: fakeSocket,
-    });
+    const result = ensureAuthenticatedBlobChannel(
+      session,
+      "ws://localhost:1234",
+      "share-1",
+      {
+        store: new PersistentBlobStore(new InMemoryBlobBackend()),
+        socketFactory: fakeSocket,
+      },
+    );
     expect(result).toBe(advisory);
     expect(session.blobChannel).toBe(advisory);
     session.destroy();
@@ -644,12 +804,20 @@ describe("setSessionDisplayName (host names themselves, #19.4 host counterpart)"
     expect(session.author.kind === "human" && session.author.name).toBeFalsy();
 
     setSessionDisplayName(session, "  Ada Lovelace  ");
-    expect(session.author).toMatchObject({ kind: "human", name: "Ada Lovelace" });
+    expect(session.author).toMatchObject({
+      kind: "human",
+      name: "Ada Lovelace",
+    });
 
     // The share built AFTER naming advertises the name on presence.
-    const conn = connectProjectSession(session, "ws://localhost:1234", "share-name", {
-      socketFactory: fakeSocket,
-    });
+    const conn = connectProjectSession(
+      session,
+      "ws://localhost:1234",
+      "share-name",
+      {
+        socketFactory: fakeSocket,
+      },
+    );
     const state = conn.awareness.getLocalState() as {
       author: { name?: string };
       user: { name?: string };
@@ -672,7 +840,10 @@ describe("setSessionDisplayName (host names themselves, #19.4 host counterpart)"
       { socketFactory: fakeSocket },
       "editor",
     );
-    const before = conn.awareness.getLocalState() as { user: { color?: string }; role?: string };
+    const before = conn.awareness.getLocalState() as {
+      user: { color?: string };
+      role?: string;
+    };
     const colorBefore = before.user.color;
 
     setSessionDisplayName(session, "Grace");
@@ -707,7 +878,9 @@ describe("setSessionDisplayName (host names themselves, #19.4 host counterpart)"
     await session.whenReady;
     // The seed registered this peer with no display name yet.
     const userId = session.author.kind === "human" ? session.author.userId : "";
-    expect(distinctAuthors(session.project)).toEqual([{ kind: "human", userId }]);
+    expect(distinctAuthors(session.project)).toEqual([
+      { kind: "human", userId },
+    ]);
 
     setSessionDisplayName(session, "  Ada Lovelace  ");
     // The doc-global authors map now carries the name — so spans this peer wrote
@@ -732,7 +905,9 @@ describe("applyAcceptedFileAsAgent", () => {
     expect(ranges[0]?.author?.kind).toBe("human"); // "Hello" stays human
     const agentRange = ranges.find((r) => r.author?.kind === "agent");
     expect(agentRange).toBeDefined();
-    expect("Hello world".slice(agentRange!.from, agentRange!.to)).toBe(" world");
+    expect("Hello world".slice(agentRange!.from, agentRange!.to)).toBe(
+      " world",
+    );
   });
 
   it("is a no-op when the target equals the current text", () => {
@@ -750,7 +925,9 @@ describe("applyAcceptedFileAsAgent", () => {
     const id = project.create("/main.typ", "abc", HUMAN);
     applyAcceptedFileAsAgent(project, id, "abcXYZ", "run9");
     // The human peer's own clientID still resolves to the human.
-    expect(authorForClientID(project, project.doc.clientID)?.kind).toBe("human");
+    expect(authorForClientID(project, project.doc.clientID)?.kind).toBe(
+      "human",
+    );
   });
 });
 
@@ -774,11 +951,18 @@ describe("applyAcceptedFileSetAsAgent (atomic multi-file Accept)", () => {
     // The whole set landed as ONE merged update (atomic from the live doc's view).
     expect(updates).toBe(1);
     const files = project.snapshot().files;
-    expect(files.find((f) => f.path === "/chapters/intro.typ")?.text).toBe("= Intro\nHi.\n");
-    expect(files.find((f) => f.path === "/main.typ")?.text).toBe("= Title\nbody\nmore\n");
+    expect(files.find((f) => f.path === "/chapters/intro.typ")?.text).toBe(
+      "= Intro\nHi.\n",
+    );
+    expect(files.find((f) => f.path === "/main.typ")?.text).toBe(
+      "= Title\nbody\nmore\n",
+    );
     // The created file's body attributes to the agent (ADR-0012).
     const intro = files.find((f) => f.path === "/chapters/intro.typ")!;
-    const ranges = textAttributedRanges(project, project.fileText(intro.fileId)!);
+    const ranges = textAttributedRanges(
+      project,
+      project.fileText(intro.fileId)!,
+    );
     expect(ranges.some((r) => r.author?.kind === "agent")).toBe(true);
   });
 
@@ -817,7 +1001,9 @@ describe("applyAcceptedFileSetAsAgent (atomic multi-file Accept)", () => {
     const files = project.snapshot().files;
     // Rename is metadata-only: same fileId, new path, text intact.
     expect(files.find((f) => f.fileId === mainId)?.path).toBe("/paper.typ");
-    expect(files.find((f) => f.fileId === mainId)?.text).toBe("= Title\nbody\n");
+    expect(files.find((f) => f.fileId === mainId)?.text).toBe(
+      "= Title\nbody\n",
+    );
     // Delete is a recoverable soft-delete (the flag, never a CRDT destroy).
     expect(files.find((f) => f.fileId === oldId)?.deleted).toBe(true);
   });
@@ -828,13 +1014,21 @@ describe("applyAcceptedFileSetAsAgent (atomic multi-file Accept)", () => {
     const mainId = project.create("/main.typ", "= Title\nimportant\n", HUMAN);
     expect(project.mainFileId()).toBe(mainId);
 
-    applyAcceptedFileSetAsAgent(project, { creates: [], edits: [], deletes: [{ fileId: mainId }] }, "mcp");
+    applyAcceptedFileSetAsAgent(
+      project,
+      { creates: [], edits: [], deletes: [{ fileId: mainId }] },
+      "mcp",
+    );
 
     // mainFileId still points at it (paths are metadata) — the UI surfaces a
     // "pick a new main" recovery path; the bytes are NOT destroyed.
-    expect(project.snapshot().files.find((f) => f.fileId === mainId)?.deleted).toBe(true);
+    expect(
+      project.snapshot().files.find((f) => f.fileId === mainId)?.deleted,
+    ).toBe(true);
     project.restore(mainId, HUMAN);
-    expect(project.snapshot().files.find((f) => f.fileId === mainId)?.text).toBe("= Title\nimportant\n");
+    expect(
+      project.snapshot().files.find((f) => f.fileId === mainId)?.text,
+    ).toBe("= Title\nimportant\n");
   });
 });
 
@@ -843,7 +1037,9 @@ describe("wireBlobSync (D1 online-only blob-sync, servable-provenance)", () => {
   const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
   const noop = (): (() => void) => () => {};
 
-  const binFile = (over: Partial<BinaryFileSnapshot> & { hash: string }): BinaryFileSnapshot => ({
+  const binFile = (
+    over: Partial<BinaryFileSnapshot> & { hash: string },
+  ): BinaryFileSnapshot => ({
     fileId: `f-${over.hash.slice(0, 4)}`,
     path: `/img-${over.hash.slice(0, 4)}.png`,
     size: 3,
@@ -863,7 +1059,11 @@ describe("wireBlobSync (D1 online-only blob-sync, servable-provenance)", () => {
     held?: Set<string>;
     servable?: Set<string>;
     bytesByHash?: Map<string, Uint8Array>;
-  }): { has: (h: string) => Promise<boolean>; get: (h: string) => Promise<Uint8Array | undefined>; isServable: (h: string) => Promise<boolean> } => {
+  }): {
+    has: (h: string) => Promise<boolean>;
+    get: (h: string) => Promise<Uint8Array | undefined>;
+    isServable: (h: string) => Promise<boolean>;
+  } => {
     const held = opts.held ?? new Set<string>();
     const servable = opts.servable ?? new Set<string>();
     const bytes = opts.bytesByHash ?? new Map<string, Uint8Array>();
@@ -919,10 +1119,49 @@ describe("wireBlobSync (D1 online-only blob-sync, servable-provenance)", () => {
     };
   };
 
+  it("uploads only locally provenanced referenced bytes to optional hosted storage, with bounded concurrency", async () => {
+    const order: string[] = [];
+    const uploaded: string[] = [];
+    const channel = {
+      ...fakeChannel(order),
+      persist: async (_bytes: Uint8Array, hash: string) => {
+        uploaded.push(hash);
+      },
+    };
+    const handle = wireBlobSync({
+      awareness: fakeAwareness(new Map(), {}, order),
+      clientId: 1,
+      snapshot: () =>
+        binSnap([binFile({ hash: H("a") }), binFile({ hash: H("b") })]),
+      store: fakeBlobStore({
+        held: new Set([H("a"), H("b")]),
+        servable: new Set([H("a")]),
+        bytesByHash: new Map([
+          [H("a"), new Uint8Array(3)],
+          [H("b"), new Uint8Array(3)],
+        ]),
+      }),
+      channel,
+      subscribeDoc: noop,
+      subscribeAwareness: noop,
+      subscribeSynced: noop,
+    });
+    await handle.replan();
+    await flush();
+    await handle.replan();
+    await flush();
+    expect(uploaded).toEqual([H("a")]);
+    handle.destroy();
+  });
+
   it("REQUESTER: expects referenced-and-missing hashes BEFORE advertising, preserving cursor presence", async () => {
     const order: string[] = [];
     const channel = fakeChannel(order);
-    const awareness = fakeAwareness(new Map(), { user: { name: "Ada", color: "#f0510e" } }, order);
+    const awareness = fakeAwareness(
+      new Map(),
+      { user: { name: "Ada", color: "#f0510e" } },
+      order,
+    );
     const handle = wireBlobSync({
       awareness,
       clientId: 1,
@@ -938,7 +1177,10 @@ describe("wireBlobSync (D1 online-only blob-sync, servable-provenance)", () => {
 
     expect(channel.expects).toEqual([{ hash: H("a"), size: 10 }]);
     expect(awareness.setCalls).toEqual([
-      { field: BLOB_WANTS_FIELD, value: { v: 1, requestId: "req-1", hashes: [H("a")] } },
+      {
+        field: BLOB_WANTS_FIELD,
+        value: { v: 1, requestId: "req-1", hashes: [H("a")] },
+      },
     ]);
     // EXPECT precedes ADVERTISE — no window for a peer to answer an un-expected hash.
     expect(order).toEqual(["expect:aaaa", "setfield"]);
@@ -1074,7 +1316,10 @@ describe("wireBlobSync (D1 online-only blob-sync, servable-provenance)", () => {
     const handle2 = wireBlobSync({
       awareness: fakeAwareness(
         new Map<number, Record<string, unknown>>([
-          [2, { [BLOB_WANTS_FIELD]: { v: 1, requestId: "r9", hashes: [hash] } }],
+          [
+            2,
+            { [BLOB_WANTS_FIELD]: { v: 1, requestId: "r9", hashes: [hash] } },
+          ],
         ]),
         {},
         order2,
@@ -1141,7 +1386,10 @@ describe("wireBlobSync (D1 online-only blob-sync, servable-provenance)", () => {
     const awareness = fakeAwareness(new Map(), {}, order);
     const a = H("a");
     const b = H("b");
-    let snap = binSnap([binFile({ hash: a, size: 3 }), binFile({ hash: b, size: 4 })]);
+    let snap = binSnap([
+      binFile({ hash: a, size: 3 }),
+      binFile({ hash: b, size: 4 }),
+    ]);
     let rid = 0;
     const handle = wireBlobSync({
       awareness,
@@ -1155,7 +1403,9 @@ describe("wireBlobSync (D1 online-only blob-sync, servable-provenance)", () => {
       mintRequestId: () => `req-${rid++}`,
     });
     await handle.replan();
-    expect([...channel.expects].map((e) => e.hash).sort()).toEqual([a, b].sort());
+    expect([...channel.expects].map((e) => e.hash).sort()).toEqual(
+      [a, b].sort(),
+    );
     const firstAd = awareness.setCalls.at(-1)!.value as { hashes: string[] };
     expect([...firstAd.hashes].sort()).toEqual([a, b].sort());
 
@@ -1248,7 +1498,9 @@ describe("wireBlobSync (D1 online-only blob-sync, servable-provenance)", () => {
 
     handle.destroy();
     expect([doc, aware, synced]).toEqual([1, 1, 1]); // every listener unsubscribed
-    expect(awareness.setCalls).toEqual([{ field: BLOB_WANTS_FIELD, value: null }]); // want-list withdrawn
+    expect(awareness.setCalls).toEqual([
+      { field: BLOB_WANTS_FIELD, value: null },
+    ]); // want-list withdrawn
     expect(channel.unexpects).toEqual([{ hash: a, size: 3 }]); // live expectation released
 
     handle.destroy(); // idempotent — no double unsubscribe / withdrawal

@@ -33,13 +33,23 @@
 import type { SyncServerOptions, StorageQuota } from "./sync-server.js";
 import {
   FsCrdtStore,
+  FsHostedStorage,
   FsSessionStore,
   FsProjectStore,
   FsCapabilityRoomRegistry,
-  membershipAuthorizer,
+  FsGroupStore,
+  projectOrGroupMembershipAuthorizer,
 } from "@galley/persistence";
-import { authorizeSyncUpgrade, authorizeCapabilityRoomUpgrade } from "@galley/auth";
+import {
+  authorizeSyncUpgrade,
+  authorizeCapabilityRoomUpgrade,
+  createAccountResourcePolicyReader,
+} from "@galley/auth";
 import { isCapabilityRoomId } from "@galley/shared";
+import { readFileSync, lstatSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { compactUpdates } from "@galley/collab";
+import { AggregateStorageQuota } from "./aggregate-storage-quota.js";
 
 export type SyncEnv = Record<string, string | undefined>;
 
@@ -77,7 +87,10 @@ export function parseAllowedOrigins(env: SyncEnv = process.env): string[] {
  * fallthrough on a typo would hide a misconfigured cap (mirrors
  * `parseMaxConcurrentCompiles`: a clean positive integer only, failing loud).
  */
-export function parseStorageBytesEnv(env: SyncEnv, name: string): number | undefined {
+export function parseStorageBytesEnv(
+  env: SyncEnv,
+  name: string,
+): number | undefined {
   const raw = env[name];
   if (raw === undefined || raw.trim() === "") return undefined;
   const trimmed = raw.trim();
@@ -98,40 +111,190 @@ export function parseStorageBytesEnv(env: SyncEnv, name: string): number | undef
  *   - `GALLEY_SYNC_MAX_LOG_BYTES`     — flat raw append-log hard ceiling.
  *   - `GALLEY_SYNC_COMPACT_FLOOR_BYTES` — compaction high-water floor (default 16 MiB).
  */
-export function buildStorageOptions(env: SyncEnv = process.env): SyncServerOptions {
-  const maxContentBytes = parseStorageBytesEnv(env, "GALLEY_SYNC_MAX_CONTENT_BYTES");
+export function buildStorageOptions(
+  env: SyncEnv = process.env,
+): SyncServerOptions {
+  const maxContentBytes = parseStorageBytesEnv(
+    env,
+    "GALLEY_SYNC_MAX_CONTENT_BYTES",
+  );
   const maxLogBytes = parseStorageBytesEnv(env, "GALLEY_SYNC_MAX_LOG_BYTES");
-  const compactionFloorBytes = parseStorageBytesEnv(env, "GALLEY_SYNC_COMPACT_FLOOR_BYTES");
-  if (maxContentBytes === undefined && maxLogBytes === undefined && compactionFloorBytes === undefined) {
+  const compactionFloorBytes = parseStorageBytesEnv(
+    env,
+    "GALLEY_SYNC_COMPACT_FLOOR_BYTES",
+  );
+  if (
+    maxContentBytes === undefined &&
+    maxLogBytes === undefined &&
+    compactionFloorBytes === undefined
+  ) {
     return {};
   }
   const storageQuota: StorageQuota = {
     // Present the key only when a cap is set (exactOptionalPropertyTypes): an
     // absent `maxContentBytes` means unlimited content, log ceiling still applies.
-    getCaps: async () => (maxContentBytes !== undefined ? { maxContentBytes } : {}),
+    getCaps: async () =>
+      maxContentBytes !== undefined ? { maxContentBytes } : {},
     ...(maxLogBytes !== undefined ? { maxLogBytes } : {}),
     ...(compactionFloorBytes !== undefined ? { compactionFloorBytes } : {}),
   };
   return { storageQuota };
 }
 
-export function buildSyncOptions(env: SyncEnv = process.env): SyncServerOptions {
+export function buildSyncOptions(
+  env: SyncEnv = process.env,
+): SyncServerOptions {
+  for (const dir of [
+    env.GALLEY_DATA_DIR,
+    env.GALLEY_SESSION_DIR,
+    env.GALLEY_SYNC_PERSIST_DIR,
+  ])
+    if (dir && existsSync(join(dir, "RESTORE-QUARANTINE.json")))
+      throw new Error(
+        "Restored data requires lifecycle reconciliation before serving",
+      );
   const allowedOrigins = parseAllowedOrigins(env);
   // Only attach the key when non-empty so the default config stays byte-for-byte
   // `{}` (the open, unchanged path) — an empty allowlist is the OFF state anyway.
-  const originOpt: SyncServerOptions = allowedOrigins.length > 0 ? { allowedOrigins } : {};
+  const originOpt: SyncServerOptions =
+    allowedOrigins.length > 0 ? { allowedOrigins } : {};
 
   // CRDT persistence (B1.3), independent of auth. Constructing FsCrdtStore does
   // no IO, so a bad path surfaces on first use, not here — matching how the
   // session/project stores behave. Unset/blank → key absent, stateless relay.
   const persistDir = env.GALLEY_SYNC_PERSIST_DIR?.trim();
-  const persistOpt: SyncServerOptions = persistDir ? { crdtStore: new FsCrdtStore(persistDir) } : {};
+  let persistOpt: SyncServerOptions = persistDir
+    ? { crdtStore: new FsCrdtStore(persistDir) }
+    : {};
 
   // Storage caps (B2), independent of auth. Unset ⇒ `{}` so the default config
   // stays byte-for-byte `{}` (accounting off).
-  const storageOpt = buildStorageOptions(env);
+  let storageOpt = buildStorageOptions(env);
+  const policyUrl = env.GALLEY_STORAGE_POLICY_URL?.trim();
+  if (policyUrl) {
+    const target = new URL(policyUrl);
+    const keyFile = env.GALLEY_STORAGE_POLICY_KEY_FILE?.trim();
+    if (
+      !["https:", "http:"].includes(target.protocol) ||
+      target.username ||
+      target.password ||
+      target.search ||
+      target.hash ||
+      !keyFile ||
+      !persistDir ||
+      !env.GALLEY_DATA_DIR ||
+      !isSyncAuthRequired(env)
+    )
+      throw new Error(
+        "Storage policy requires service URL, key, persistent data and required auth",
+      );
+    const info = lstatSync(keyFile);
+    const key = readFileSync(keyFile);
+    if (
+      !info.isFile() ||
+      info.isSymbolicLink() ||
+      (info.mode & 0o077) !== 0 ||
+      key.byteLength !== 32
+    )
+      throw new Error("Storage policy key must be a private 32-byte file");
+    const flat = storageOpt.storageQuota;
+    const perRoomContent = parseStorageBytesEnv(
+      env,
+      "GALLEY_SYNC_MAX_CONTENT_BYTES",
+    );
+    const quota = new AggregateStorageQuota({
+      ...(perRoomContent !== undefined
+        ? { maxContentBytes: perRoomContent }
+        : {}),
+      ...(flat?.maxLogBytes !== undefined
+        ? { maxLogBytes: flat.maxLogBytes }
+        : {}),
+      ...(flat?.compactionFloorBytes !== undefined
+        ? { compactionFloorBytes: flat.compactionFloorBytes }
+        : {}),
+      dataDir: env.GALLEY_DATA_DIR,
+      persistDir,
+      policy: createAccountResourcePolicyReader({
+        url: target.toString(),
+        key,
+      }),
+    });
+    storageOpt = { storageQuota: quota };
+  }
+  const hostedRaw = env.GALLEY_SYNC_HOSTED_BLOBS?.trim();
+  if (hostedRaw && hostedRaw !== "0" && hostedRaw !== "1")
+    throw new Error("GALLEY_SYNC_HOSTED_BLOBS must be 0 or 1");
+  if (hostedRaw === "1") {
+    if (
+      !persistDir ||
+      !policyUrl ||
+      !allowedOrigins.length ||
+      !isSyncAuthRequired(env)
+    )
+      throw new Error(
+        "Hosted assets require persistent aggregate policy, required auth and exact Origins",
+      );
+    const maxVersions =
+      parseStorageBytesEnv(env, "GALLEY_SYNC_HISTORY_MAX_VERSIONS") ?? 20;
+    const days = parseStorageBytesEnv(env, "GALLEY_SYNC_HISTORY_DAYS") ?? 30;
+    if (maxVersions > 1000 || days > 365)
+      throw new Error("Hosted history retention exceeds safety ceiling");
+    const hostedStorage = new FsHostedStorage(
+      persistDir,
+      storageOpt.storageQuota as AggregateStorageQuota,
+      { maxVersions, maxAgeMs: days * 86400000 },
+    );
+    const store = persistOpt.crdtStore!;
+    persistOpt = {
+      hostedStorage,
+      revalidateConnections: true,
+      crdtStore: {
+        appendUpdate: (room, bytes) => store.appendUpdate(room, bytes),
+        loadUpdates: (room) => store.loadUpdates(room),
+        flush: (room) => store.flush!(room),
+        retire: (room) => store.retire!(room),
+        compact: async (room) => {
+          await store.compact(room);
+          const updates = await store.loadUpdates(room);
+          if (updates.length) {
+            // History is optional: exhausted budget must not break durable live writes.
+            await hostedStorage
+              .checkpoint(room, compactUpdates(updates))
+              .catch(() => undefined);
+          }
+        },
+      },
+    };
+  }
+  const durableRaw = env.GALLEY_SYNC_DURABLE_DELIVERY?.trim();
+  if (durableRaw && durableRaw !== "0" && durableRaw !== "1")
+    throw new Error("GALLEY_SYNC_DURABLE_DELIVERY must be 0 or 1");
+  if (durableRaw === "1") {
+    if (!persistOpt.crdtStore?.flush)
+      throw new Error("Durable delivery requires persistent flush support");
+    persistOpt = { ...persistOpt, durableDelivery: true };
+  }
+  const keyPath = env.GALLEY_ACCOUNT_LIFECYCLE_KEY_FILE?.trim();
+  let lifecycleOpt: SyncServerOptions = {};
+  if (keyPath) {
+    const info = lstatSync(keyPath);
+    const key = readFileSync(keyPath);
+    if (
+      !info.isFile() ||
+      info.isSymbolicLink() ||
+      (info.mode & 0o077) !== 0 ||
+      key.byteLength !== 32 ||
+      !persistDir ||
+      !isSyncAuthRequired(env)
+    )
+      throw new Error(
+        "Lifecycle requires a private 32-byte key, persistence and required auth",
+      );
+    lifecycleOpt = { lifecycleKey: key, revalidateConnections: true };
+  }
 
-  if (!isSyncAuthRequired(env)) return { ...originOpt, ...persistOpt, ...storageOpt }; // open rooms (default, unchanged)
+  if (!isSyncAuthRequired(env))
+    return { ...originOpt, ...persistOpt, ...storageOpt }; // open rooms (default, unchanged)
 
   const sessionDir = env.GALLEY_SESSION_DIR?.trim();
   const dataDir = env.GALLEY_DATA_DIR?.trim();
@@ -170,9 +333,13 @@ export function buildSyncOptions(env: SyncEnv = process.env): SyncServerOptions 
     );
   }
 
-  const sessionStore = new FsSessionStore(sessionDir);
-  const authorizer = membershipAuthorizer(new FsProjectStore(dataDir));
-  const cookieName = env.GALLEY_INSECURE_COOKIES === "1" ? "galley.sid" : "__Host-galley.sid";
+  const sessionStore = new FsSessionStore(sessionDir, undefined, dataDir);
+  const authorizer = projectOrGroupMembershipAuthorizer(
+    new FsProjectStore(dataDir),
+    new FsGroupStore(dataDir),
+  );
+  const cookieName =
+    env.GALLEY_INSECURE_COOKIES === "1" ? "galley.sid" : "__Host-galley.sid";
   // Capability rooms (#1 slice 2): the durable registry lives on the SAME shared
   // data volume membership uses — the web-server registers (cookie-authenticated
   // POST), this relay reads. Reserved-namespace rooms are authorized by an active
@@ -183,10 +350,19 @@ export function buildSyncOptions(env: SyncEnv = process.env): SyncServerOptions 
     ...originOpt,
     ...persistOpt,
     ...storageOpt,
+    ...lifecycleOpt,
     capabilityRooms: {
       isCapabilityRoom: isCapabilityRoomId,
-      authorize: (room) =>
-        authorizeCapabilityRoomUpgrade({ room, registry: capabilityRegistry, nowMs: Date.now() }),
+      authorize: async (room) => {
+        const record = await capabilityRegistry.get(room);
+        if (record && (await sessionStore.isUserClosed(record.createdBy)))
+          return false;
+        return authorizeCapabilityRoomUpgrade({
+          room,
+          registry: capabilityRegistry,
+          nowMs: Date.now(),
+        });
+      },
     },
     authorizeUpgrade: ({ room, req }) =>
       authorizeSyncUpgrade({

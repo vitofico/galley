@@ -237,6 +237,8 @@ export interface DraftPublisherConfig {
 }
 
 export interface DraftPublisherOptions {
+  /** Require the opt-in relay filesystem flush acknowledgement. Default false. */
+  requireDurableDelivery?: boolean;
   /** Injectable socket for tests; defaults to the `ws` package. */
   socketFactory?: (url: string) => WebSocketLike;
   /**
@@ -281,7 +283,9 @@ export interface DraftPublisher {
   observeFileProposals(cb: () => void): () => void;
   /**
    * Round-trip delivery barrier: resolves once the relay has APPLIED every frame
-   * sent so far into the LIVE room doc. Confirms delivery, NOT persistence.
+   * sent so far into the LIVE room doc. Confirms delivery by default.
+   * requireDurableDelivery additionally waits for the opt-in relay store flush
+   * acknowledgement; disabled, unsupported, failed or refused durability rejects.
    * Rejects on timeout, after {@link close}/{@link destroy}, or if the single-shot
    * link dropped.
    */

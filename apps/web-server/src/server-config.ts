@@ -107,7 +107,11 @@ export function resolveAuthStores(env: WebEnv = process.env): AuthStores {
     );
   }
   return {
-    sessionStore: new FsSessionStore(sessionDir),
+    sessionStore: new FsSessionStore(
+      sessionDir,
+      undefined,
+      env.GALLEY_DATA_DIR?.trim(),
+    ),
     loginStateStore: new FsOidcLoginStateStore(sessionDir),
   };
 }
@@ -145,7 +149,9 @@ export function resolveInternalMembershipConfig(
   const publicKeyPem = env.GALLEY_INTERNAL_SERVICE_PUBLIC_KEY?.trim();
   const issuer = env.GALLEY_INTERNAL_SERVICE_ISSUER?.trim();
   const audience = env.GALLEY_INTERNAL_SERVICE_AUDIENCE?.trim();
-  const present = [publicKeyPem, issuer, audience].filter((v): v is string => !!v);
+  const present = [publicKeyPem, issuer, audience].filter(
+    (v): v is string => !!v,
+  );
   if (present.length === 0) return null; // feature off (default)
   if (present.length < 3) {
     throw new Error(

@@ -95,7 +95,9 @@ function externalVersions() {
     .split("\n");
   const start = lines.indexOf("  packages/agent-client:");
   if (start < 0) {
-    throw new Error("pnpm-lock.yaml: 'packages/agent-client' importer not found");
+    throw new Error(
+      "pnpm-lock.yaml: 'packages/agent-client' importer not found",
+    );
   }
   // The importer block runs until the next top-level (2-space-indented) key.
   let end = lines.length;
@@ -143,7 +145,12 @@ function runDriftGates() {
   try {
     execFileSync(
       process.execPath,
-      [require.resolve("typescript/bin/tsc"), "-p", "tsconfig.json", "--noEmit"],
+      [
+        require.resolve("typescript/bin/tsc"),
+        "-p",
+        "tsconfig.json",
+        "--noEmit",
+      ],
       { cwd: PKG_DIR, encoding: "utf8", stdio: "pipe" },
     );
   } catch (err) {
@@ -188,7 +195,9 @@ async function buildBundle(outfile) {
     .map((m) => m[1])
     .filter((s) => !s.startsWith("."));
   const stray = bareSpecifiers.filter((s) => {
-    const base = s.startsWith("@") ? s.split("/").slice(0, 2).join("/") : s.split("/")[0];
+    const base = s.startsWith("@")
+      ? s.split("/").slice(0, 2).join("/")
+      : s.split("/")[0];
     return !EXTERNAL_BASE.includes(base);
   });
   if (stray.length > 0) {
@@ -198,7 +207,9 @@ async function buildBundle(outfile) {
     );
   }
   if (code.includes("@galley/")) {
-    throw new Error("bundle still references '@galley/*' — inlining incomplete");
+    throw new Error(
+      "bundle still references '@galley/*' — inlining incomplete",
+    );
   }
   return result;
 }
@@ -269,7 +280,7 @@ async function main() {
 
   fs.mkdirSync(outdir, { recursive: true });
   log(`bundling ${path.relative(WORKSPACE_DIR, ENTRY)} → ${outfile}`);
-  await buildBundle(outfile);
+  const built = await buildBundle(outfile);
 
   log(`writing types ${TYPES_NAME}`);
   fs.copyFileSync(SURFACE_DTS, path.join(outdir, TYPES_NAME));
@@ -277,7 +288,31 @@ async function main() {
   const bundleBytes = fs.readFileSync(outfile);
   const typesBytes = fs.readFileSync(path.join(outdir, TYPES_NAME));
   const relativeOutdir = path.relative(PKG_DIR, outdir) || ".";
+  const sourcePaths = Object.keys(built.metafile.inputs).sort();
+  const sourceFiles = sourcePaths.map((name) => ({
+    path: name,
+    sha256: sha256(fs.readFileSync(path.join(WORKSPACE_DIR, name))),
+  }));
+  const dirtyPaths = [
+    ...sourcePaths,
+    path.relative(WORKSPACE_DIR, SURFACE_DTS),
+    "packages/agent-client/package.json",
+    "pnpm-lock.yaml",
+  ];
+  const sourceDirty =
+    git(["-C", WORKSPACE_DIR, "status", "--porcelain", "--", ...dirtyPaths])
+      .length > 0;
   const manifest = {
+    source: {
+      kind: sourceDirty ? "local-working-tree" : "commit",
+      dirty: sourceDirty,
+      files: sourceFiles,
+    },
+    license: {
+      expression: "AGPL-3.0-only",
+      source: "LICENSE",
+      sha256: sha256(fs.readFileSync(path.join(WORKSPACE_DIR, "LICENSE"))),
+    },
     package: "@galley/agent-client",
     packagePath: path.relative(WORKSPACE_DIR, PKG_DIR),
     galleyCommit: git(["rev-parse", "HEAD"]),

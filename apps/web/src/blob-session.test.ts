@@ -2,9 +2,12 @@ import { describe, it, expect } from "vitest";
 import {
   sha256Hex,
   encodeFrame,
+  decodeFrame,
   buildBlobTerminalAuth,
   type WebSocketLike,
   type BlobStore,
+  type SchedulerLike,
+  type HeaderFrame,
 } from "@galley/collab";
 import { PersistentBlobStore, InMemoryBlobBackend } from "./idb-blob-store.js";
 import { createBlobChannelSession } from "./blob-session.js";
@@ -24,7 +27,11 @@ const RESPONSE_KEY = new Uint8Array(32).map((_, i) => (i * 11) & 0xff);
  * dep of `@galley/web`). The real relay round-trip is covered by the sync test;
  * here we prove the browser session bridges the transport to a PersistentBlobStore.
  */
-function makePair(): { a: WebSocketLike; b: WebSocketLike; flush: () => Promise<void> } {
+function makePair(): {
+  a: WebSocketLike;
+  b: WebSocketLike;
+  flush: () => Promise<void>;
+} {
   const queue: Array<() => void> = [];
   function endpoint() {
     const listeners = new Map<string, Set<(e: unknown) => void>>();
@@ -78,15 +85,239 @@ function makePair(): { a: WebSocketLike; b: WebSocketLike; flush: () => Promise<
   return { a, b, flush };
 }
 
+function hostedFixture(
+  reply: (header: HeaderFrame, attempt: number) => string | null | undefined,
+) {
+  const peer = makePair(),
+    hosted = makePair();
+  const attempts = new Map<string, number>();
+  const transferIds = new Set<string>();
+  const inbound = new Map<string, HeaderFrame>();
+  const stored = new Map<string, number[]>();
+  const timers = new Map<number, () => void>();
+  const delays: number[] = [];
+  let nextTimer = 0,
+    connections = 0,
+    errors = 0;
+  const scheduler: SchedulerLike = {
+    setTimeout(fn, ms) {
+      delays.push(ms);
+      timers.set(++nextTimer, fn);
+      return nextTimer;
+    },
+    clearTimeout(timer) {
+      timers.delete(timer as number);
+    },
+  };
+  hosted.b.addEventListener("message", (event) => {
+    const frame = decodeFrame(
+      new Uint8Array((event as { data: ArrayBuffer }).data),
+    );
+    if (!frame) return;
+    if (frame.kind === "header") {
+      // An already-open fake socket also emits its queued open notification;
+      // retransmission of that same transfer is not a new persist attempt.
+      if (transferIds.has(frame.transferId)) return;
+      transferIds.add(frame.transferId);
+      const attempt = (attempts.get(frame.hash) ?? 0) + 1;
+      attempts.set(frame.hash, attempt);
+      const reason = reply(frame, attempt);
+      if (typeof reason === "string") {
+        hosted.b.send(
+          encodeFrame({ kind: "abort", transferId: frame.transferId, reason }),
+        );
+      } else if (reason === undefined) inbound.set(frame.transferId, frame);
+    } else if (frame.kind === "data") {
+      const header = inbound.get(frame.transferId);
+      if (!header) return;
+      stored.set(header.hash, [...frame.bytes]);
+      hosted.b.send(
+        encodeFrame({
+          kind: "complete",
+          transferId: frame.transferId,
+          hash: header.hash,
+          size: header.size,
+        }),
+      );
+      inbound.delete(frame.transferId);
+    }
+  });
+  const session = createBlobChannelSession(
+    "ws://x",
+    "hosted",
+    new PersistentBlobStore(new InMemoryBlobBackend()),
+    {
+      hosted: true,
+      socketFactory: () => peer.a,
+      hostedSocketFactory: () => {
+        connections++;
+        return hosted.a;
+      },
+      hostedRetryScheduler: scheduler,
+      onHostedStorageError: () => {
+        errors++;
+      },
+    },
+  );
+  session.connect();
+  return {
+    session,
+    attempts,
+    stored,
+    delays,
+    flush: hosted.flush,
+    get pendingTimers() {
+      return timers.size;
+    },
+    get connections() {
+      return connections;
+    },
+    get errors() {
+      return errors;
+    },
+    retry() {
+      const entry = timers.entries().next().value;
+      if (!entry) throw new Error("No pending hosted retry");
+      const [id, fn] = entry;
+      timers.delete(id);
+      fn();
+    },
+  };
+}
+
+describe("hosted upload admission retry", () => {
+  it("makes progress for four concurrent assets after explicit busy without reconnecting", async () => {
+    const busyHashes = new Set<string>();
+    const fixture = hostedFixture((header, attempt) =>
+      busyHashes.has(header.hash) && attempt === 1
+        ? "Hosted storage busy"
+        : undefined,
+    );
+    try {
+      const assets = await Promise.all(
+        [1, 2, 3, 4].map(async (value) => {
+          const bytes = new Uint8Array([value, 5, 6, 7]);
+          return { bytes, hash: await sha256Hex(bytes) };
+        }),
+      );
+      for (const asset of assets.slice(2)) busyHashes.add(asset.hash);
+      const persisted = assets.map((asset) =>
+        fixture.session.persist!(asset.bytes, asset.hash, "image/png"),
+      );
+      await fixture.flush();
+      expect(fixture.pendingTimers).toBe(2);
+      expect(fixture.errors).toBe(0);
+      assets[2]!.bytes.fill(0);
+      while (fixture.pendingTimers) {
+        fixture.retry();
+        await fixture.flush();
+      }
+      await Promise.all(persisted);
+      expect(assets.map((asset) => fixture.attempts.get(asset.hash))).toEqual([
+        1, 1, 2, 2,
+      ]);
+      expect(fixture.stored.get(assets[2]!.hash)).toEqual([3, 5, 6, 7]);
+      expect(fixture.stored.size).toBe(4);
+      expect(fixture.connections).toBe(1);
+      expect(fixture.errors).toBe(0);
+    } finally {
+      fixture.session.destroy();
+    }
+  });
+
+  it("bounds persistent busy and reports the terminal storage error once", async () => {
+    const fixture = hostedFixture(() => "Hosted storage busy");
+    try {
+      const bytes = new Uint8Array([1, 2, 3]);
+      const hash = await sha256Hex(bytes);
+      const outcome = fixture.session.persist!(bytes, hash, "image/png").catch(
+        (error) => error,
+      );
+      await fixture.flush();
+      while (fixture.pendingTimers) {
+        fixture.retry();
+        await fixture.flush();
+      }
+      expect(await outcome).toEqual(
+        new Error("receiver aborted: Hosted storage busy"),
+      );
+      expect(fixture.attempts.get(hash)).toBe(8);
+      expect(fixture.delays).toEqual([250, 500, 1000, 2000, 2000, 2000, 2000]);
+      expect(fixture.errors).toBe(1);
+      expect(fixture.pendingTimers).toBe(0);
+    } finally {
+      fixture.session.destroy();
+    }
+  });
+
+  it.each([
+    "Hosted storage quota exceeded",
+    "store-failed",
+    "Hosted storage unavailable",
+    "hosted storage busy",
+  ])("does not retry terminal %s", async (reason) => {
+    const fixture = hostedFixture(() => reason);
+    try {
+      const bytes = new Uint8Array([1, 2, 3]),
+        hash = await sha256Hex(bytes);
+      const outcome = fixture.session.persist!(bytes, hash, "image/png").catch(
+        (error) => error,
+      );
+      await fixture.flush();
+      expect(await outcome).toEqual(new Error(`receiver aborted: ${reason}`));
+      expect(fixture.attempts.get(hash)).toBe(1);
+      expect(fixture.pendingTimers).toBe(0);
+      expect(fixture.errors).toBe(1);
+    } finally {
+      fixture.session.destroy();
+    }
+  });
+
+  it("destroy cancels waiting and in-flight work and prevents later retries", async () => {
+    let busyHash = "";
+    const fixture = hostedFixture((header) =>
+      header.hash === busyHash ? "Hosted storage busy" : null,
+    );
+    const bytes = new Uint8Array([1, 2, 3]);
+    busyHash = await sha256Hex(bytes);
+    const second = new Uint8Array([4, 5, 6]),
+      secondHash = await sha256Hex(second);
+    const outcomes = [
+      fixture.session.persist!(bytes, busyHash, "image/png"),
+      fixture.session.persist!(second, secondHash, "image/png"),
+    ].map((promise) => promise.catch((error) => error));
+    await fixture.flush();
+    expect(fixture.pendingTimers).toBe(1);
+    fixture.session.destroy();
+    expect(await Promise.all(outcomes)).toEqual([
+      new Error("blob channel destroyed"),
+      new Error("blob channel destroyed"),
+    ]);
+    expect(fixture.pendingTimers).toBe(0);
+    expect(fixture.errors).toBe(0);
+    await expect(
+      fixture.session.persist!(bytes, busyHash, "image/png"),
+    ).rejects.toThrow("blob channel destroyed");
+    fixture.session.connect();
+    await fixture.flush();
+    expect(fixture.connections).toBe(1);
+    expect([...fixture.attempts.values()]).toEqual([1, 1]);
+  });
+});
+
 describe("browser blob-session", () => {
   it("stores a VERIFIED inbound blob into the PersistentBlobStore", async () => {
     const { a, b, flush } = makePair();
     const backend = new InMemoryBlobBackend();
     const store: BlobStore = new PersistentBlobStore(backend);
-    const session = createBlobChannelSession("ws://x", "room", store, { socketFactory: () => b });
+    const session = createBlobChannelSession("ws://x", "room", store, {
+      socketFactory: () => b,
+    });
     // A bare sender on the OTHER end of the pair pushes a blob into the session.
     const senderStore = new PersistentBlobStore(new InMemoryBlobBackend());
-    const sender = createBlobChannelSession("ws://x", "room", senderStore, { socketFactory: () => a });
+    const sender = createBlobChannelSession("ws://x", "room", senderStore, {
+      socketFactory: () => a,
+    });
     session.connect();
     sender.connect();
     await flush();
@@ -109,10 +340,17 @@ describe("browser blob-session", () => {
   it("stores a verified inbound blob NEUTRAL — isServable stays false (received bytes are a non-re-servable cache)", async () => {
     const { a, b, flush } = makePair();
     const store: BlobStore = new PersistentBlobStore(new InMemoryBlobBackend());
-    const session = createBlobChannelSession("ws://x", "room", store, { socketFactory: () => b });
-    const sender = createBlobChannelSession("ws://x", "room", new PersistentBlobStore(new InMemoryBlobBackend()), {
-      socketFactory: () => a,
+    const session = createBlobChannelSession("ws://x", "room", store, {
+      socketFactory: () => b,
     });
+    const sender = createBlobChannelSession(
+      "ws://x",
+      "room",
+      new PersistentBlobStore(new InMemoryBlobBackend()),
+      {
+        socketFactory: () => a,
+      },
+    );
     session.connect();
     sender.connect();
     await flush();
@@ -142,9 +380,14 @@ describe("browser blob-session", () => {
       socketFactory: () => b,
       onInboundStored: (hash, size) => delivered.push({ hash, size }),
     });
-    const sender = createBlobChannelSession("ws://x", "room", new PersistentBlobStore(new InMemoryBlobBackend()), {
-      socketFactory: () => a,
-    });
+    const sender = createBlobChannelSession(
+      "ws://x",
+      "room",
+      new PersistentBlobStore(new InMemoryBlobBackend()),
+      {
+        socketFactory: () => a,
+      },
+    );
     session.connect();
     sender.connect();
     await flush();
@@ -165,10 +408,17 @@ describe("browser blob-session", () => {
     const { a, b, flush } = makePair();
     const backend = new InMemoryBlobBackend();
     const store: BlobStore = new PersistentBlobStore(backend);
-    const session = createBlobChannelSession("ws://x", "room", store, { socketFactory: () => b });
-    const sender = createBlobChannelSession("ws://x", "room", new PersistentBlobStore(new InMemoryBlobBackend()), {
-      socketFactory: () => a,
+    const session = createBlobChannelSession("ws://x", "room", store, {
+      socketFactory: () => b,
     });
+    const sender = createBlobChannelSession(
+      "ws://x",
+      "room",
+      new PersistentBlobStore(new InMemoryBlobBackend()),
+      {
+        socketFactory: () => a,
+      },
+    );
     session.connect();
     sender.connect();
     await flush();
@@ -187,12 +437,22 @@ describe("browser blob-session", () => {
   it("send() pushes a local blob to the room's other peer's store", async () => {
     const { a, b, flush } = makePair();
     const recvBackend = new InMemoryBlobBackend();
-    const receiver = createBlobChannelSession("ws://x", "push", new PersistentBlobStore(recvBackend), {
-      socketFactory: () => b,
-    });
-    const sender = createBlobChannelSession("ws://x", "push", new PersistentBlobStore(new InMemoryBlobBackend()), {
-      socketFactory: () => a,
-    });
+    const receiver = createBlobChannelSession(
+      "ws://x",
+      "push",
+      new PersistentBlobStore(recvBackend),
+      {
+        socketFactory: () => b,
+      },
+    );
+    const sender = createBlobChannelSession(
+      "ws://x",
+      "push",
+      new PersistentBlobStore(new InMemoryBlobBackend()),
+      {
+        socketFactory: () => a,
+      },
+    );
     receiver.connect();
     sender.connect();
     await flush();
@@ -211,15 +471,25 @@ describe("browser blob-session", () => {
 
   it("A1 §1: `authenticated` is true with a terminalVerifier, false without", () => {
     const auth = buildBlobTerminalAuth(RESPONSE_KEY, TERMINAL_SCOPE);
-    const advisory = createBlobChannelSession("ws://x", "r", new PersistentBlobStore(new InMemoryBlobBackend()), {
-      socketFactory: () => makePair().a,
-    });
+    const advisory = createBlobChannelSession(
+      "ws://x",
+      "r",
+      new PersistentBlobStore(new InMemoryBlobBackend()),
+      {
+        socketFactory: () => makePair().a,
+      },
+    );
     expect(advisory.authenticated).toBe(false);
-    const authed = createBlobChannelSession("ws://x", "r", new PersistentBlobStore(new InMemoryBlobBackend()), {
-      socketFactory: () => makePair().a,
-      terminalSigner: auth.terminalSigner,
-      terminalVerifier: auth.terminalVerifier,
-    });
+    const authed = createBlobChannelSession(
+      "ws://x",
+      "r",
+      new PersistentBlobStore(new InMemoryBlobBackend()),
+      {
+        socketFactory: () => makePair().a,
+        terminalSigner: auth.terminalSigner,
+        terminalVerifier: auth.terminalVerifier,
+      },
+    );
     expect(authed.authenticated).toBe(true);
     advisory.destroy();
     authed.destroy();
@@ -231,17 +501,24 @@ describe("browser blob-session", () => {
     // push — so the browser never returns the export descriptor (fails closed).
     const { a, b, flush } = makePair();
     const auth = buildBlobTerminalAuth(RESPONSE_KEY, TERMINAL_SCOPE);
-    const browser = createBlobChannelSession("ws://x", "share-1", new PersistentBlobStore(new InMemoryBlobBackend()), {
-      socketFactory: () => a,
-      terminalSigner: auth.terminalSigner,
-      terminalVerifier: auth.terminalVerifier,
-    });
+    const browser = createBlobChannelSession(
+      "ws://x",
+      "share-1",
+      new PersistentBlobStore(new InMemoryBlobBackend()),
+      {
+        socketFactory: () => a,
+        terminalSigner: auth.terminalSigner,
+        terminalVerifier: auth.terminalVerifier,
+      },
+    );
     browser.connect();
     await flush();
 
     const bytes = new Uint8Array([1, 2, 3]);
     const hash = await sha256Hex(bytes);
-    const handle = browser.send(bytes, hash, "application/pdf", { transferId: "exp-1" });
+    const handle = browser.send(bytes, hash, "application/pdf", {
+      transferId: "exp-1",
+    });
     let resolved = false;
     let rejected = false;
     void handle.done.then(
@@ -249,7 +526,14 @@ describe("browser blob-session", () => {
       () => (rejected = true),
     );
     // A 3rd peer (on socket b) injects a FORGED, unsigned COMPLETE for the transfer.
-    b.send(encodeFrame({ kind: "complete", transferId: "exp-1", hash, size: bytes.length }));
+    b.send(
+      encodeFrame({
+        kind: "complete",
+        transferId: "exp-1",
+        hash,
+        size: bytes.length,
+      }),
+    );
     await flush();
     // The enforcing sender IGNORES it — the push neither resolves nor (spuriously)
     // rejects on the forged frame; it stays pending (would fail closed via timeout).
@@ -263,24 +547,36 @@ describe("browser blob-session", () => {
     // SAME grant key → the browser sender accepts it and the push resolves.
     const { a, b, flush } = makePair();
     const auth = buildBlobTerminalAuth(RESPONSE_KEY, TERMINAL_SCOPE);
-    const browser = createBlobChannelSession("ws://x", "share-1", new PersistentBlobStore(new InMemoryBlobBackend()), {
-      socketFactory: () => a,
-      terminalSigner: auth.terminalSigner,
-      terminalVerifier: auth.terminalVerifier,
-    });
+    const browser = createBlobChannelSession(
+      "ws://x",
+      "share-1",
+      new PersistentBlobStore(new InMemoryBlobBackend()),
+      {
+        socketFactory: () => a,
+        terminalSigner: auth.terminalSigner,
+        terminalVerifier: auth.terminalVerifier,
+      },
+    );
     // The receiver holds the SAME key (it signs its COMPLETE) + opts in to the blob.
-    const receiver = createBlobChannelSession("ws://x", "share-1", new PersistentBlobStore(new InMemoryBlobBackend()), {
-      socketFactory: () => b,
-      terminalSigner: auth.terminalSigner,
-      terminalVerifier: auth.terminalVerifier,
-    });
+    const receiver = createBlobChannelSession(
+      "ws://x",
+      "share-1",
+      new PersistentBlobStore(new InMemoryBlobBackend()),
+      {
+        socketFactory: () => b,
+        terminalSigner: auth.terminalSigner,
+        terminalVerifier: auth.terminalVerifier,
+      },
+    );
     browser.connect();
     receiver.connect();
     await flush();
     const bytes = new Uint8Array([7, 8, 9]);
     const hash = await sha256Hex(bytes);
     receiver.expect(hash, bytes.length);
-    const handle = browser.send(bytes, hash, "application/pdf", { transferId: "exp-2" });
+    const handle = browser.send(bytes, hash, "application/pdf", {
+      transferId: "exp-2",
+    });
     await flush();
     await expect(handle.done).resolves.toBeUndefined();
     browser.destroy();
@@ -290,9 +586,14 @@ describe("browser blob-session", () => {
   it("does not store a tampered transfer (verify gate)", async () => {
     const { a, b, flush } = makePair();
     const backend = new InMemoryBlobBackend();
-    const session = createBlobChannelSession("ws://x", "r", new PersistentBlobStore(backend), {
-      socketFactory: () => b,
-    });
+    const session = createBlobChannelSession(
+      "ws://x",
+      "r",
+      new PersistentBlobStore(backend),
+      {
+        socketFactory: () => b,
+      },
+    );
     session.connect();
     await flush();
     // Raw lying frames straight onto the wire: announce a hash, ship other bytes.
@@ -301,8 +602,24 @@ describe("browser blob-session", () => {
     const honest = new Uint8Array([1, 2, 3, 4]);
     const liedHash = await sha256Hex(honest);
     session.expect(liedHash, 4);
-    a.send(encodeFrame({ kind: "header", transferId: "x", hash: liedHash, size: 4, mime: "x", totalChunks: 1 }));
-    a.send(encodeFrame({ kind: "data", transferId: "x", index: 0, bytes: new Uint8Array([4, 3, 2, 1]) }));
+    a.send(
+      encodeFrame({
+        kind: "header",
+        transferId: "x",
+        hash: liedHash,
+        size: 4,
+        mime: "x",
+        totalChunks: 1,
+      }),
+    );
+    a.send(
+      encodeFrame({
+        kind: "data",
+        transferId: "x",
+        index: 0,
+        bytes: new Uint8Array([4, 3, 2, 1]),
+      }),
+    );
     await flush();
     expect(await backend.has(liedHash)).toBe(false);
 

@@ -39,11 +39,15 @@
  *    record (not an idempotent CRDT merge) — callers that retry should dedupe
  *    by runId.
  */
+import * as Y from "yjs";
 import { WebSocket as WS } from "ws";
 import * as syncProtocol from "y-protocols/sync";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
 import {
+  DURABLE_DELIVERY_MESSAGE,
+  decodeDurableDelivery,
+  encodeDurableDelivery,
   CollabProject,
   CollabConnection,
   WebSocketTransport,
@@ -86,6 +90,8 @@ export interface DraftPublisherConfig {
 }
 
 export interface DraftPublisherOptions {
+  /** Require the optional relay fsync acknowledgement after live delivery. Default false. */
+  requireDurableDelivery?: boolean;
   /** Injectable socket for tests; defaults to the `ws` package. */
   socketFactory?: (url: string) => WebSocketLike;
   /**
@@ -144,7 +150,9 @@ export interface DraftPublisher {
    * flushed record lasts only while some peer keeps the room open. Rejects on
    * timeout, after {@link close}/{@link destroy}, or if the single-shot link
    * dropped — a rejected flush means delivery is NOT confirmed; reconnect a
-   * fresh client and republish.
+   * fresh client and republish. With `requireDurableDelivery: true`, also waits
+   * for the optional relay store flush acknowledgement and fails closed if it
+   * is disabled, unsupported, refused or unavailable.
    */
   flush(timeoutMs?: number): Promise<void>;
   /**
@@ -207,6 +215,11 @@ export function connectDraftPublisher(
   config: DraftPublisherConfig,
   opts: DraftPublisherOptions = {},
 ): DraftPublisher {
+  if (
+    opts.requireDurableDelivery !== undefined &&
+    typeof opts.requireDurableDelivery !== "boolean"
+  )
+    throw new Error("agent-client: invalid durable delivery option");
   const author: Author = {
     kind: "agent",
     runId: opts.agentRunId ?? DRAFT_PUBLISHER_RUN_ID,
@@ -284,11 +297,18 @@ export function connectDraftPublisher(
   // Set SYNCHRONOUSLY at the top of close() so a publish/flush racing in during
   // the flush round-trip is rejected rather than silently dropped on teardown.
   let closing = false;
+  let growthRefused = false;
+  let resyncReplyPending = false;
+  let recoveryProbeQueued = false;
   interface FlushWaiter {
     target: number;
     settle: (err?: Error) => void;
   }
   const waiters = new Set<FlushWaiter>();
+  const durableWaiters = new Map<string, { settle: (error?: Error) => void }>();
+  const failDurableWaiters = (error: Error): void => {
+    for (const waiter of [...durableWaiters.values()]) waiter.settle(error);
+  };
   const failWaiters = (err: Error): void => {
     for (const w of [...waiters]) {
       waiters.delete(w);
@@ -316,8 +336,30 @@ export function connectDraftPublisher(
   // matches delivery order.
   const transport: Transport = {
     send(data) {
-      outboundStep1 += countSyncFrames(data).step1;
+      const counts = countSyncFrames(data);
+      const replay = counts.step2 > 0 && resyncReplyPending;
+      if (replay) {
+        resyncReplyPending = false;
+        growthRefused = false;
+        // Earlier read replies do not confirm this replay. Require a fresh
+        // ordered probe after the client has sent its missing state again.
+        for (const waiter of waiters) waiter.target = Infinity;
+      }
+      outboundStep1 += counts.step1;
       inner.send(data);
+      if (replay && waiters.size > 0 && !recoveryProbeQueued) {
+        recoveryProbeQueued = true;
+        queueMicrotask(() => {
+          recoveryProbeQueued = false;
+          if (destroyed || linkDown || waiters.size === 0) return;
+          const encoder = encoding.createEncoder();
+          encoding.writeVarUint(encoder, MESSAGE_SYNC);
+          syncProtocol.writeSyncStep1(encoder, project.doc);
+          const target = outboundStep1 + 1;
+          for (const waiter of waiters) waiter.target = target;
+          transport.send(encoding.toUint8Array(encoder));
+        });
+      }
     },
     onMessage: (handler) => inner.onMessage(handler),
     connect: () => inner.connect(),
@@ -327,11 +369,31 @@ export function connectDraftPublisher(
   };
 
   const offInbound = inner.onMessage((data) => {
-    const n = countSyncFrames(data).step2;
+    if (data[0] === DURABLE_DELIVERY_MESSAGE) {
+      try {
+        const frame = decodeDurableDelivery(data);
+        if (frame.kind !== "request")
+          durableWaiters
+            .get(frame.token)
+            ?.settle(
+              frame.kind === "complete"
+                ? undefined
+                : new Error(
+                    "agent-client: durable delivery unavailable or refused; delivery remains unconfirmed",
+                  ),
+            );
+      } catch {
+        /* malformed/unknown-token acknowledgements cannot settle a probe */
+      }
+      return;
+    }
+    const counts = countSyncFrames(data);
+    if (counts.step1 > 0 && growthRefused) resyncReplyPending = true;
+    const n = counts.step2;
     if (n === 0) return;
     inboundStep2 += n;
     for (const w of [...waiters]) {
-      if (inboundStep2 >= w.target) {
+      if (!growthRefused && inboundStep2 >= w.target) {
         waiters.delete(w);
         w.settle();
       }
@@ -343,6 +405,11 @@ export function connectDraftPublisher(
     // confirmed on this handle — fail pending flushes AND a pending initial-sync
     // wait loud, never hang.
     linkDown = true;
+    failDurableWaiters(
+      new Error(
+        "agent-client: link dropped before durable delivery acknowledgement",
+      ),
+    );
     failWaiters(
       new Error(
         "agent-client: the relay link dropped before the flush round-trip completed — " +
@@ -358,6 +425,9 @@ export function connectDraftPublisher(
   });
 
   const connection = new CollabConnection(project, transport, { author });
+  const offStorageFull = connection.onStorageFull(() => {
+    growthRefused = true;
+  });
   try {
     // connect() invokes the socket factory SYNCHRONOUSLY: a factory throw
     // (already redacted by the wrap above) propagates to the caller — release
@@ -366,6 +436,7 @@ export function connectDraftPublisher(
   } catch (err) {
     offInbound();
     offStatus();
+    offStorageFull();
     connection.destroy();
     project.destroy();
     throw err;
@@ -377,6 +448,11 @@ export function connectDraftPublisher(
   const destroy = (): void => {
     if (destroyed) return;
     destroyed = true;
+    failDurableWaiters(
+      new Error(
+        "agent-client: disconnected before durable delivery acknowledgement",
+      ),
+    );
     failWaiters(
       new Error(
         "agent-client: disconnected before the flush round-trip completed",
@@ -389,6 +465,7 @@ export function connectDraftPublisher(
     );
     offInbound();
     offStatus();
+    offStorageFull();
     connection.destroy();
     project.destroy();
   };
@@ -396,7 +473,7 @@ export function connectDraftPublisher(
   // The flush round-trip itself. close() drives this DIRECTLY (past the closing
   // barrier the public flush guards on), so its own terminal flush is not
   // rejected by the barrier it just set.
-  const flushCore = (timeoutMs = 15_000): Promise<void> => {
+  const deliveryFlushCore = (timeoutMs = 15_000): Promise<void> => {
     if (destroyed) {
       return Promise.reject(
         new Error("agent-client: flush() after disconnect"),
@@ -431,12 +508,61 @@ export function connectDraftPublisher(
         waiters.delete(waiter);
         reject(
           new Error(
-            `agent-client: flush timed out after ${timeoutMs} ms — the relay never ` +
-              "acknowledged the probe; publishes may not have reached the room",
+            growthRefused
+              ? `agent-client: flush timed out after ${timeoutMs} ms — the relay refused growth; publishes remain unconfirmed`
+              : `agent-client: flush timed out after ${timeoutMs} ms — the relay never acknowledged the probe; publishes may not have reached the room`,
           ),
         );
       }, timeoutMs);
       waiters.add(waiter);
+    });
+  };
+
+  const flushCore = async (timeoutMs = 15000): Promise<void> => {
+    const started = Date.now();
+    await deliveryFlushCore(timeoutMs);
+    if (!opts.requireDurableDelivery) return;
+    if (destroyed || linkDown)
+      throw new Error("agent-client: durable delivery link unavailable");
+    const remaining = timeoutMs - (Date.now() - started);
+    if (remaining <= 0)
+      throw new Error("agent-client: durable delivery timed out");
+    if (durableWaiters.size >= 8)
+      throw new Error("agent-client: too many pending durability probes");
+    const random = new Uint8Array(24);
+    globalThis.crypto.getRandomValues(random);
+    const token = Array.from(random, (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
+    const request = encodeDurableDelivery({
+      kind: "request",
+      token,
+      stateVector: Y.encodeStateVector(project.doc),
+    });
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () =>
+          settle(
+            new Error(
+              "agent-client: durable delivery timed out; delivery remains unconfirmed",
+            ),
+          ),
+        remaining,
+      );
+      const settle = (error?: Error): void => {
+        if (!durableWaiters.delete(token)) return;
+        clearTimeout(timer);
+        if (error) reject(error);
+        else resolve();
+      };
+      durableWaiters.set(token, { settle });
+      try {
+        transport.send(request);
+      } catch {
+        settle(
+          new Error("agent-client: durable delivery probe could not be sent"),
+        );
+      }
     });
   };
 
