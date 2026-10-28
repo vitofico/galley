@@ -91,13 +91,17 @@ const TOAST_TTL_MS = 5000;
  * and fall back to `run_started`. Returns null if neither is present (e.g. a
  * legacy/stubbed run) — the caller then omits runId (it is a hint, never required).
  */
-function runIdFromEvents(events: { type: string; runId?: string }[]): string | null {
+function runIdFromEvents(
+  events: { type: string; runId?: string }[],
+): string | null {
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i];
-    if (e && e.type === "run_finished" && typeof e.runId === "string") return e.runId;
+    if (e && e.type === "run_finished" && typeof e.runId === "string")
+      return e.runId;
   }
   for (const e of events) {
-    if (e && e.type === "run_started" && typeof e.runId === "string") return e.runId;
+    if (e && e.type === "run_started" && typeof e.runId === "string")
+      return e.runId;
   }
   return null;
 }
@@ -262,7 +266,9 @@ export function AgentPanel({
   // The in-app Auto applied-summary + Undo, set once a finished run auto-applies
   // (ADR-0025 §4). When set (and still the active session), it REPLACES the Ask
   // DiffReview gate with an "applied + Undo" affordance. Cleared by a fresh run.
-  const [appliedSummary, setAppliedSummary] = useState<AppliedSummary | null>(null);
+  const [appliedSummary, setAppliedSummary] = useState<AppliedSummary | null>(
+    null,
+  );
   // True while a finished run's hardened auto-apply is in flight (the async
   // checkpoint → apply). Suppresses the Ask DiffReview gate so it never flashes
   // before the apply lands; cleared on success (the summary takes over) OR on a
@@ -272,6 +278,15 @@ export function AgentPanel({
   // (the effect is keyed on `agent.result`, but React may re-run it; the apply is
   // a one-shot per result). Holds the result object already auto-handled.
   const autoHandledResult = useRef<typeof agent.result>(null);
+  // Checkpointing outlives the model run. Invalidate that independent promise
+  // on unmount or a fresh request so an abandoned result can never commit.
+  const autoApplyGeneration = useRef(0);
+  useEffect(
+    () => () => {
+      autoApplyGeneration.current += 1;
+    },
+    [],
+  );
 
   // Build the conflict-aware accept run for the CURRENT held result — identical
   // to the manual DiffReview Accept path so auto-apply and Accept resolve the
@@ -313,11 +328,16 @@ export function AgentPanel({
   //      applied summary + Undo INSTEAD of the Accept/Reject gate.
   const runInAppAuto = async (
     seam: InAppAutoSeam,
-    run: { baseSource: string; finalSource: string; blocks: { search: string; replace: string }[] },
+    run: {
+      baseSource: string;
+      finalSource: string;
+      blocks: { search: string; replace: string }[];
+    },
     runId: string | null,
     request: string,
     outcome: string,
   ): Promise<void> => {
+    const generation = autoApplyGeneration.current;
     const id = runId ?? `run-${Date.now().toString(36)}`;
     let checkpointVersionId: string | null = null;
     try {
@@ -325,6 +345,7 @@ export function AgentPanel({
     } catch {
       checkpointVersionId = null;
     }
+    if (generation !== autoApplyGeneration.current) return;
     if (checkpointVersionId === null) {
       setAutoApplyPending(false); // no Undo target ⇒ reveal the Ask gate
       return;
@@ -368,7 +389,13 @@ export function AgentPanel({
     chainBaseRef.current = null;
     agent.clear();
     setAutoApplyPending(false);
-    setAppliedSummary({ runId: id, request, outcome, checkpointVersionId, undone: false });
+    setAppliedSummary({
+      runId: id,
+      request,
+      outcome,
+      checkpointVersionId,
+      undone: false,
+    });
     pushToast("finished", "Applied automatically");
   };
 
@@ -381,13 +408,26 @@ export function AgentPanel({
   const onSend = () => {
     if (agent.running || !request.trim()) return;
     setAdviceRun(false);
+    autoApplyGeneration.current += 1;
+    setAutoApplyPending(false);
     setAppliedSummary(null); // a fresh run clears any prior auto-applied summary
     chainBaseRef.current = null; // a fresh run starts a new chain (11.8c)
     runRequestRef.current = request;
-    sx.appendMessage(sx.activeId, makeMessage({ role: "user", text: request, at: Date.now() }));
+    sx.appendMessage(
+      sx.activeId,
+      makeMessage({ role: "user", text: request, at: Date.now() }),
+    );
     runningSessionId.current = sx.activeId;
     const sent = composeAgentRequest(request, mentionFiles?.() ?? []);
-    void agent.run(sent, source, model, buildCheckInput, context, instructions, projectTools);
+    void agent.run(
+      sent,
+      source,
+      model,
+      buildCheckInput,
+      context,
+      instructions,
+      projectTools,
+    );
   };
 
   // Quick-fix (#11.4b) / explain (#18.4): an action on a diagnostic pushes a
@@ -402,6 +442,8 @@ export function AgentPanel({
     setRequest(pendingRun.request);
     const advice = pendingRun.adviceOnly === true;
     setAdviceRun(advice);
+    autoApplyGeneration.current += 1;
+    setAutoApplyPending(false);
     setAppliedSummary(null); // a fresh run clears any prior auto-applied summary
     chainBaseRef.current = null; // a fresh run starts a new chain (11.8c)
     runRequestRef.current = pendingRun.request;
@@ -492,7 +534,10 @@ export function AgentPanel({
         autoAccept &&
         !adviceRun &&
         agent.result !== autoHandledResult.current &&
-        decideInAppAuto({ mode: autoAccept.mode(), canMutate: autoAccept.canMutate }).autoApply
+        decideInAppAuto({
+          mode: autoAccept.mode(),
+          canMutate: autoAccept.canMutate,
+        }).autoApply
       ) {
         autoHandledResult.current = agent.result;
         const run = buildAcceptRun();
@@ -572,7 +617,7 @@ export function AgentPanel({
     !adviceRun &&
     runningSessionId.current === sx.activeId ? (
       <DiffReview
-        base={agent.baseSource}
+        base={chainBaseRef.current ?? agent.baseSource}
         next={agent.result.finalSource}
         outcome={agent.result.outcome}
         onAccept={() => {
@@ -604,8 +649,11 @@ export function AgentPanel({
           if (!args) return; // empty instruction → no-op
           // Pin the chain's ORIGINAL base on the FIRST refine so Accept resolves
           // the net original→final diff (chain-safe & conflict-aware, ADR-0003).
-          if (chainBaseRef.current === null) chainBaseRef.current = agent.baseSource;
+          if (chainBaseRef.current === null)
+            chainBaseRef.current = agent.baseSource;
           setAdviceRun(false);
+          autoApplyGeneration.current += 1;
+          setAutoApplyPending(false);
           setAppliedSummary(null);
           runRequestRef.current = instruction;
           runningSessionId.current = sx.activeId;
@@ -629,7 +677,10 @@ export function AgentPanel({
   // undone it reads as such (the doc is back at the checkpoint).
   const appliedNode =
     appliedSummary && runningSessionId.current === sx.activeId ? (
-      <div className="diff-review agent-auto-applied" data-testid="agent-auto-applied">
+      <div
+        className="diff-review agent-auto-applied"
+        data-testid="agent-auto-applied"
+      >
         <div className="diff-head">
           <span>
             {appliedSummary.undone
@@ -669,7 +720,11 @@ export function AgentPanel({
         {...(onEditInstructions ? { onEditInstructions } : {})}
       />
 
-      <AgentTranscript messages={sx.active.messages} live={live} diff={diff ?? appliedNode} />
+      <AgentTranscript
+        messages={sx.active.messages}
+        live={live}
+        diff={diff ?? appliedNode}
+      />
 
       <AgentComposer
         request={request}
@@ -685,7 +740,12 @@ export function AgentPanel({
       />
 
       {toasts.length > 0 && (
-        <div className="galley-toasts" data-testid="agent-toasts" role="status" aria-live="polite">
+        <div
+          className="galley-toasts"
+          data-testid="agent-toasts"
+          role="status"
+          aria-live="polite"
+        >
           {toasts.map((t) => (
             <div
               key={t.id}
@@ -697,7 +757,9 @@ export function AgentPanel({
                 type="button"
                 className="galley-toast-dismiss"
                 aria-label="Dismiss"
-                onClick={() => setToasts((ts) => ts.filter((x) => x.id !== t.id))}
+                onClick={() =>
+                  setToasts((ts) => ts.filter((x) => x.id !== t.id))
+                }
               >
                 ×
               </button>

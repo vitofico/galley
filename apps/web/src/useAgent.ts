@@ -69,9 +69,17 @@ export function endOfRun(
     return { running: false, stopped: true, result: null, error: null };
   }
   if (outcome.kind === "finished") {
-    return { running: false, stopped: false, result: outcome.result, error: null };
+    return {
+      running: false,
+      stopped: false,
+      result: outcome.result,
+      error: null,
+    };
   }
-  const error = outcome.error instanceof Error ? outcome.error.message : String(outcome.error);
+  const error =
+    outcome.error instanceof Error
+      ? outcome.error.message
+      : String(outcome.error);
   return { running: false, stopped: false, result: null, error };
 }
 
@@ -106,64 +114,91 @@ export function useAgent() {
       instructions?: AgentInstructions,
       projectTools?: ProjectToolsSeam,
     ) => {
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    set({ running: true, events: [], result: null, baseSource, error: null, stopped: false });
-    try {
-      if (!compilerRef.current) compilerRef.current = await initCompiler();
-      // For a project, wrap the compiler so the agent's scratch is checked in the
-      // whole-project context (cross-file imports resolve); single-file passes the
-      // scratch straight through.
-      const base = compilerRef.current;
-      const compiler = buildInput ? { check: (s: string) => base.check(buildInput(s)) } : base;
-      const gen = runAgent({
-        userRequest: request,
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      set({
+        running: true,
+        events: [],
+        result: null,
         baseSource,
-        baseRevision: 0,
-        model,
-        compiler,
-        signal: controller.signal,
-        // Retrieval auto-engages only past the size threshold (roadmap #9/#14); a
-        // small doc is byte-for-byte the same path. Absent when no context given.
-        ...(context ? { context } : {}),
-        // 14-D: the project's `.galley/instructions` steering + deterministic
-        // constraints. Absent → spread nothing → byte-for-byte the original run.
-        ...(instructions ? { instructions } : {}),
-        // #3: the read-only project tools seam (search/list/read across the
-        // live project). Absent → spread nothing → the offered tool set and the
-        // request payload are byte-for-byte the original run.
-        ...(projectTools ? { projectTools } : {}),
+        error: null,
+        stopped: false,
       });
-      let next = await gen.next();
-      while (!next.done) {
-        // A superseded run (a newer `run()` already replaced `abortRef`) must stop
-        // writing: don't append its trailing events onto the NEW run's array, and
-        // stop pulling its generator so it can't keep streaming. We return outright
-        // (not break) so the superseded driver also skips its terminal patch.
-        if (abortRef.current !== controller) return;
-        const event = next.value;
-        set((s) => ({ ...s, events: [...s.events, event] }));
-        next = await gen.next();
+      try {
+        if (!compilerRef.current) {
+          const initialized = await initCompiler();
+          // Stop, replacement run or unmount can happen while WASM loads. Such a
+          // run never owns the late worker and must not start a model request.
+          if (
+            !mountedRef.current ||
+            controller.signal.aborted ||
+            abortRef.current !== controller
+          ) {
+            initialized.dispose();
+            if (abortRef.current === controller) {
+              set((s) => ({ ...s, ...endOfRun({ kind: "aborted" }) }));
+            }
+            return;
+          }
+          compilerRef.current = initialized;
+        }
+        // For a project, wrap the compiler so the agent's scratch is checked in the
+        // whole-project context (cross-file imports resolve); single-file passes the
+        // scratch straight through.
+        const base = compilerRef.current;
+        const compiler = buildInput
+          ? { check: (s: string) => base.check(buildInput(s)) }
+          : base;
+        const gen = runAgent({
+          userRequest: request,
+          baseSource,
+          baseRevision: 0,
+          model,
+          compiler,
+          signal: controller.signal,
+          // Retrieval auto-engages only past the size threshold (roadmap #9/#14); a
+          // small doc is byte-for-byte the same path. Absent when no context given.
+          ...(context ? { context } : {}),
+          // 14-D: the project's `.galley/instructions` steering + deterministic
+          // constraints. Absent → spread nothing → byte-for-byte the original run.
+          ...(instructions ? { instructions } : {}),
+          // #3: the read-only project tools seam (search/list/read across the
+          // live project). Absent → spread nothing → the offered tool set and the
+          // request payload are byte-for-byte the original run.
+          ...(projectTools ? { projectTools } : {}),
+        });
+        let next = await gen.next();
+        while (!next.done) {
+          // A superseded run (a newer `run()` already replaced `abortRef`) must stop
+          // writing: don't append its trailing events onto the NEW run's array, and
+          // stop pulling its generator so it can't keep streaming. We return outright
+          // (not break) so the superseded driver also skips its terminal patch.
+          if (abortRef.current !== controller) return;
+          const event = next.value;
+          set((s) => ({ ...s, events: [...s.events, event] }));
+          next = await gen.next();
+        }
+        // A user Stop (abort) yields a CLEAN stopped state — never a held result or
+        // an error — even though the generator returns a "cancelled" result. The
+        // partial trace stays for context; no DiffReview is offered.
+        const patch = controller.signal.aborted
+          ? endOfRun({ kind: "aborted" })
+          : endOfRun({ kind: "finished", result: next.value });
+        // Only the CURRENT run may apply its terminal patch; a superseded driver
+        // must not clobber the in-flight run's state.
+        if (abortRef.current === controller) set((s) => ({ ...s, ...patch }));
+      } catch (err) {
+        // An abort that surfaces as a thrown AbortError is still a clean Stop, not
+        // an error: the run was cancelled by the user, so present the stopped state.
+        const patch = controller.signal.aborted
+          ? endOfRun({ kind: "aborted" })
+          : endOfRun({ kind: "threw", error: err });
+        if (abortRef.current === controller) set((s) => ({ ...s, ...patch }));
       }
-      // A user Stop (abort) yields a CLEAN stopped state — never a held result or
-      // an error — even though the generator returns a "cancelled" result. The
-      // partial trace stays for context; no DiffReview is offered.
-      const patch = controller.signal.aborted
-        ? endOfRun({ kind: "aborted" })
-        : endOfRun({ kind: "finished", result: next.value });
-      // Only the CURRENT run may apply its terminal patch; a superseded driver
-      // must not clobber the in-flight run's state.
-      if (abortRef.current === controller) set((s) => ({ ...s, ...patch }));
-    } catch (err) {
-      // An abort that surfaces as a thrown AbortError is still a clean Stop, not
-      // an error: the run was cancelled by the user, so present the stopped state.
-      const patch = controller.signal.aborted
-        ? endOfRun({ kind: "aborted" })
-        : endOfRun({ kind: "threw", error: err });
-      if (abortRef.current === controller) set((s) => ({ ...s, ...patch }));
-    }
-  }, []);
+    },
+    [],
+  );
 
   const cancel = useCallback(() => abortRef.current?.abort(), []);
   const clear = useCallback(() => setState(IDLE), []);
@@ -174,7 +209,10 @@ export function useAgent() {
   // unset here (provider-agnostic); a caller wanting cost can re-accumulate
   // `events` with rates. Memoized on the events array so an unrelated re-render
   // (or a streamed event in a sibling) doesn't re-scan the whole trace.
-  const usage: UsageEstimate = useMemo(() => accumulateUsage(state.events), [state.events]);
+  const usage: UsageEstimate = useMemo(
+    () => accumulateUsage(state.events),
+    [state.events],
+  );
 
   return { ...state, run, cancel, clear, usage };
 }

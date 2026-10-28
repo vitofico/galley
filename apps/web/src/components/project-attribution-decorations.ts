@@ -1,5 +1,5 @@
 /**
- * The project sibling of `attribution-decorations.ts`: a CodeMirror 6 extension
+ * A CodeMirror 6 extension
  * that paints each span of ONE project file in its author's color (roadmap #14-C,
  * closing the ProjectEditor follow-up). Spans come from the `@galley/collab`
  * attribution core (ADR-0012), but partitioned per-`Y.Text` via
@@ -8,23 +8,42 @@
  * The painting policy (only show it once ≥2 authors are present, so solo writing
  * stays clean) lives in the shared `attribution-paint.ts`.
  *
- * Reentrancy care is identical to the single-file extension: a Y.Text change
+ * Reentrancy: a Y.Text change
  * reaches the editor THROUGH yCollab's own `view.dispatch` (Yjs observers fire
  * synchronously inside it), so text-change refreshes are taken from CM's own
  * `update()` cycle; only author-MAP changes (a registration arriving over the
  * wire) need an out-of-band, microtask-deferred refresh.
  */
-import { type DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
+import {
+  type DecorationSet,
+  EditorView,
+  ViewPlugin,
+  type ViewUpdate,
+} from "@codemirror/view";
 import { type Extension } from "@codemirror/state";
-import { observeAuthors, textAttributedRanges, type CollabProject } from "@galley/collab";
+import {
+  observeAuthors,
+  textAttributedRanges,
+  type CollabProject,
+} from "@galley/collab";
 import type * as Y from "yjs";
 import { buildAttributionDecorations } from "./attribution-paint.js";
 
-function build(project: CollabProject, ytext: Y.Text, docLength: number): DecorationSet {
-  return buildAttributionDecorations(textAttributedRanges(project, ytext), docLength);
+function build(
+  project: CollabProject,
+  ytext: Y.Text,
+  docLength: number,
+): DecorationSet {
+  return buildAttributionDecorations(
+    textAttributedRanges(project, ytext),
+    docLength,
+  );
 }
 
-export function projectAttributionDecorations(project: CollabProject, ytext: Y.Text): Extension {
+export function projectAttributionDecorations(
+  project: CollabProject,
+  ytext: Y.Text,
+): Extension {
   return ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
@@ -51,7 +70,8 @@ export function projectAttributionDecorations(project: CollabProject, ytext: Y.T
       }
 
       update(update: ViewUpdate): void {
-        if (update.docChanged) this.decorations = build(project, ytext, update.state.doc.length);
+        if (update.docChanged)
+          this.decorations = build(project, ytext, update.state.doc.length);
       }
 
       destroy(): void {

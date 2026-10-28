@@ -14,7 +14,11 @@
  *   - worker.ts          — the browser Worker entry (e2e-tested).
  */
 
-import { CompilerClient } from "./compiler-client.js";
+import {
+  CompilerClient,
+  CompileTimeoutError,
+  DEFAULT_TIMEOUT_MS,
+} from "./compiler-client.js";
 import type { Compiler, WorkerTransport } from "./compiler-client.js";
 import type { WorkerRequest, WorkerResponse } from "./worker-protocol.js";
 
@@ -149,19 +153,36 @@ export async function connectCompilerWorker(
   };
 
   const first = createWorker();
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   await new Promise<void>((resolve, reject) => {
-    const onReady = (event: MessageEvent) => {
-      const data = event.data as WorkerResponse;
-      if (data.type === "ready") {
-        first.removeEventListener("message", onReady);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (error?: unknown) => {
+      if (timer) clearTimeout(timer);
+      first.removeEventListener("message", onReady);
+      if (error !== undefined) {
+        first.terminate();
+        reject(error);
+      } else {
         resolve();
-      } else if (data.type === "init_error") {
-        first.removeEventListener("message", onReady);
-        reject(new Error(data.message));
       }
     };
+    const onReady = (event: MessageEvent) => {
+      const data = event.data as WorkerResponse;
+      if (data.type === "ready") finish();
+      else if (data.type === "init_error") finish(new Error(data.message));
+    };
     first.addEventListener("message", onReady);
-    first.postMessage(init);
+    if (timeoutMs > 0) {
+      timer = setTimeout(
+        () => finish(new CompileTimeoutError(timeoutMs)),
+        timeoutMs,
+      );
+    }
+    try {
+      first.postMessage(init);
+    } catch (error) {
+      finish(error);
+    }
   });
 
   // Respawn factory: spin a fresh worker and post the SAME init. Safe to return

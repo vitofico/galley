@@ -150,11 +150,15 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
   const sessionTtlMs = deps.sessionTtlMs ?? DEFAULT_SESSION_TTL_MS;
   const stateTtlMs = deps.stateTtlMs ?? DEFAULT_STATE_TTL_MS;
   const cookieCfg = resolveCookieCfg(deps.cookie);
+  // One pending login per browser: a newer login supersedes an earlier one.
+  // The __Host- session prefix also protects this binding from sibling domains.
+  const loginCookieCfg = { ...cookieCfg, name: `${cookieCfg.name}.login` };
 
   const app = new Hono();
 
   // Start login: mint PKCE + state + nonce, stash the transaction, redirect to the IdP.
   app.get("/login", async (c) => {
+    c.header("cache-control", "no-store");
     const returnTo = safeReturnTo(c.req.query("returnTo"));
     const pkce = await generatePkce(random);
     const state = randomToken(random);
@@ -166,6 +170,10 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
       returnTo,
       expiresAtMs: now() + stateTtlMs,
     });
+    c.header(
+      "set-cookie",
+      setSessionCookie(loginCookieCfg, state, Math.floor(stateTtlMs / 1000)),
+    );
     return c.redirect(
       buildAuthorizationUrl(config, {
         state,
@@ -177,8 +185,17 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
 
   // IdP redirect-back: validate state, exchange code, verify the ID token, open a session.
   app.get("/callback", async (c) => {
+    c.header("cache-control", "no-store");
     const parsed = parseCallback(c.req.query());
     if (!parsed.ok) return c.text("invalid callback", 400);
+    // PKCE/nonce authenticate the transaction, but do not identify its browser.
+    // Check the browser binding BEFORE consuming state or redeeming the code, so
+    // a forwarded callback cannot sign another browser into the sender's account.
+    if (
+      readCookie(c.req.header("cookie"), loginCookieCfg.name) !== parsed.state
+    )
+      return c.text("login browser mismatch", 400);
+    c.header("set-cookie", clearSessionCookie(loginCookieCfg));
     const ls = await loginStateStore.consume(parsed.state, now()); // one-time, expiry-checked
     if (!ls) return c.text("unknown or expired login state", 400);
 
@@ -231,6 +248,7 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
     c.header(
       "set-cookie",
       setSessionCookie(cookieCfg, id, Math.floor(sessionTtlMs / 1000)),
+      { append: true },
     );
     return c.redirect(ls.returnTo); // already same-origin-validated at login
   });

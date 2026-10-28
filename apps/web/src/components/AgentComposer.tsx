@@ -1,10 +1,19 @@
-import { formatUsage, checkBudget, type UsageEstimate } from "../cost-estimate.js";
+import {
+  formatUsage,
+  checkBudget,
+  type UsageEstimate,
+} from "../cost-estimate.js";
 import {
   activeMentionQuery,
   suggestMentions,
   type MentionableFile,
 } from "./agent-mentions.js";
-import { activeSlashQuery, suggestSlash, expandSlash, SLASH_ACTIONS } from "./agent-slash.js";
+import {
+  activeSlashQuery,
+  suggestSlash,
+  expandSlash,
+  SLASH_ACTIONS,
+} from "./agent-slash.js";
 
 export function AgentComposer(props: {
   request: string;
@@ -18,21 +27,34 @@ export function AgentComposer(props: {
   showCost: boolean;
   tokenBudget?: number;
 }): JSX.Element {
-  const { request, onRequestChange, onFocus, onSend, onStop, running, mentionFiles, usage, showCost, tokenBudget } =
-    props;
+  const {
+    request,
+    onRequestChange,
+    onFocus,
+    onSend,
+    onStop,
+    running,
+    mentionFiles,
+    usage,
+    showCost,
+    tokenBudget,
+  } = props;
 
   // Only compute mention state when a mentionFiles seam is wired AND the textarea
   // tail is an open `@…` token.
   const mentionQuery = mentionFiles ? activeMentionQuery(request) : null;
   const mentionOptions =
-    mentionQuery !== null && mentionFiles ? suggestMentions(mentionQuery, mentionFiles()) : [];
+    mentionQuery !== null && mentionFiles
+      ? suggestMentions(mentionQuery, mentionFiles())
+      : [];
 
   // Slash quick-actions: a static catalog, so no host seam. Never competes with
   // the mention list — a slash query needs the buffer to START with `/` and hold
   // no space, and an `@` token needs a start-or-space before it, so the two can
   // never both be open.
   const slashQuery = activeSlashQuery(request);
-  const slashOptions = slashQuery !== null ? suggestSlash(slashQuery, SLASH_ACTIONS) : [];
+  const slashOptions =
+    slashQuery !== null ? suggestSlash(slashQuery, SLASH_ACTIONS) : [];
 
   const budget = checkBudget(usage, tokenBudget);
 
@@ -81,7 +103,11 @@ export function AgentComposer(props: {
           // Enter sends; Shift+Enter inserts a newline. Skip while an IME
           // composition is active so confirming a candidate never fires a send.
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+            if (
+              e.key === "Enter" &&
+              !e.shiftKey &&
+              !e.nativeEvent.isComposing
+            ) {
               e.preventDefault();
               if (!running && request.trim()) onSend();
             }
@@ -91,7 +117,10 @@ export function AgentComposer(props: {
           rows={2}
         />
         {mentionOptions.length > 0 && (
-          <ul className="agent-mention-list" data-testid="agent-mention-suggestions">
+          <ul
+            className="agent-mention-list"
+            data-testid="agent-mention-suggestions"
+          >
             {mentionOptions.map((f) => (
               <li key={f.path}>
                 <button
@@ -101,8 +130,8 @@ export function AgentComposer(props: {
                   onMouseDown={(e) => {
                     // mousedown (not click) so the textarea doesn't blur first.
                     e.preventDefault();
-                    insertMention(f.path);
                   }}
+                  onClick={() => insertMention(f.path)}
                 >
                   {f.path}
                 </button>
@@ -111,7 +140,10 @@ export function AgentComposer(props: {
           </ul>
         )}
         {slashOptions.length > 0 && (
-          <ul className="agent-slash-list" data-testid="agent-slash-suggestions">
+          <ul
+            className="agent-slash-list"
+            data-testid="agent-slash-suggestions"
+          >
             {slashOptions.map((a) => (
               <li key={a.id}>
                 <button
@@ -121,8 +153,8 @@ export function AgentComposer(props: {
                   onMouseDown={(e) => {
                     // mousedown (not click) so the textarea doesn't blur first.
                     e.preventDefault();
-                    chooseSlash(a);
                   }}
+                  onClick={() => chooseSlash(a)}
                 >
                   <span className="agent-slash-token">/{a.id}</span>
                   <span className="agent-slash-label">{a.label}</span>

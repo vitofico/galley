@@ -1,13 +1,10 @@
 /**
  * The project active-file editor (roadmap #2, slice 6): CodeMirror 6 bound to ONE
- * file's shared `Y.Text` via y-codemirror.next. It's the multi-file sibling of
- * `CollabEditor` — same theme/testid, but parameterized by a `Y.Text` (a file)
- * rather than a whole `CollabDocument`. Remount on file switch is driven by a
+ * file's shared `Y.Text` via y-codemirror.next. Remount on file switch is driven by a
  * `key={fileId}` from the parent, so each file gets its own view + UndoManager.
  *
  * Per-file attribution decorations (via `textAttributedRanges`) paint each span
- * in its author's color when a `project` host is supplied (#14-C) — the same
- * affordance the single-file `CollabEditor` already has.
+ * in its author's color when a `project` host is supplied (#14-C).
  */
 import { useEffect, useRef } from "react";
 import { EditorView, basicSetup } from "codemirror";
@@ -24,9 +21,11 @@ import type { Awareness } from "y-protocols/awareness";
 import type { CollabProject } from "@galley/collab";
 import type { Diagnostic, SourceLineCol } from "@galley/shared";
 import { typstLanguage, typstHighlightStyle } from "../typst-highlight.js";
-import { cursorPosFromState } from "./Editor.js";
 import { projectAttributionDecorations } from "./project-attribution-decorations.js";
-import { commentDecorations, type OpenThreadHandler } from "./comment-decorations.js";
+import {
+  commentDecorations,
+  type OpenThreadHandler,
+} from "./comment-decorations.js";
 import {
   commentCreateTooltip,
   type CommentSelectionHandler,
@@ -37,6 +36,13 @@ import {
 } from "./diagnostics-extension.js";
 import { searchPanelExtension } from "./search-extension.js";
 import { editorPrefsExtensions, loadPrefs } from "../editor-prefs.js";
+
+/** Match the preview map: 1-based line and 0-based UTF-16 column. */
+function cursorPosFromState(state: EditorState): SourceLineCol {
+  const head = state.selection.main.head;
+  const line = state.doc.lineAt(head);
+  return { line: line.number, column: head - line.from };
+}
 
 export function ProjectEditor({
   ytext,
@@ -158,14 +164,20 @@ export function ProjectEditor({
           ...(project && fileId
             ? [
                 commentDecorations(project, fileId, {
-                  onOpenThread: (threadId, rect) => onOpenThreadRef.current?.(threadId, rect),
+                  onOpenThread: (threadId, rect) =>
+                    onOpenThreadRef.current?.(threadId, rect),
                 }),
               ]
             : []),
           // The selection "Comment" bubble (Layer 3). Read-only viewers can't open
           // threads, so it's omitted for them; the handler is read live via the ref.
           ...(project && fileId && !readOnly
-            ? [commentCreateTooltip({ ytext, onComment: (sel) => onCommentRef.current?.(sel) })]
+            ? [
+                commentCreateTooltip({
+                  ytext,
+                  onComment: (sel) => onCommentRef.current?.(sel),
+                }),
+              ]
             : []),
           diagnosticsExtension(),
           searchPanelExtension(),
@@ -177,7 +189,9 @@ export function ProjectEditor({
           // B19-sharing-roles: a viewer's editor refuses local edits but still
           // receives remote updates + presence. `readOnly` rejects user
           // transactions; `editable=false` drops the input affordance/caret.
-          ...(readOnly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []),
+          ...(readOnly
+            ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
+            : []),
           // #7 7D image paste + drop: intercept image FILES and route them to the
           // host (upload + insert). Omitted for a read-only viewer. Both fall
           // through to CodeMirror's default behavior when no image files are
@@ -193,11 +207,15 @@ export function ProjectEditor({
                     // Mixed clipboards (Excel/Word/PowerPoint) carry text/plain +
                     // an image rendition — respect the TEXT. Screenshots and browser
                     // "Copy image" carry no text/plain, so those still upload.
-                    if (Array.from(clip.types).includes("text/plain")) return false;
+                    if (Array.from(clip.types).includes("text/plain"))
+                      return false;
                     const files: File[] = [];
                     for (let i = 0; i < clip.items.length; i++) {
                       const item = clip.items[i]!;
-                      if (item.kind === "file" && item.type.startsWith("image/")) {
+                      if (
+                        item.kind === "file" &&
+                        item.type.startsWith("image/")
+                      ) {
                         const file = item.getAsFile();
                         if (file) files.push(file);
                       }
@@ -209,15 +227,21 @@ export function ProjectEditor({
                   },
                   drop(event, view) {
                     const dt = event.dataTransfer;
-                    if (!dt || !Array.from(dt.types).includes("Files")) return false;
+                    if (!dt || !Array.from(dt.types).includes("Files"))
+                      return false;
                     // A Files drop: never let CM insert text or the tab navigate.
                     event.preventDefault();
-                    const images = Array.from(dt.files).filter((f) => f.type.startsWith("image/"));
+                    const images = Array.from(dt.files).filter((f) =>
+                      f.type.startsWith("image/"),
+                    );
                     if (images.length === 0) {
                       onDropNonImageRef.current?.();
                       return true;
                     }
-                    const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+                    const pos = view.posAtCoords({
+                      x: event.clientX,
+                      y: event.clientY,
+                    });
                     onDropImageRef.current?.(images, pos ?? null);
                     return true;
                   },
