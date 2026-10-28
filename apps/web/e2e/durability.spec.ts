@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 import { gotoEditor } from "./app-helpers.js";
 
 /**
@@ -7,8 +8,8 @@ import { gotoEditor } from "./app-helpers.js";
  * Galley's local-first data lives in EVICTABLE IndexedDB. The guard requests
  * persistent storage on boot and, when durability can't be guaranteed (the
  * browser refuses to persist, or storage is nearly full), surfaces a calm,
- * dismissible nudge whose "Back up a copy" CTA reuses the existing Export PDF
- * path. The hard part in a real browser is FORCING the at-risk state — we can't
+ * dismissible nudge whose "Back up a copy" CTA exports editable source even
+ * when compilation fails. The hard part in a real browser is FORCING the at-risk state — we can't
  * make Chromium deny persistence on demand — so we override the StorageManager
  * methods via `addInitScript` BEFORE any app code runs (the same ordering trick
  * runtime-config.spec.ts uses for the injected config global).
@@ -45,24 +46,40 @@ test("at-risk (transient + pressure): the durability nudge appears, backs up via
   // Browser refuses to persist AND storage is near the cap → transient under real
   // pressure → at-risk (denied persistence alone is not enough; see the low-usage
   // case below).
-  await fakeStorage(page, { persist: false, persisted: false, usage: 950, quota: 1_000 });
+  await fakeStorage(page, {
+    persist: false,
+    persisted: false,
+    usage: 950,
+    quota: 1_000,
+  });
 
   // Capture the export download so the CTA is proven to fire the existing path.
   await gotoEditor(page);
-  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, { timeout: 60_000 });
+  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, {
+    timeout: 60_000,
+  });
 
   const notice = page.getByTestId("durability-notice");
   await expect(notice).toBeVisible({ timeout: 30_000 });
   await expect(notice).toContainText(/evict/i);
 
-  // The CTA reuses Export PDF — clicking it triggers a real browser download.
+  // A recovery copy must preserve editable source even when Typst cannot compile.
+  const editor = page.locator('[data-testid="editor"] .cm-content');
+  await editor.click();
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.type("#broken (");
+  await expect(page.getByTestId("status")).toContainText(/error/i);
+
   const backup = page.getByTestId("durability-backup");
   await expect(backup).toBeVisible();
   const download = await Promise.all([
     page.waitForEvent("download", { timeout: 60_000 }),
     backup.click(),
   ]);
-  expect(download[0].suggestedFilename()).toMatch(/\.pdf$/i);
+  expect(download[0].suggestedFilename()).toMatch(/\.tar$/i);
+  const archive = await readFile((await download[0].path())!);
+  expect(archive.toString("utf8")).toContain("main.typ");
+  expect(archive.toString("utf8")).toContain("#broken (");
 
   // Dismiss hides it for the session.
   await page.getByTestId("durability-dismiss").click();
@@ -73,22 +90,38 @@ test("at-risk (storage nearly full): persisted but over the pressure threshold s
   page,
 }) => {
   // Persisted, but 95% of quota used → over the 0.9 high-water mark → at-risk.
-  await fakeStorage(page, { persist: true, persisted: true, usage: 950, quota: 1_000 });
+  await fakeStorage(page, {
+    persist: true,
+    persisted: true,
+    usage: 950,
+    quota: 1_000,
+  });
 
   await gotoEditor(page);
-  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, { timeout: 60_000 });
+  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, {
+    timeout: 60_000,
+  });
 
   const notice = page.getByTestId("durability-notice");
   await expect(notice).toBeVisible({ timeout: 30_000 });
   await expect(notice).toContainText(/full|nearly/i);
 });
 
-test("healthy (persisted + low usage): NO durability nudge renders", async ({ page }) => {
+test("healthy (persisted + low usage): NO durability nudge renders", async ({
+  page,
+}) => {
   // Persisted and well under quota → ok → the additive guard renders nothing.
-  await fakeStorage(page, { persist: true, persisted: true, usage: 10, quota: 1_000 });
+  await fakeStorage(page, {
+    persist: true,
+    persisted: true,
+    usage: 10,
+    quota: 1_000,
+  });
 
   await gotoEditor(page);
-  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, { timeout: 60_000 });
+  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, {
+    timeout: 60_000,
+  });
 
   // Give the mount effect ample time to resolve, then assert absence.
   await expect(page.getByTestId("save-state")).toBeVisible({ timeout: 30_000 });
@@ -104,10 +137,17 @@ test("ok (transient + low usage): persistence denied but usage low → NO durabi
   // here. (Transient origins DO now get the calmer M9 info banner + the
   // save-popover cue — see the M9 tests below; this test only pins that the
   // pressure-gated AT-RISK nudge does not fire.)
-  await fakeStorage(page, { persist: false, persisted: false, usage: 10, quota: 1_000 });
+  await fakeStorage(page, {
+    persist: false,
+    persisted: false,
+    usage: 10,
+    quota: 1_000,
+  });
 
   await gotoEditor(page);
-  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, { timeout: 60_000 });
+  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, {
+    timeout: 60_000,
+  });
 
   // Give the mount effect ample time to resolve, then assert absence of the
   // AT-RISK nudge specifically (the M9 transient info banner is a separate cue).
@@ -121,13 +161,22 @@ test("transient: the save-popover backup cue strengthens to warn about private/i
   // Transient + low usage: no AT-RISK eviction nudge, but the passive Save-row cue
   // gives a SPECIFIC warning (and, since M9, a top-level info banner too — covered
   // separately below). This test pins the popover cue strengthening.
-  await fakeStorage(page, { persist: false, persisted: false, usage: 10, quota: 1_000 });
+  await fakeStorage(page, {
+    persist: false,
+    persisted: false,
+    usage: 10,
+    quota: 1_000,
+  });
 
   await gotoEditor(page);
-  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, { timeout: 60_000 });
+  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, {
+    timeout: 60_000,
+  });
 
   await page.getByTestId("status-chip").click();
-  const cue = page.getByTestId("status-popover").getByTestId("status-backup-cue");
+  const cue = page
+    .getByTestId("status-popover")
+    .getByTestId("status-backup-cue");
   await expect(cue).toBeVisible();
   await expect(cue).toHaveAttribute("data-transient", "true");
   await expect(cue).toContainText(/private|incognito|close/i);
@@ -138,13 +187,22 @@ test("persisted: the save-popover backup cue stays the calm generic local-only r
 }) => {
   // Persisted origin: the cue is the gentle resting reminder, NOT the transient
   // warning — so we don't over-warn a durable browser.
-  await fakeStorage(page, { persist: true, persisted: true, usage: 10, quota: 1_000 });
+  await fakeStorage(page, {
+    persist: true,
+    persisted: true,
+    usage: 10,
+    quota: 1_000,
+  });
 
   await gotoEditor(page);
-  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, { timeout: 60_000 });
+  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, {
+    timeout: 60_000,
+  });
 
   await page.getByTestId("status-chip").click();
-  const cue = page.getByTestId("status-popover").getByTestId("status-backup-cue");
+  const cue = page
+    .getByTestId("status-popover")
+    .getByTestId("status-backup-cue");
   await expect(cue).toBeVisible();
   await expect(cue).not.toHaveAttribute("data-transient", "true");
   await expect(cue).toContainText(/lives only here/i);
@@ -159,9 +217,16 @@ test("persisted: the save-popover backup cue stays the calm generic local-only r
 test("M9: a fresh transient origin gets a one-time dismissible top-level storage banner", async ({
   page,
 }) => {
-  await fakeStorage(page, { persist: false, persisted: false, usage: 10, quota: 1_000 });
+  await fakeStorage(page, {
+    persist: false,
+    persisted: false,
+    usage: 10,
+    quota: 1_000,
+  });
   await gotoEditor(page);
-  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, { timeout: 60_000 });
+  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, {
+    timeout: 60_000,
+  });
 
   // Low usage → the at-risk eviction nudge stays silent; the M9 info banner shows.
   await expect(page.getByTestId("durability-notice")).toHaveCount(0);
@@ -173,15 +238,24 @@ test("M9: a fresh transient origin gets a one-time dismissible top-level storage
   await page.getByTestId("transient-storage-dismiss").click();
   await expect(banner).toHaveCount(0);
   await page.reload();
-  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, { timeout: 60_000 });
+  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, {
+    timeout: 60_000,
+  });
   await expect(page.getByTestId("transient-storage-banner")).toHaveCount(0);
 });
 
 test("M9: a persisted origin shows NO transient storage banner (old path unchanged)", async ({
   page,
 }) => {
-  await fakeStorage(page, { persist: true, persisted: true, usage: 10, quota: 1_000 });
+  await fakeStorage(page, {
+    persist: true,
+    persisted: true,
+    usage: 10,
+    quota: 1_000,
+  });
   await gotoEditor(page);
-  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, { timeout: 60_000 });
+  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, {
+    timeout: 60_000,
+  });
   await expect(page.getByTestId("transient-storage-banner")).toHaveCount(0);
 });

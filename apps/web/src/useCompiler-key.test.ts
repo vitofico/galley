@@ -21,9 +21,10 @@ describe("compileInputKey", () => {
     expect(compileInputKey(proj("a"))).not.toBe(compileInputKey(proj("b")));
   });
 
-  it("is stable across renders for the same binary (fresh Uint8Array, same length)", () => {
-    const a = proj("x", [{ path: "/img.png", bytes: new Uint8Array(1024) }]);
-    const b = proj("x", [{ path: "/img.png", bytes: new Uint8Array(1024) }]);
+  it("is stable across renders for the same cached binary", () => {
+    const bytes = new Uint8Array(1024);
+    const a = proj("x", [{ path: "/img.png", bytes }]);
+    const b = proj("x", [{ path: "/img.png", bytes }]);
     expect(compileInputKey(a)).toBe(compileInputKey(b));
   });
 
@@ -33,7 +34,21 @@ describe("compileInputKey", () => {
     );
     // Stringifying the bytes would make this ~150k+ chars; the fingerprint is tiny.
     expect(key.length).toBeLessThan(200);
-    expect(key).toContain("/img.png:50000");
+    expect(key).toContain("/img.png");
+  });
+
+  it("changes when equal-length assets swap logical paths in one update", () => {
+    const first = new Uint8Array([1, 2]);
+    const second = new Uint8Array([3, 4]);
+    const before = proj("x", [
+      { path: "/a.png", bytes: first },
+      { path: "/b.png", bytes: second },
+    ]);
+    const after = proj("x", [
+      { path: "/a.png", bytes: second },
+      { path: "/b.png", bytes: first },
+    ]);
+    expect(compileInputKey(after)).not.toBe(compileInputKey(before));
   });
 
   it("changes when a binary is replaced with content of a different length", () => {

@@ -38,9 +38,14 @@ createCompiler(opts)
   └─ resolve Compiler              ◄─ callers MUST show a loading state until here
 ```
 
-> typst.ts needs its WASM module *and* fonts loaded before the first compile —
+> typst.ts needs its WASM module _and_ fonts loaded before the first compile —
 > `createCompiler` resolves only when both are ready, and callers show a
 > loading state until then.
+
+`connectCompilerWorker` bounds the initial ready handshake by the same `timeoutMs`
+budget as compile jobs (20 seconds by default; `0` disables it). A silent startup,
+failed initialization, or failed initial message terminates that worker and rejects
+the connection, allowing callers to leave loading or use their configured fallback.
 
 ### Message protocol
 
@@ -48,13 +53,13 @@ createCompiler(opts)
 (`packages/compiler/src/worker-protocol.ts`). `input` is a `CompileInput`: a
 bare source string or a multi-file `ProjectInput`.
 
-| Request | Response |
-| --- | --- |
-| `init { wasmUrl, rendererUrl, fontAssetPrefix? }` | `ready` / `init_error` |
-| `check { jobId, input }` | `check_result { jobId, result }` |
-| `render { jobId, input, sourceMap? }` | `render_result { jobId, result }` |
-| `export { jobId, input }` | `export_result { jobId, result }` |
-| `cancel { jobId }` | (drops the job; no result emitted) |
+| Request                                           | Response                           |
+| ------------------------------------------------- | ---------------------------------- |
+| `init { wasmUrl, rendererUrl, fontAssetPrefix? }` | `ready` / `init_error`             |
+| `check { jobId, input }`                          | `check_result { jobId, result }`   |
+| `render { jobId, input, sourceMap? }`             | `render_result { jobId, result }`  |
+| `export { jobId, input }`                         | `export_result { jobId, result }`  |
+| `cancel { jobId }`                                | (drops the job; no result emitted) |
 
 - **Cancellation:** when newer input arrives, `cancel()` the stale job so the
   preview doesn't render an out-of-date document.

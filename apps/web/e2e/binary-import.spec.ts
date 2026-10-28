@@ -13,7 +13,8 @@ const CRC_TABLE = (() => {
 })();
 function crc32(buf: Uint8Array): number {
   let c = 0xffffffff;
-  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]!) & 0xff]! ^ (c >>> 8);
+  for (let i = 0; i < buf.length; i++)
+    c = CRC_TABLE[(c ^ buf[i]!) & 0xff]! ^ (c >>> 8);
   return (c ^ 0xffffffff) >>> 0;
 }
 function buildStoredZip(entries: { name: string; data: Uint8Array }[]): Buffer {
@@ -97,6 +98,10 @@ test("a zip import with an image stores it, shows a binary row, and compiles", a
   // the VFS the binary channel feeds.
   const zip = buildStoredZip([
     {
+      name: "chapters/a.tex",
+      data: new TextEncoder().encode("Chapter fragment.\n"),
+    },
+    {
       name: "main.tex",
       data: new TextEncoder().encode(
         "\\documentclass{article}\n\\begin{document}\n" +
@@ -116,17 +121,28 @@ test("a zip import with an image stores it, shows a binary row, and compiles", a
     mimeType: "application/zip",
     buffer: zip,
   });
-  await expect(page.getByTestId("import-project-accept")).toBeEnabled({ timeout: 30_000 });
+  await expect(page.getByTestId("import-project-accept")).toBeEnabled({
+    timeout: 30_000,
+  });
   await page.getByTestId("import-project-accept").click();
 
   // The new project opened.
   await expect(page).toHaveURL(/\/p\//, { timeout: 30_000 });
-  await expect(page.getByTestId("project-name")).toHaveText("Illustrated", { timeout: 30_000 });
+  await expect(page.getByTestId("project-name")).toHaveText("Illustrated", {
+    timeout: 30_000,
+  });
   await openFilesDock(page);
+
+  // The detected main must survive import even when a chapter sorts before it.
+  await expect(page.locator(".cm-content")).toContainText(
+    "Imported with an image.",
+  );
 
   // The image appears as a binary row at /logo.png (proves:
   // blobStore.put → createBinary → snapshot.binaryFiles → file tree).
-  const binaryRow = page.locator('[data-testid="project-binary-file"][data-path="/logo.png"]');
+  const binaryRow = page.locator(
+    '[data-testid="project-binary-file"][data-path="/logo.png"]',
+  );
   await expect(binaryRow).toBeVisible({ timeout: 30_000 });
 
   // The binary row never opens the editor: it is not the editable file button.
@@ -137,5 +153,7 @@ test("a zip import with an image stores it, shows a binary row, and compiles", a
   // The project compiles to at least one page — the image() resolves because the
   // bytes were fetched from the BlobStore into the compile input. (A missing
   // binary channel would error on the unresolved image and never reach pages.)
-  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, { timeout: 60_000 });
+  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, {
+    timeout: 60_000,
+  });
 });

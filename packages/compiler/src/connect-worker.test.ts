@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { connectCompilerWorker, CompileTimeoutError } from "./index.js";
 import type { CompilerAssets, CompilerWorkerHandle } from "./index.js";
 import type { WorkerResponse } from "./worker-protocol.js";
@@ -26,17 +26,24 @@ function makeFakeWorkerFactory() {
       postMessage(message: unknown) {
         fake.posts.push(message);
       },
-      addEventListener(_type: "message", handler: (event: MessageEvent) => void) {
+      addEventListener(
+        _type: "message",
+        handler: (event: MessageEvent) => void,
+      ) {
         listeners.add(handler);
       },
-      removeEventListener(_type: "message", handler: (event: MessageEvent) => void) {
+      removeEventListener(
+        _type: "message",
+        handler: (event: MessageEvent) => void,
+      ) {
         listeners.delete(handler);
       },
       terminate() {
         fake.terminated = true;
       },
       deliver(message: WorkerResponse) {
-        for (const handler of listeners) handler({ data: message } as MessageEvent);
+        for (const handler of listeners)
+          handler({ data: message } as MessageEvent);
       },
     };
     workers.push(fake);
@@ -55,7 +62,9 @@ describe("connectCompilerWorker — production respawn wiring", () => {
   it("respawns a wedged worker on the timeout path", async () => {
     const { createWorker, workers } = makeFakeWorkerFactory();
 
-    const connecting = connectCompilerWorker(createWorker, ASSETS, { timeoutMs: 20 });
+    const connecting = connectCompilerWorker(createWorker, ASSETS, {
+      timeoutMs: 20,
+    });
     // The first worker must be created and receive an `init` post.
     expect(workers).toHaveLength(1);
     expect((workers[0]!.posts[0] as { type: string }).type).toBe("init");
@@ -66,7 +75,9 @@ describe("connectCompilerWorker — production respawn wiring", () => {
 
     // A check the worker NEVER answers → the per-job timeout fires, terminates the
     // wedged worker, and respawns a fresh one.
-    await expect(compiler.check("= Hi")).rejects.toBeInstanceOf(CompileTimeoutError);
+    await expect(compiler.check("= Hi")).rejects.toBeInstanceOf(
+      CompileTimeoutError,
+    );
 
     expect(workers[0]!.terminated).toBe(true);
     expect(workers).toHaveLength(2);
@@ -80,5 +91,52 @@ describe("connectCompilerWorker — production respawn wiring", () => {
     const connecting = connectCompilerWorker(createWorker, ASSETS);
     workers[0]!.deliver({ type: "init_error", message: "boom" });
     await expect(connecting).rejects.toThrow("boom");
+    expect(workers[0]!.terminated).toBe(true);
+  });
+  it("clears startup timeout once the compiler is ready", async () => {
+    vi.useFakeTimers();
+    try {
+      const { createWorker, workers } = makeFakeWorkerFactory();
+      const connecting = connectCompilerWorker(createWorker, ASSETS, {
+        timeoutMs: 20,
+      });
+      workers[0]!.deliver({ type: "ready" });
+      const compiler = await connecting;
+      await vi.advanceTimersByTimeAsync(40);
+      expect(workers[0]!.terminated).toBe(false);
+      compiler.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("releases the first worker when its initial post throws", async () => {
+    const { createWorker, workers } = makeFakeWorkerFactory();
+    const connecting = connectCompilerWorker(() => {
+      const worker = createWorker();
+      worker.postMessage = () => {
+        throw new Error("worker unavailable");
+      };
+      return worker;
+    }, ASSETS);
+    await expect(connecting).rejects.toThrow("worker unavailable");
+    expect(workers[0]!.terminated).toBe(true);
+  });
+
+  it("bounds a silent worker startup and releases its worker", async () => {
+    vi.useFakeTimers();
+    try {
+      const { createWorker, workers } = makeFakeWorkerFactory();
+      const connecting = connectCompilerWorker(createWorker, ASSETS, {
+        timeoutMs: 20,
+      });
+      const rejected =
+        expect(connecting).rejects.toBeInstanceOf(CompileTimeoutError);
+      await vi.advanceTimersByTimeAsync(20);
+      await rejected;
+      expect(workers[0]!.terminated).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
