@@ -29,6 +29,11 @@ test("mention and slash suggestions activate by keyboard without sending", async
   page,
 }) => {
   await gotoEditor(page);
+  // Hydration can replace the file-keyed agent panel; start after the project
+  // is ready, as the existing mention journey does.
+  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, {
+    timeout: 60_000,
+  });
   const request = page.getByTestId("agent-request");
   await request.fill("summarize @");
   await page.getByTestId("agent-mention-option-/main.typ").focus();
