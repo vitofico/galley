@@ -130,3 +130,5 @@ no-`Function`, no-debugger, no-console, no-`ts-ignore`). The semgrep config unde
 security smells the hygiene set does not (shell-interpolated `exec`, `dangerouslySetInnerHTML`,
 request-derived filesystem paths) — plus the broad `p/typescript` + `p/javascript` registry packs in
 CI. It does not duplicate the ast-grep rules.
+
+The dependency audit requires a complete pnpm advisory report. Parseable registry-error JSON, missing vulnerability totals, malformed advisory entries, and command failures are scanner failures, never a clean result. The offline policy regressions run with `node --test scripts/security-scan.test.mjs` as part of `ci:unit`.
