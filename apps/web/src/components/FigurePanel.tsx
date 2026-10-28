@@ -1,11 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { figureToTypst, cetzScaffold } from "@galley/agent";
-import type { FigureRequest, FigureResult, LanguageModelClient } from "@galley/agent";
+import type {
+  FigureRequest,
+  FigureResult,
+  LanguageModelClient,
+} from "@galley/agent";
 import type { Compiler } from "@galley/compiler";
 import { initCompiler } from "../compiler-assets.js";
 import { DiffReview } from "./DiffReview.js";
 import { appendSnippet } from "./authoring-insert.js";
-import type { FigureVerifyState, VerifyCompiler, VerifyCompilerFactory } from "./figure-verify.js";
+import type {
+  FigureVerifyState,
+  VerifyCompiler,
+  VerifyCompilerFactory,
+} from "./figure-verify.js";
 import { runFigureVerify, verifyStatusLabel } from "./figure-verify.js";
 import { FigureVisionTools } from "./figure-vision-tools.js";
 import type { ProviderCapabilities } from "@galley/shared";
@@ -85,17 +93,23 @@ export function FigurePanel({
   docked,
 }: FigurePanelProps) {
   const [description, setDescription] = useState("");
-  const [kind, setKind] = useState<NonNullable<FigureRequest["kind"]>>("diagram");
+  const [kind, setKind] =
+    useState<NonNullable<FigureRequest["kind"]>>("diagram");
   const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState<FigureResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const compilerRef = useRef<Compiler | null>(null);
+  const lifetimeRef = useRef(0);
+  const openRef = useRef(open);
+  openRef.current = open;
   // The server-capable verify compiler (separate from the browser generate-loop
   // compiler above), created lazily on first verify and disposed on close /
   // unmount. Null whenever no verify has run.
   const verifyCompilerRef = useRef<VerifyCompiler | null>(null);
   const [verifying, setVerifying] = useState(false);
-  const [verifyState, setVerifyState] = useState<FigureVerifyState | null>(null);
+  const [verifyState, setVerifyState] = useState<FigureVerifyState | null>(
+    null,
+  );
   const [verifyError, setVerifyError] = useState<string | null>(null);
 
   const disposeCompilers = () => {
@@ -105,14 +119,15 @@ export function FigurePanel({
     verifyCompilerRef.current = null;
   };
 
+  // Each opening owns its workers and asynchronous results. Cleanup invalidates
+  // pending initialization too, so a late handle can never escape into a reopen.
   useEffect(() => {
-    return () => disposeCompilers();
-  }, []);
-
-  // Dispose both compilers whenever the panel closes — a closed panel holds no
-  // worker (mirrors ImportPanel's lazy-create-on-open / dispose-on-close).
-  useEffect(() => {
-    if (!open) disposeCompilers();
+    setGenerating(false);
+    setVerifying(false);
+    return () => {
+      lifetimeRef.current++;
+      disposeCompilers();
+    };
   }, [open]);
 
   useEffect(() => {
@@ -135,25 +150,39 @@ export function FigurePanel({
   };
 
   const generate = async () => {
-    if (description.trim().length === 0 || generating) return;
+    if (!openRef.current || description.trim().length === 0 || generating)
+      return;
+    const lifetime = lifetimeRef.current;
+    const current = () => openRef.current && lifetimeRef.current === lifetime;
     setGenerating(true);
     setError(null);
     // A fresh generate invalidates any prior verify verdict.
     clearVerify();
     try {
-      if (!compilerRef.current) compilerRef.current = await initCompiler();
+      if (!compilerRef.current) {
+        const initialized = await initCompiler();
+        if (!current()) {
+          initialized.dispose();
+          return;
+        }
+        compilerRef.current = initialized;
+      }
       const compiler = compilerRef.current;
       const res = await figureToTypst(
         { description, kind },
         // One round offline: CeTZ can't resolve in the fail-closed browser
         // compiler, so extra self-correction rounds wouldn't converge.
-        { model, compiler: { check: (s: string) => compiler.check(s) }, maxAttempts: 1 },
+        {
+          model,
+          compiler: { check: (s: string) => compiler.check(s) },
+          maxAttempts: 1,
+        },
       );
-      setResult(res);
+      if (current()) setResult(res);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (current()) setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setGenerating(false);
+      if (current()) setGenerating(false);
     }
   };
 
@@ -178,153 +207,189 @@ export function FigurePanel({
   // server-capable compiler. No-op when the factory is absent — the affordance
   // is only rendered then anyway.
   const runVerify = async () => {
-    if (!verifyCompilerFactory || !result || verifying) return;
+    if (!openRef.current || !verifyCompilerFactory || !result || verifying)
+      return;
+    const lifetime = lifetimeRef.current;
+    const current = () => openRef.current && lifetimeRef.current === lifetime;
     setVerifying(true);
     setVerifyError(null);
     try {
       if (!verifyCompilerRef.current) {
-        verifyCompilerRef.current = await verifyCompilerFactory();
+        const initialized = await verifyCompilerFactory();
+        if (!current()) {
+          initialized.dispose?.();
+          return;
+        }
+        verifyCompilerRef.current = initialized;
       }
       const state = await runFigureVerify(snippet, verifyCompilerRef.current);
-      setVerifyState(state);
+      if (current()) setVerifyState(state);
     } catch (err) {
-      setVerifyError(err instanceof Error ? err.message : String(err));
+      if (current())
+        setVerifyError(err instanceof Error ? err.message : String(err));
     } finally {
-      setVerifying(false);
+      if (current()) setVerifying(false);
     }
   };
 
   const panel = (
-      <div
-        className={`authoring-panel${docked ? " authoring-panel--docked" : ""}`}
-        data-testid="figure-panel"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="authoring-header">
-          <h2 className="authoring-title">Figure → Typst</h2>
-          <button type="button" className="authoring-close" aria-label="Close" onClick={onClose}>
-            ✕
+    <div
+      className={`authoring-panel${docked ? " authoring-panel--docked" : ""}`}
+      data-testid="figure-panel"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <header className="authoring-header">
+        <h2 className="authoring-title">Figure → Typst</h2>
+        <button
+          type="button"
+          className="authoring-close"
+          aria-label="Close"
+          onClick={onClose}
+        >
+          ✕
+        </button>
+      </header>
+
+      <div className="authoring-body">
+        <div
+          className="authoring-format"
+          role="radiogroup"
+          aria-label="Figure kind"
+        >
+          {(["diagram", "plot", "generic"] as const).map((k) => (
+            <label key={k}>
+              <input
+                type="radio"
+                name="figure-kind"
+                data-testid={`figure-kind-${k}`}
+                checked={kind === k}
+                onChange={() => setKind(k)}
+              />
+              {k}
+            </label>
+          ))}
+        </div>
+
+        <textarea
+          className="authoring-input"
+          data-testid="figure-description"
+          value={description}
+          placeholder="Describe the figure, e.g. “a labelled box-and-arrow flow: Input → Model → Output”"
+          aria-label="Figure description"
+          rows={4}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+
+        <div className="authoring-actions">
+          <button
+            type="button"
+            className="authoring-primary"
+            data-testid="figure-generate"
+            disabled={description.trim().length === 0 || generating}
+            onClick={() => void generate()}
+          >
+            {generating ? "Generating…" : "Generate"}
           </button>
-        </header>
-
-        <div className="authoring-body">
-          <div className="authoring-format" role="radiogroup" aria-label="Figure kind">
-            {(["diagram", "plot", "generic"] as const).map((k) => (
-              <label key={k}>
-                <input
-                  type="radio"
-                  name="figure-kind"
-                  data-testid={`figure-kind-${k}`}
-                  checked={kind === k}
-                  onChange={() => setKind(k)}
-                />
-                {k}
-              </label>
-            ))}
-          </div>
-
-          <textarea
-            className="authoring-input"
-            data-testid="figure-description"
-            value={description}
-            placeholder="Describe the figure, e.g. “a labelled box-and-arrow flow: Input → Model → Output”"
-            aria-label="Figure description"
-            rows={4}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-
-          <div className="authoring-actions">
+          {result && (
             <button
               type="button"
-              className="authoring-primary"
-              data-testid="figure-generate"
-              disabled={description.trim().length === 0 || generating}
-              onClick={() => void generate()}
+              className="authoring-secondary"
+              data-testid="figure-reset"
+              onClick={reset}
             >
-              {generating ? "Generating…" : "Generate"}
+              Clear
             </button>
-            {result && (
-              <button type="button" className="authoring-secondary" data-testid="figure-reset" onClick={reset}>
-                Clear
-              </button>
-            )}
-          </div>
-
-          {error && <Notice severity="error" testId="figure-error" message={`Error: ${error}`} />}
-
-          {result && (
-            <>
-              {(() => {
-                const verified = result.ok && result.typst.includes("cetz");
-                return (
-                  <div
-                    className="authoring-status"
-                    data-testid="figure-status"
-                    data-ok={verified ? "true" : "false"}
-                  >
-                    {verified
-                      ? `Compiles cleanly (in ${result.attempts} round${result.attempts === 1 ? "" : "s"}).`
-                      : "Generated a CeTZ draft — review before inserting (CeTZ requires package resolution to compile; available with server-side compile)."}
-                  </div>
-                );
-              })()}
-
-              {verifyCompilerFactory && (
-                <div className="authoring-actions" data-testid="figure-verify-actions">
-                  <button
-                    type="button"
-                    className="authoring-secondary"
-                    data-testid="figure-verify-run"
-                    disabled={verifying}
-                    onClick={() => void runVerify()}
-                  >
-                    {verifying ? "Verifying…" : verifyState ? "Verify again" : "Verify compile"}
-                  </button>
-                </div>
-              )}
-
-              {verifyError && (
-                <Notice
-                  severity="error"
-                  testId="figure-verify-error"
-                  message={`Error: ${verifyError}`}
-                />
-              )}
-
-              {verifyState && (
-                <div
-                  className="authoring-status"
-                  data-testid="figure-verify-result"
-                  data-ok={verifyState.ok ? "true" : "false"}
-                >
-                  {verifyStatusLabel(verifyState)}
-                </div>
-              )}
-
-              <DiffReview
-                base={currentSource}
-                next={next}
-                outcome="figure"
-                onAccept={() => {
-                  if (onInsert(snippet)) onClose();
-                }}
-                onReject={reset}
-              />
-            </>
-          )}
-
-          {capabilities !== undefined && (
-            <FigureVisionTools
-              model={model}
-              currentSource={currentSource}
-              onInsert={onInsert}
-              capabilities={capabilities}
-              {...(previewSvg !== undefined ? { previewSvg } : {})}
-              {...(verifyCompilerFactory ? { verifyCompilerFactory } : {})}
-            />
           )}
         </div>
+
+        {error && (
+          <Notice
+            severity="error"
+            testId="figure-error"
+            message={`Error: ${error}`}
+          />
+        )}
+
+        {result && (
+          <>
+            {(() => {
+              const verified = result.ok && result.typst.includes("cetz");
+              return (
+                <div
+                  className="authoring-status"
+                  data-testid="figure-status"
+                  data-ok={verified ? "true" : "false"}
+                >
+                  {verified
+                    ? `Compiles cleanly (in ${result.attempts} round${result.attempts === 1 ? "" : "s"}).`
+                    : "Generated a CeTZ draft — review before inserting (CeTZ requires package resolution to compile; available with server-side compile)."}
+                </div>
+              );
+            })()}
+
+            {verifyCompilerFactory && (
+              <div
+                className="authoring-actions"
+                data-testid="figure-verify-actions"
+              >
+                <button
+                  type="button"
+                  className="authoring-secondary"
+                  data-testid="figure-verify-run"
+                  disabled={verifying}
+                  onClick={() => void runVerify()}
+                >
+                  {verifying
+                    ? "Verifying…"
+                    : verifyState
+                      ? "Verify again"
+                      : "Verify compile"}
+                </button>
+              </div>
+            )}
+
+            {verifyError && (
+              <Notice
+                severity="error"
+                testId="figure-verify-error"
+                message={`Error: ${verifyError}`}
+              />
+            )}
+
+            {verifyState && (
+              <div
+                className="authoring-status"
+                data-testid="figure-verify-result"
+                data-ok={verifyState.ok ? "true" : "false"}
+              >
+                {verifyStatusLabel(verifyState)}
+              </div>
+            )}
+
+            <DiffReview
+              base={currentSource}
+              next={next}
+              outcome="figure"
+              onAccept={() => {
+                if (onInsert(snippet)) onClose();
+              }}
+              onReject={reset}
+            />
+          </>
+        )}
+
+        {capabilities !== undefined && (
+          <FigureVisionTools
+            model={model}
+            currentSource={currentSource}
+            onInsert={onInsert}
+            capabilities={capabilities}
+            {...(previewSvg !== undefined ? { previewSvg } : {})}
+            {...(verifyCompilerFactory ? { verifyCompilerFactory } : {})}
+          />
+        )}
       </div>
+    </div>
   );
   if (docked) return panel;
   return (

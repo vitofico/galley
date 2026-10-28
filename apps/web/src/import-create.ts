@@ -20,7 +20,11 @@ import {
   setPendingBinarySeed,
   type PendingBinaryPointer,
 } from "./binary-files.js";
-import { PersistentBlobStore, IndexeddbBlobBackend, blobDbName } from "./idb-blob-store.js";
+import {
+  PersistentBlobStore,
+  IndexeddbBlobBackend,
+  blobDbName,
+} from "./idb-blob-store.js";
 import { createProject, projectNameFromZipFilename } from "./project-create.js";
 import { navigate } from "./router.js";
 
@@ -42,8 +46,9 @@ function mintImportProjectId(): string {
  */
 export async function importProjectFromZip(
   files: ProjectTextFile[],
-  report: LatexProjectReport,
+  _report: LatexProjectReport,
   filename: string,
+  mainPath: string | null = null,
 ): Promise<boolean> {
   // Gate the FINAL (`/`-rooted) paths through the project VFS predicate the
   // version stores enforce: importLatexProject rewrites paths (.tex→.typ), so a
@@ -52,12 +57,10 @@ export async function importProjectFromZip(
   // new project. The dropped paths are surfaced at REVIEW time before Accept.
   const { kept } = toSafeProjectFiles(files);
   if (kept.length === 0) return false;
-  // Choose main by PATH: the converted main if the report names one (and it
-  // survived the gate), else the first .typ file, else the first kept file.
-  const mainRef =
-    report.outcomes.find((o) => o.action === "converted" && o.outputPath)?.outputPath ?? null;
+  // Preserve the entrypoint shown in review, provided it survived the VFS gate.
+  // Outcomes are alphabetically sorted and do not identify the main document.
   const preferredMain =
-    kept.find((f) => f.path === mainRef)?.path ??
+    kept.find((f) => f.path === mainPath)?.path ??
     kept.find((f) => f.path.toLowerCase().endsWith(".typ"))?.path ??
     kept[0]!.path;
 
@@ -87,7 +90,9 @@ export async function importProjectFromZip(
   const newBlobStore = (() => {
     try {
       if (typeof indexedDB === "undefined") return null;
-      return new PersistentBlobStore(new IndexeddbBlobBackend(blobDbName(newId)));
+      return new PersistentBlobStore(
+        new IndexeddbBlobBackend(blobDbName(newId)),
+      );
     } catch {
       return null;
     }

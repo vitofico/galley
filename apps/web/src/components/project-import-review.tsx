@@ -36,8 +36,14 @@ export interface ProjectImportBodyProps {
 
 /** Count outcomes by action for the headline summary. */
 function summarizeOutcomes(report: LatexProjectReport): Record<string, number> {
-  const counts: Record<string, number> = { converted: 0, passthrough: 0, skipped: 0, asset: 0 };
-  for (const o of report.outcomes) counts[o.action] = (counts[o.action] ?? 0) + 1;
+  const counts: Record<string, number> = {
+    converted: 0,
+    passthrough: 0,
+    skipped: 0,
+    asset: 0,
+  };
+  for (const o of report.outcomes)
+    counts[o.action] = (counts[o.action] ?? 0) + 1;
   return counts;
 }
 
@@ -53,35 +59,51 @@ export function ProjectImportBody({
   return (
     <div className="import-project" data-testid="import-project">
       <p className="import-project-hint">
-        Import an Overleaf / LaTeX project as a <code>.zip</code>. The whole tree is
-        converted to Typst and you review the migration report before anything lands.
+        Import an Overleaf / LaTeX project as a <code>.zip</code>. The whole
+        tree is converted to Typst and you review the migration report before
+        anything lands.
       </p>
 
       <div className="authoring-actions">
-        <label className="authoring-primary import-project-pick" data-testid="import-project-pick">
+        <button
+          type="button"
+          className="authoring-primary import-project-pick"
+          data-testid="import-project-pick"
+          disabled={unpacking}
+          onClick={() => fileInputRef.current?.click()}
+        >
           {unpacking ? "Unpacking…" : "Choose .zip…"}
-          <input
-            ref={fileInputRef as RefObject<HTMLInputElement>}
-            type="file"
-            accept=".zip,application/zip"
-            data-testid="import-project-file"
-            disabled={unpacking}
-            style={{ display: "none" }}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void onPickZip(file);
-            }}
-          />
-        </label>
+        </button>
+        <input
+          ref={fileInputRef as RefObject<HTMLInputElement>}
+          type="file"
+          accept=".zip,application/zip"
+          data-testid="import-project-file"
+          disabled={unpacking}
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void onPickZip(file);
+          }}
+        />
         {projectImport && (
-          <button type="button" className="authoring-secondary" data-testid="import-project-clear" onClick={onClear}>
+          <button
+            type="button"
+            className="authoring-secondary"
+            data-testid="import-project-clear"
+            onClick={onClear}
+          >
             Clear
           </button>
         )}
       </div>
 
       {zipError && (
-        <Notice severity="error" testId="import-project-error" message={zipError} />
+        <Notice
+          severity="error"
+          testId="import-project-error"
+          message={zipError}
+        />
       )}
 
       {projectImport && (
@@ -108,19 +130,27 @@ function ProjectReport({
   const droppedCount = droppedGroups.reduce((n, g) => n + g.paths.length, 0);
   return (
     <div className="import-project-report" data-testid="import-project-report">
-      <div className="import-project-summary" data-testid="import-project-summary">
-        <strong>{kept.length}</strong> file(s) ready ·{" "}
-        {counts.converted} converted · {counts.passthrough} passed through ·{" "}
-        {counts.skipped} skipped · {report.assets.length} asset(s)
+      <div
+        className="import-project-summary"
+        data-testid="import-project-summary"
+      >
+        <strong>{kept.length}</strong> file(s) ready · {counts.converted}{" "}
+        converted · {counts.passthrough} passed through · {counts.skipped}{" "}
+        skipped · {report.assets.length} asset(s)
         {mainPath && (
           <>
-            {" "}· main <code>{mainPath}</code>
+            {" "}
+            · main <code>{mainPath}</code>
           </>
         )}
       </div>
 
       {droppedGroups.length > 0 && (
-        <details className="authoring-report" data-testid="import-project-dropped" open>
+        <details
+          className="authoring-report"
+          data-testid="import-project-dropped"
+          open
+        >
           <summary>{droppedCount} path(s) won't be imported</summary>
           {droppedGroups.map((g) => (
             <div
@@ -142,13 +172,19 @@ function ProjectReport({
         </details>
       )}
 
-      <details className="authoring-report" data-testid="import-project-outcomes" open>
+      <details
+        className="authoring-report"
+        data-testid="import-project-outcomes"
+        open
+      >
         <summary>Per-file outcomes</summary>
         <ul>
           {report.outcomes.map((o, i) => (
             <li key={i} data-testid="import-project-outcome">
               <code>{o.action}</code> · {o.sourcePath}
-              {o.outputPath && o.outputPath !== o.sourcePath ? ` → ${o.outputPath}` : ""}
+              {o.outputPath && o.outputPath !== o.sourcePath
+                ? ` → ${o.outputPath}`
+                : ""}
               {o.orphaned ? " (orphaned)" : ""}
               {o.note ? ` — ${o.note}` : ""}
             </li>
@@ -157,8 +193,13 @@ function ProjectReport({
       </details>
 
       {report.unconverted.length > 0 && (
-        <details className="authoring-report" data-testid="import-project-unconverted">
-          <summary>{report.unconverted.length} construct(s) not fully converted</summary>
+        <details
+          className="authoring-report"
+          data-testid="import-project-unconverted"
+        >
+          <summary>
+            {report.unconverted.length} construct(s) not fully converted
+          </summary>
           <ul>
             {report.unconverted.map((u, i) => (
               <li key={i}>
@@ -170,8 +211,13 @@ function ProjectReport({
       )}
 
       {report.unresolvedIncludes.length > 0 && (
-        <details className="authoring-report" data-testid="import-project-unresolved">
-          <summary>{report.unresolvedIncludes.length} unresolved include(s)</summary>
+        <details
+          className="authoring-report"
+          data-testid="import-project-unresolved"
+        >
+          <summary>
+            {report.unresolvedIncludes.length} unresolved include(s)
+          </summary>
           <ul>
             {report.unresolvedIncludes.map((u, i) => (
               <li key={i}>
@@ -183,13 +229,20 @@ function ProjectReport({
       )}
 
       {report.assets.length > 0 && (
-        <details className="authoring-report" data-testid="import-project-assets">
-          <summary>{report.assets.length} asset(s) — bytes not imported</summary>
+        <details
+          className="authoring-report"
+          data-testid="import-project-assets"
+        >
+          <summary>
+            {report.assets.length} asset(s) — bytes not imported
+          </summary>
           <ul>
             {report.assets.map((a, i) => (
               <li key={i}>
                 <code>{a.path}</code>
-                {a.referencedBy.length > 0 ? ` · referenced by ${a.referencedBy.join(", ")}` : ""}
+                {a.referencedBy.length > 0
+                  ? ` · referenced by ${a.referencedBy.join(", ")}`
+                  : ""}
               </li>
             ))}
           </ul>
@@ -197,7 +250,11 @@ function ProjectReport({
       )}
 
       {report.warnings.length > 0 && (
-        <details className="authoring-report" data-testid="import-project-warnings" open>
+        <details
+          className="authoring-report"
+          data-testid="import-project-warnings"
+          open
+        >
           <summary>{report.warnings.length} warning(s)</summary>
           <ul>
             {report.warnings.map((w, i) => (

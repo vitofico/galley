@@ -5,8 +5,17 @@
  * round-trip is node-testable with a simulated in-process worker.
  */
 
-import type { CheckResult, CompileInput, ExportResult, RenderResult } from "@galley/shared";
-import type { CompileRequest, WorkerRequest, WorkerResponse } from "./worker-protocol.js";
+import type {
+  CheckResult,
+  CompileInput,
+  ExportResult,
+  RenderResult,
+} from "@galley/shared";
+import type {
+  CompileRequest,
+  WorkerRequest,
+  WorkerResponse,
+} from "./worker-protocol.js";
 
 /**
  * The public compiler handle (docs/compiler.md). Each method takes a
@@ -22,7 +31,10 @@ export interface Compiler {
    * implementation that ignores `opts` (e.g. {@link RemoteCompilerClient}) still
    * satisfies the type — preview-sync just degrades gracefully (no map) there.
    */
-  render(input: CompileInput, opts?: { sourceMap?: boolean }): Promise<RenderResult>;
+  render(
+    input: CompileInput,
+    opts?: { sourceMap?: boolean },
+  ): Promise<RenderResult>;
   export(input: CompileInput): Promise<ExportResult>;
   /** Cancel any in-flight job (stale preview, aborted agent run). */
   cancel(): void;
@@ -83,7 +95,7 @@ export interface CompilerClientOptions {
   respawnOnCancel?: boolean;
 }
 
-const DEFAULT_TIMEOUT_MS = 20_000;
+export const DEFAULT_TIMEOUT_MS = 20_000;
 
 export class CompilerClient implements Compiler {
   private seq = 0;
@@ -135,7 +147,10 @@ export class CompilerClient implements Compiler {
   private submit<T>(make: (jobId: number) => CompileRequest): Promise<T> {
     const jobId = ++this.seq;
     return new Promise<T>((resolve, reject) => {
-      const entry: Pending = { resolve: resolve as (v: unknown) => void, reject };
+      const entry: Pending = {
+        resolve: resolve as (v: unknown) => void,
+        reject,
+      };
       if (this.timeoutMs > 0) {
         entry.timer = setTimeout(() => {
           // Still pending? (Not already settled by a result/cancel/sibling drain.)
@@ -170,7 +185,10 @@ export class CompilerClient implements Compiler {
   check(input: CompileInput): Promise<CheckResult> {
     return this.submit((jobId) => ({ type: "check", jobId, input }));
   }
-  render(input: CompileInput, opts?: { sourceMap?: boolean }): Promise<RenderResult> {
+  render(
+    input: CompileInput,
+    opts?: { sourceMap?: boolean },
+  ): Promise<RenderResult> {
     // Forward the optional #11.3 flag via conditional spread so the message OMITS
     // the key (never `sourceMap: undefined`) when not requested — keeping the
     // historical render message shape byte-for-byte (exactOptionalPropertyTypes).
@@ -198,7 +216,8 @@ export class CompilerClient implements Compiler {
     // can't queue ahead of the next compile; by default (live preview) we keep
     // the worker so a normal supersede doesn't churn it / reload WASM. The
     // timeout path always respawns a genuinely wedged worker regardless.
-    if (hadInFlight && this.createTransport && this.respawnOnCancel) this.respawn();
+    if (hadInFlight && this.createTransport && this.respawnOnCancel)
+      this.respawn();
   }
 
   dispose(): void {

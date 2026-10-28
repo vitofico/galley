@@ -1,8 +1,6 @@
 /**
- * Shared painter for the author-attribution decorations used by both the
- * single-file (`attribution-decorations.ts`) and project (`project-attribution-
- * decorations.ts`) editors. Centralising it keeps the two ViewPlugins byte-for-byte
- * consistent and puts the "when is attribution worth showing?" policy in one place.
+ * Painter for project author-attribution decorations. It keeps the
+ * "when is attribution worth showing?" policy in one place.
  *
  * Attribution is a COLLABORATION signal — it answers "who wrote this part?". In the
  * common solo case there is only one author, so painting every span tells the writer
@@ -15,7 +13,10 @@ import { RangeSetBuilder } from "@codemirror/state";
 import type { AttributedRange } from "@galley/collab";
 import { authorColor, authorKey, authorLabel } from "../attribution-style.js";
 
-export function buildAttributionDecorations(ranges: AttributedRange[], docLength: number): DecorationSet {
+export function buildAttributionDecorations(
+  ranges: AttributedRange[],
+  docLength: number,
+): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
 
   // Only paint once authorship is informative — i.e. more than one distinct author

@@ -1,9 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { importLatexProject } from "@galley/agent";
 import type { LatexProjectReport, ProjectTextFile } from "@galley/agent";
-import { readProjectZip, ZipImportError, MAX_ZIP_BYTES } from "./import-project.js";
-import { ProjectImportBody, type ProjectImport } from "./project-import-review.js";
+import {
+  readProjectZip,
+  ZipImportError,
+  MAX_ZIP_BYTES,
+} from "./import-project.js";
+import {
+  ProjectImportBody,
+  type ProjectImport,
+} from "./project-import-review.js";
 import { importProjectFromZip } from "../import-create.js";
+import { useFocusTrap } from "./use-focus-trap.js";
 import "./authoring-panels.css";
 import "./import-project.css";
 
@@ -26,6 +34,7 @@ export interface ProjectImportPanelProps {
     files: ProjectTextFile[],
     report: LatexProjectReport,
     filename: string,
+    mainPath: string | null,
   ) => boolean | Promise<boolean>;
 }
 
@@ -34,10 +43,23 @@ export function ProjectImportPanel({
   onClose,
   onImport = importProjectFromZip,
 }: ProjectImportPanelProps) {
-  const [projectImport, setProjectImport] = useState<ProjectImport | null>(null);
+  const [projectImport, setProjectImport] = useState<ProjectImport | null>(
+    null,
+  );
   const [zipError, setZipError] = useState<string | null>(null);
   const [unpacking, setUnpacking] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  useFocusTrap(dialogRef, open);
+  useEffect(() => {
+    if (open) {
+      dialogRef.current
+        ?.querySelector<HTMLButtonElement>(
+          '[data-testid="import-project-pick"]',
+        )
+        ?.focus();
+    }
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -104,7 +126,12 @@ export function ProjectImportPanel({
     // and stay put so a half-created project is never opened.
     void (async () => {
       try {
-        const ok = await onImport(projectImport.files, projectImport.report, projectImport.filename);
+        const ok = await onImport(
+          projectImport.files,
+          projectImport.report,
+          projectImport.filename,
+          projectImport.mainPath,
+        );
         if (ok) {
           reset();
           onClose();
@@ -124,10 +151,19 @@ export function ProjectImportPanel({
       data-testid="project-import-panel"
       onClick={onClose}
     >
-      <div className="authoring-panel" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={dialogRef}
+        className="authoring-panel"
+        onClick={(e) => e.stopPropagation()}
+      >
         <header className="authoring-header">
           <h2 className="authoring-title">Import a project</h2>
-          <button type="button" className="authoring-close" aria-label="Close" onClick={onClose}>
+          <button
+            type="button"
+            className="authoring-close"
+            aria-label="Close"
+            onClick={onClose}
+          >
             ✕
           </button>
         </header>

@@ -83,8 +83,11 @@ else
   # FAIL, not a pass — we never report PASS without a parseable audit.
   set +e
   pnpm audit --json >"$AUDIT_JSON" 2>"$OUT_DIR/pnpm-audit.err"
+  audit_rc=$?
   set -e
-  if [[ ! -s "$AUDIT_JSON" ]]; then
+  if [[ "$audit_rc" -ne 0 && "$audit_rc" -ne 1 ]]; then
+    record FAIL "pnpm-audit" "audit command failed (rc=$audit_rc — see $OUT_DIR/pnpm-audit.err)"
+  elif [[ ! -s "$AUDIT_JSON" ]]; then
     record FAIL "pnpm-audit" "no audit output (registry/offline error — see $OUT_DIR/pnpm-audit.err)"
   else
     # node evaluates: REPORT everything; FAIL only on a NEW high/critical that is
@@ -97,6 +100,19 @@ const [, , auditPath, ignorePath] = process.argv;
 let audit;
 try { audit = JSON.parse(fs.readFileSync(auditPath, "utf8")); }
 catch (e) { console.error("  ! could not parse pnpm audit JSON:", e.message); process.exit(2); }
+
+// pnpm also emits parseable { error: ... } JSON on registry/network failures.
+// A successful policy evaluation requires an actual complete advisory report.
+const severities = ["info", "low", "moderate", "high", "critical"];
+const isRecord = value => value !== null && typeof value === "object" && !Array.isArray(value);
+const totals = audit?.metadata?.vulnerabilities;
+if (!isRecord(audit) || "error" in audit || !isRecord(audit.advisories) ||
+    !isRecord(totals) || !severities.every(s => Number.isInteger(totals[s]) && totals[s] >= 0) ||
+    !Object.values(audit.advisories).every(a => isRecord(a) && severities.includes(a.severity)) ||
+    !severities.every(s => totals[s] === 0 || Object.values(audit.advisories).some(a => a.severity === s))) {
+  console.error("  ! pnpm audit did not return a complete advisory report (registry error or malformed response).");
+  process.exit(2);
+}
 
 let policy = { failOn: ["high", "critical"], ignore: [] };
 try {

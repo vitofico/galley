@@ -25,11 +25,19 @@ async function reachProposal(page: import("@playwright/test").Page) {
   await page.addInitScript(() => {
     const nav = navigator as unknown as { storage?: Record<string, unknown> };
     if (!nav.storage) nav.storage = {};
-    Object.defineProperty(nav.storage, "persist", { configurable: true, value: async () => true });
-    Object.defineProperty(nav.storage, "persisted", { configurable: true, value: async () => true });
+    Object.defineProperty(nav.storage, "persist", {
+      configurable: true,
+      value: async () => true,
+    });
+    Object.defineProperty(nav.storage, "persisted", {
+      configurable: true,
+      value: async () => true,
+    });
   });
   await gotoEditor(page);
-  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, { timeout: 60_000 });
+  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, {
+    timeout: 60_000,
+  });
 
   await page.getByTestId("agent-send").click();
   const diff = page.getByTestId("diff-review");
@@ -72,6 +80,13 @@ test("11.8c: refine the pending proposal → a NEW proposal replaces it; Accept 
   await expect(diff).toContainText(/compiled_clean/);
   await expect(page.getByTestId("accept")).toBeVisible();
   await expect(page.getByTestId("reject")).toBeVisible();
+  // Both demo runs add a paragraph. Review must show the complete net change
+  // from the live document, not hide the first run in unchanged context.
+  await expect(
+    diff
+      .locator(".diff-add")
+      .filter({ hasText: "Inserted by the Galley demo agent." }),
+  ).toHaveCount(2);
   // The refine affordance is offered again on the new proposal (chain again).
   await expect(page.getByTestId("refine-proposal")).toBeVisible();
 
@@ -79,9 +94,9 @@ test("11.8c: refine the pending proposal → a NEW proposal replaces it; Accept 
   // clears the diff (never auto-applied — the gate is mandatory throughout).
   await page.getByTestId("accept").click();
   await expect(diff).toHaveCount(0);
-  await expect(page.locator('[data-testid="editor"] .cm-content')).toContainText(
-    "Inserted by the Galley demo agent.",
-  );
+  await expect(
+    page.locator('[data-testid="editor"] .cm-content'),
+  ).toContainText("Inserted by the Galley demo agent.");
 });
 
 test("11.8c: a refine run is cancellable like any run, and an empty instruction is a no-op", async ({

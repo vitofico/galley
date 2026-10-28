@@ -4117,7 +4117,9 @@ export function ProjectApp({
     const liveMode = getProjectAcceptanceMode(projectId);
     const liveCanMutate = canMutateRef.current;
     const liveFileId = activeFileIdRef.current;
-    if (liveFileId === null) return false;
+    // This callback belongs to the panel rendered for the captured file ID.
+    // A fresh active ref alone could redirect a delayed run to another file.
+    if (liveFileId === null || liveFileId !== activeFileId) return false;
     const liveFileRec = project.getFile(liveFileId);
     if (liveFileRec === undefined) return false;
     const liveText = liveFileRec.text;
@@ -5253,7 +5255,7 @@ export function ProjectApp({
   };
 
   /**
-   * H4: the ONE entry point for "Export PDF" / "Back up a copy". `exportPdf` used
+   * H4: the entry point for "Export PDF". `exportPdf` used
    * to be fired as `void exportPdf()`, so a rejection (or a no-PDF compile) failed
    * SILENTLY — worst at the at-risk "Back up a copy" moment. This wrapper gates on
    * `ready`, then surfaces any failure via the shell-root error banner (the raw
@@ -7320,8 +7322,8 @@ export function ProjectApp({
       {/* C1: persistence is broken (IndexedDB blocked/unavailable) — the doc is
           in-memory only, so closing the tab loses everything. The MOST severe
           state, so it leads the top-of-shell bars. role="alert"; NOT dismissable
-          (it's an ongoing condition, not a transient nudge); the backup CTA reuses
-          the SAME exportPdf the durability nudge / Export menu use. The save chip
+          (it's an ongoing condition, not a transient nudge); backup exports the
+          editable source without requiring a clean compile. The save chip
           independently reads "Not saved", so the signal is doubly honest. */}
       {saveState === "at-risk" && (
         <div className="durability-bar">
@@ -7331,12 +7333,10 @@ export function ProjectApp({
             message="Your work isn't being saved to this device — storage is unavailable, so closing this tab will lose it."
             action={{
               label: "Back up a copy",
-              onClick: () => {
-                runPdfExport();
-              },
+              onClick: onExportBundle,
               testId: "at-risk-backup",
               title:
-                "Export the project as a PDF so you have an off-browser copy",
+                "Download the editable project source and assets as a .tar archive",
             }}
           />
         </div>
@@ -7469,8 +7469,8 @@ export function ProjectApp({
       )}
       {/* #23.1 data-durability guard: a calm, dismissible nudge shown ONLY when
           the local-first promise is at risk (browser may evict, or storage is
-          nearly full). The "Back up a copy" CTA reuses the EXISTING Export PDF
-          handler (same one the Export menu / ⌘K use). Once dismissed it stays
+          nearly full). The "Back up a copy" CTA exports the editable source
+          bundle without requiring a clean compile. Once dismissed it stays
           hidden for the session. "ok"/"unknown" renders nothing — healthy and
           unsupported environments are byte-for-byte unchanged. */}
       {durability?.level === "at-risk" && !durabilityDismissed && (
@@ -7481,12 +7481,10 @@ export function ProjectApp({
             message={`${durability.reason} Back up a copy of your work.`}
             action={{
               label: "Back up a copy",
-              onClick: () => {
-                runPdfExport();
-              },
+              onClick: onExportBundle,
               testId: "durability-backup",
               title:
-                "Export the project as a PDF so you have an off-browser copy",
+                "Download the editable project source and assets as a .tar archive",
             }}
           />
           <button
@@ -7516,12 +7514,10 @@ export function ProjectApp({
               message="This browser may not keep your work after you close it — in a private/incognito window it's cleared on close."
               action={{
                 label: "Back up a copy",
-                onClick: () => {
-                  runPdfExport();
-                },
+                onClick: onExportBundle,
                 testId: "transient-storage-backup",
                 title:
-                  "Export the project as a PDF so you have an off-browser copy",
+                  "Download the editable project source and assets as a .tar archive",
               }}
             />
             <button
