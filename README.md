@@ -25,11 +25,39 @@
 <p align="center">
   <a href="https://vitofico.github.io/galley/">
     <img src="docs/assets/galley-editor.png" width="900"
-      alt="The Galley editor: Typst source on the left, the typeset 'Annus Mirabilis' manuscript rendering in the middle, and the agent panel on the right showing the offline Demo model." />
+      alt="The current Galley workspace: multi-file Typst source, the compiled Annus Mirabilis manuscript and the offline Demo agent in Studio light." />
   </a>
 </p>
 
-A *galley proof* is the preliminary typeset version you check and correct before
+The workspace above is the bundled **Annus Mirabilis** demo: multiple Typst
+files, a real nine-page compile, source editing and the offline Demo agent.
+Open **Files** on the left rail to navigate the project; use **Export** for the
+finished document or **⌘K / Ctrl+K** to find an action.
+
+<details>
+<summary>See an agent proposal and a different desk theme</summary>
+
+<p align="center">
+  <a href="docs/assets/readme-agent-review.png"><img src="docs/assets/readme-agent-review.png" width="100%" alt="Galley's offline Demo agent has compiled a proposed section and presents its diff with Accept and Reject controls, on the dark Press desk."></a>
+</p>
+
+The offline Demo model proposes a sample section without an API key. In **Ask**
+mode, inspect the compiled proposal and choose **Accept** or **Reject**. The
+screenshot was taken before Accept; the capture also verified that accepting
+updated the document, compiled cleanly and survived a reload.
+
+<p align="center">
+  <a href="docs/assets/readme-editor-press-dark.png"><img src="docs/assets/readme-editor-press-dark.png" width="100%" alt="The same Annus Mirabilis manuscript on Galley's dark Press desk; the typeset page retains its paper colours."></a>
+</p>
+
+In **Settings → Appearance**, choose **Studio** or **Press**, then **Light**,
+**Dark** or **System**. **Artwork** and **Plain** control the desk background
+independently. These choices change the workspace; document styling stays in
+Typst and the **Change style** command.
+
+</details>
+
+A _galley proof_ is the preliminary typeset version you check and correct before
 final layout — which is exactly this app's core loop: **compile → inspect →
 correct → repeat.**
 
@@ -168,20 +196,20 @@ compile) — are stateless, off by default, and self-hostable (see the
 
 Read these in order:
 
-| Doc | Purpose |
-| --- | --- |
-| [`docs/vision.md`](docs/vision.md) | Product principles, the three bets, non-goals, honest definitions |
-| [`docs/architecture.md`](docs/architecture.md) | Package boundaries, data flow, the worker model, source-of-truth rules |
-| [`docs/roadmap.md`](docs/roadmap.md) | What's built, what activates with config, future directions |
-| [`docs/security-model.md`](docs/security-model.md) | Threat model, per-surface posture, deployment hardening checklist |
-| [`docs/self-host.md`](docs/self-host.md) | Docker compose + Kubernetes packaging |
-| [`docs/server-and-collaboration.md`](docs/server-and-collaboration.md) | Server topology, accounts/auth, Yjs collaboration, agent-as-peer (design rationale) |
-| [`docs/agent-loop.md`](docs/agent-loop.md) | The agent state machine, tools, iteration/error/cancel handling, event stream |
-| [`docs/editing-and-diff.md`](docs/editing-and-diff.md) | Search/replace contract, scratch isolation, diff, Accept/Reject conflicts |
-| [`docs/compiler.md`](docs/compiler.md) | typst.ts init, worker protocol, fonts, diagnostics normalization, preview/export |
-| [`docs/providers.md`](docs/providers.md) | Provider types, capability probing, CORS/key caveats, local vs remote privacy |
-| [`docs/mcp.md`](docs/mcp.md) | Drive Galley from Claude Code or Codex over MCP, on your own plan instead of an API key |
-| [`docs/decisions/`](docs/decisions) | Architecture Decision Records (ADRs) |
+| Doc                                                                    | Purpose                                                                                 |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| [`docs/vision.md`](docs/vision.md)                                     | Product principles, the three bets, non-goals, honest definitions                       |
+| [`docs/architecture.md`](docs/architecture.md)                         | Package boundaries, data flow, the worker model, source-of-truth rules                  |
+| [`docs/roadmap.md`](docs/roadmap.md)                                   | What's built, what activates with config, future directions                             |
+| [`docs/security-model.md`](docs/security-model.md)                     | Threat model, per-surface posture, deployment hardening checklist                       |
+| [`docs/self-host.md`](docs/self-host.md)                               | Docker compose + Kubernetes packaging                                                   |
+| [`docs/server-and-collaboration.md`](docs/server-and-collaboration.md) | Server topology, accounts/auth, Yjs collaboration, agent-as-peer (design rationale)     |
+| [`docs/agent-loop.md`](docs/agent-loop.md)                             | The agent state machine, tools, iteration/error/cancel handling, event stream           |
+| [`docs/editing-and-diff.md`](docs/editing-and-diff.md)                 | Search/replace contract, scratch isolation, diff, Accept/Reject conflicts               |
+| [`docs/compiler.md`](docs/compiler.md)                                 | typst.ts init, worker protocol, fonts, diagnostics normalization, preview/export        |
+| [`docs/providers.md`](docs/providers.md)                               | Provider types, capability probing, CORS/key caveats, local vs remote privacy           |
+| [`docs/mcp.md`](docs/mcp.md)                                           | Drive Galley from Claude Code or Codex over MCP, on your own plan instead of an API key |
+| [`docs/decisions/`](docs/decisions)                                    | Architecture Decision Records (ADRs)                                                    |
 
 ## Quick start
 
