@@ -166,6 +166,22 @@ browser**. Proxy-side rules (ADR-0004, [`@galley/proxy`](../apps/proxy)):
 - **Stateless.** No DB, no disk, no sessions.
 - **Stream through unbuffered**, so the agent loop's streaming is preserved.
 
+Each upstream is a URL, the header that carries the key, and the key itself. The
+header defaults to `Authorization`, so an OpenAI-compatible upstream sets the
+full `Bearer` value as its key. Anthropic's native Messages API authenticates
+with `x-api-key` instead, so a provider of kind `anthropic` in `proxy` mode
+needs an upstream like this (the client still sends `anthropic-version`, which
+the proxy forwards):
+
+```bash
+UPSTREAM_OPENAI_URL=https://api.openai.com/v1
+UPSTREAM_OPENAI_KEY=Bearer sk-...
+
+UPSTREAM_ANTHROPIC_URL=https://api.anthropic.com/v1
+UPSTREAM_ANTHROPIC_AUTH_HEADER=x-api-key
+UPSTREAM_ANTHROPIC_KEY=sk-ant-...
+```
+
 ## Privacy: local vs remote (tie back to local-first)
 
 The app must reflect, in the UI, where document context goes when the agent runs:

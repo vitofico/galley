@@ -35,19 +35,19 @@ export interface ResolvedTransport {
 
 /** Compute the call target + headers for a provider's configured transport. */
 export function resolveTransport(config: ProviderConfig): ResolvedTransport {
+  // Anthropic's Messages API rejects a request without its version header, so it
+  // rides along in BOTH modes (the proxy forwards it upstream untouched).
+  const headers: Record<string, string> =
+    config.kind === "anthropic" ? { "anthropic-version": "2023-06-01" } : {};
   if (config.transport.mode === "proxy") {
-    return {
-      baseUrl: `${config.transport.proxyUrl.replace(/\/+$/, "")}/forward`,
-      headers: { [GALLEY_UPSTREAM_HEADER]: config.transport.upstreamId },
-    };
+    headers[GALLEY_UPSTREAM_HEADER] = config.transport.upstreamId;
+    return { baseUrl: `${config.transport.proxyUrl.replace(/\/+$/, "")}/forward`, headers };
   }
   // direct: attach the client-side key in the provider's auth scheme.
-  const headers: Record<string, string> = {};
   const key = config.transport.apiKey;
   if (key) {
     if (config.kind === "anthropic") {
       headers["x-api-key"] = key;
-      headers["anthropic-version"] = "2023-06-01";
     } else {
       headers["authorization"] = `Bearer ${key}`;
     }

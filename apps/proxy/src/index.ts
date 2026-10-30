@@ -159,7 +159,17 @@ export function createProxyHandler(
     cors({
       origin: (origin) => (options.allowedOrigins.includes(origin) ? origin : null),
       allowMethods: ["GET", "POST", "OPTIONS"],
-      allowHeaders: ["content-type", "accept", GALLEY_UPSTREAM_HEADER],
+      // The Anthropic SDK also sends its protocol headers plus a placeholder
+      // `x-api-key` (stripped below, the real key is injected server-side).
+      // Without them in the allowlist the browser's preflight fails.
+      allowHeaders: [
+        "content-type",
+        "accept",
+        GALLEY_UPSTREAM_HEADER,
+        "anthropic-version",
+        "anthropic-beta",
+        "x-api-key",
+      ],
       maxAge: 600,
     }),
   );
