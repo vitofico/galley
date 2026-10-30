@@ -72,6 +72,26 @@ describe("createProxyHandler — forwarding", () => {
     expect(sent.has(GALLEY_UPSTREAM_HEADER)).toBe(false);
   });
 
+  it("forwards anthropic-version and swaps the placeholder x-api-key for the real key", async () => {
+    const res = await app().request("/forward/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "anthropic-version": "2023-06-01",
+        "x-api-key": "proxy-injected",
+        [GALLEY_UPSTREAM_HEADER]: "anthropic",
+      },
+      body: '{"model":"claude-haiku-4-5"}',
+    });
+    expect(res.status).toBe(200);
+
+    const [url, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    expect(url).toBe("https://api.anthropic.com/v1/messages");
+    const sent = new Headers(init.headers);
+    expect(sent.get("anthropic-version")).toBe("2023-06-01");
+    expect(sent.get("x-api-key")).toBe("sk-ant-secret-456");
+  });
+
   it("streams the upstream response body through verbatim", async () => {
     const res = await app().request("/forward/chat/completions", {
       method: "POST",
@@ -157,6 +177,20 @@ describe("createProxyHandler — CORS allowlist", () => {
       body: "{}",
     });
     expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:5173");
+  });
+
+  it("lets the Anthropic SDK's headers through the preflight", async () => {
+    const requested = ["anthropic-version", "content-type", "x-api-key", GALLEY_UPSTREAM_HEADER];
+    const res = await app().request("/forward/messages", {
+      method: "OPTIONS",
+      headers: {
+        origin: "http://localhost:5173",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": requested.join(","),
+      },
+    });
+    const allowed = (res.headers.get("access-control-allow-headers") ?? "").toLowerCase().split(/\s*,\s*/);
+    for (const h of requested) expect(allowed).toContain(h);
   });
 
   it("does not authorize a disallowed origin", async () => {
