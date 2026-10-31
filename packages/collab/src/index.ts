@@ -326,3 +326,9 @@ export {
   readDurableDeliveryBody,
 } from "./durable-delivery.js";
 export type { DurableDeliveryFrame } from "./durable-delivery.js";
+
+export {
+  PORTABLE_WORKBENCH_PATH,
+  validPortableWorkbench,
+  portableWorkbenchFromTree,
+} from "./portable-workbench.js";

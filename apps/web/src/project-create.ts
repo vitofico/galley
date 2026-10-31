@@ -20,7 +20,10 @@ import { navigate } from "./router.js";
 // The `proj-<uuid>` minter + name cap live in the headless library-create helper
 // (create-library-project.ts) so the id format + clamp stay shared without that
 // headless helper depending on this editor-flow module (which pulls in navigate).
-import { mintProjectId, MAX_PROJECT_NAME_LENGTH } from "./create-library-project.js";
+import {
+  mintProjectId,
+  MAX_PROJECT_NAME_LENGTH,
+} from "./create-library-project.js";
 import {
   BLANK_STARTER_FILES,
   BLANK_STARTER_MAIN,
@@ -48,7 +51,7 @@ export function projectNameFromZipFilename(
     .split(/[/\\]/)
     .pop()!
     // Strip a trailing .zip (case-insensitive).
-    .replace(/\.zip$/i, "")
+    .replace(/\.(zip|tar)$/i, "")
     // Collapse all whitespace runs (incl. control chars) to single spaces.
     .replace(/[\s\x00-\x1f]+/g, " ")
     .trim()

@@ -184,6 +184,7 @@ import { bibEntryText } from "./components/citation-library.js";
 import { GitSyncPanel } from "./components/GitSyncPanel.js";
 import {
   pushGitRemote,
+  materializeProjectForPush,
   fetchGitRemote,
   pushGithubSnapshot,
   fetchGithubSnapshot,
@@ -377,7 +378,13 @@ import { Preview } from "./components/Preview.js";
 import { AgentPanel } from "./components/AgentPanel.js";
 import { HostedRunsPanel } from "./components/HostedRunsPanel.js";
 import { hostedRunsConfig } from "./hosted-runs-client.js";
+import { compileInputKey } from "./useCompiler.js";
+import { LayoutAuditions } from "./components/LayoutAuditions.js";
+import { BeforeSend } from "./components/BeforeSend.js";
 import { WritingGoals } from "./components/WritingGoals.js";
+import { DocumentWorkbench } from "./components/DocumentWorkbench.js";
+import { WORKBENCH_PATH, readWorkbench } from "./document-workbench.js";
+import { planWorkbenchAccept } from "./document-workbench-apply.js";
 import { readProjectInstructions } from "./instructions-vfs.js";
 import { InstructionsPanel } from "./components/InstructionsPanel.js";
 import { InsertReferencePicker } from "./components/InsertReferencePicker.js";
@@ -3935,14 +3942,7 @@ export function ProjectApp({
 
   // The live CRDT projected to a git-shaped tree — shared by both push transports.
   // Carries `.galley/instructions` (14-D round-trip) so a later fetch restores it.
-  const materializeLiveTree = () => {
-    const outcome = materializeProject(project.snapshot(), {
-      includeInstructions: true,
-    });
-    return outcome.ok
-      ? { ok: true as const, files: outcome.result.files }
-      : { ok: false as const, reason: `${outcome.reason} (${outcome.detail})` };
-  };
+  const materializeLiveTree = () => materializeProjectForPush(project);
 
   // Push: project the live CRDT onto this project's destination — a connected
   // GitHub repo (REST snapshot via api.github.com) or a generic git remote (the
@@ -3992,6 +3992,7 @@ export function ProjectApp({
       // an identical remote `.galley/instructions` shows unchanged, not "added".
       const current = materializeProject(project.snapshot(), {
         includeInstructions: true,
+        includeWorkbench: true,
       });
       const base = current.ok ? current.result.files : [];
       const candidate = result.candidate;
@@ -4001,9 +4002,17 @@ export function ProjectApp({
         otherLabel: kind === "github" ? "GitHub" : "Remote",
         onImport: () => {
           if (!canMutate) return; // importing a remote tree mutates the CRDT
-          restoreProjectFromTree(project, candidate, HUMAN);
-          setActiveFileId(project.mainFileId());
-          setCompareData(null);
+          try {
+            restoreProjectFromTree(project, candidate, HUMAN);
+            setActiveFileId(project.mainFileId());
+            setCompareData(null);
+          } catch (error) {
+            setNotice(
+              errorNotice(
+                error instanceof Error ? error.message : String(error),
+              ),
+            );
+          }
         },
       });
       closePanel("git");
@@ -5216,6 +5225,7 @@ export function ProjectApp({
     svg,
     diagnostics,
     pageCount,
+    renderFresh,
     sourceMap,
     exportPdf,
     exportPdfBytes,
@@ -6612,6 +6622,162 @@ export function ProjectApp({
           )}
         </p>
       )}
+      {activeFile && (
+        <DocumentWorkbench
+          key={`workbench:${activeFile.fileId}`}
+          files={allLiveFiles.map((f) => ({
+            fileId: f.fileId,
+            path: f.path,
+            text: project.getFile(f.fileId)?.text ?? "",
+          }))}
+          activePath={activeFile.path}
+          activeFileId={activeFile.fileId}
+          source={activeFile.text}
+          metadataText={allLiveFiles
+            .filter((f) => f.path === WORKBENCH_PATH)
+            .map((f) => project.getFile(f.fileId)?.text ?? "")
+            .join("\n")}
+          canMutate={canMutate}
+          buildInput={(scratch) =>
+            projectInput
+              ? {
+                  ...projectInput,
+                  files: projectInput.files.map((file) =>
+                    file.path === activeFile.path
+                      ? { ...file, text: scratch }
+                      : file,
+                  ),
+                }
+              : scratch
+          }
+          onImportSource={(name, text) => {
+            if (!canMutateRef.current || !/^[^/\\]+\.(csv|json)$/i.test(name))
+              return false;
+            const path = `/${name}`;
+            if (
+              project
+                .snapshot()
+                .files.some((f) => !f.deleted && f.path === path)
+            )
+              return false;
+            project.create(path, text, HUMAN);
+            return true;
+          }}
+          onAccept={(run) => {
+            if (!canMutateRef.current) return false;
+            try {
+              const files = project
+                .snapshot()
+                .files.filter((f) => !f.deleted)
+                .map((f) => ({
+                  fileId: f.fileId,
+                  path: f.path,
+                  text: project.getFile(f.fileId)?.text ?? "",
+                }));
+              const latest = project.toProjectInput();
+              if (!latest) return false;
+              const binaries = buildBinaryFilesInput(
+                project.snapshot().binaryFiles,
+                binaryCacheRef.current,
+              );
+              const currentInput = binaries.length
+                ? { ...latest, binaryFiles: binaries }
+                : latest;
+              const plan = planWorkbenchAccept(
+                files,
+                activeFileIdRef.current,
+                run,
+                currentInput,
+              );
+              applyAcceptedFileSetAsAgent(project, plan, AGENT_RUN_ID);
+              return true;
+            } catch (error) {
+              setNotice(
+                errorNotice(
+                  error instanceof Error ? error.message : String(error),
+                ),
+              );
+              return false;
+            }
+          }}
+          onSave={(next, expected) => {
+            if (!canMutateRef.current) return false;
+            try {
+              readWorkbench(next);
+            } catch {
+              return false;
+            }
+            const entries = project
+              .snapshot()
+              .files.filter((f) => !f.deleted && f.path === WORKBENCH_PATH);
+            if (entries.length > 1) return false;
+            const entry = entries[0];
+            const current = entry
+              ? (project.getFile(entry.fileId)?.text ?? "")
+              : "";
+            if (current !== expected) return false;
+            if (entry)
+              project.transactFile(
+                entry.fileId,
+                (text) => applyMinimalDiff(text, next),
+                HUMAN,
+              );
+            else project.create(WORKBENCH_PATH, next, HUMAN);
+            return true;
+          }}
+        />
+      )}
+      {activeFile && (
+        <LayoutAuditions
+          key={`auditions:${activeFile.fileId}`}
+          input={projectInput ?? ""}
+          path={activeFile.path}
+          fileId={activeFile.fileId}
+          source={activeFile.text}
+          canMutate={canMutate}
+          onAccept={(run) => {
+            if (
+              !canMutateRef.current ||
+              activeFileIdRef.current !== run.targetFileId
+            )
+              return false;
+            const target = project.getFile(run.targetFileId);
+            const latest = project.toProjectInput();
+            if (!target || target.path !== run.targetPath || !latest)
+              return false;
+            const binaries = buildBinaryFilesInput(
+              project.snapshot().binaryFiles,
+              binaryCacheRef.current,
+            );
+            const currentInput = binaries.length
+              ? { ...latest, binaryFiles: binaries }
+              : latest;
+            if (compileInputKey(currentInput) !== run.expectedInputKey)
+              return false;
+            const outcome = resolveAccept(
+              target.text,
+              run.baseSource,
+              run.finalSource,
+              run.blocks,
+            );
+            if (!outcome.applied) return false;
+            applyAcceptedFileAsAgent(
+              project,
+              run.targetFileId,
+              outcome.source!,
+              AGENT_RUN_ID,
+            );
+            return true;
+          }}
+        />
+      )}
+      <BeforeSend
+        source={projectInput?.files.map((f) => f.text).join("\n") ?? ""}
+        fresh={renderFresh}
+        pageCount={pageCount}
+        pages={sourceMap?.pages}
+        onExport={runPdfExport}
+      />
       {agentInstructions?.constraints && (
         <WritingGoals
           constraints={agentInstructions.constraints}

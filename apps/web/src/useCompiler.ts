@@ -87,6 +87,8 @@ export interface UseCompilerOptions {
 
 export interface UseCompiler {
   ready: boolean;
+  /** True only when the displayed SVG was successfully rendered for this input. */
+  renderFresh: boolean;
   /**
    * H1: a recompile is in flight AND has outlasted {@link BUSY_THRESHOLD_MS}, so
    * the visible preview is stale. The shell surfaces this as the `◌` chip cue.
@@ -173,6 +175,7 @@ export function useCompiler(
   const busyTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
+  const [renderedKey, setRenderedKey] = useState<string | null>(null);
   const [svg, setSvg] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
   const [pageCount, setPageCount] = useState<number | null>(null);
@@ -436,6 +439,7 @@ export function useCompiler(
           setDiagnostics(res.diagnostics);
           if (res.ok && res.pages[0]) {
             setSvg(res.pages[0].svg);
+            setRenderedKey(`${mode}\0${inputKey}`);
             // The REAL page count: `pages` holds ONE combined-SVG entry for the
             // whole document, so `pages.length` would report "1 page(s)" for a
             // multi-page doc (#20.2). Fall back only when the result predates
@@ -474,6 +478,7 @@ export function useCompiler(
                   setDiagnostics(res.diagnostics);
                   if (res.ok && res.pages[0]) {
                     setSvg(res.pages[0].svg);
+                    setRenderedKey(`${mode}\0${inputKey}`);
                     // Same honest count as the worker path (#20.2): the combined
                     // SVG is one `pages` entry, not the page count.
                     setPageCount(res.pageCount ?? res.pages.length);
@@ -593,6 +598,8 @@ export function useCompiler(
 
   return {
     ready,
+    renderFresh:
+      ready && svg !== null && renderedKey === `${mode}\0${inputKey}`,
     busy,
     svg,
     diagnostics,

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { meaningChanges } from "../meaning-changes.js";
 import { DiffBody } from "./DiffBody.js";
 
 /**
@@ -12,8 +13,8 @@ import { DiffBody } from "./DiffBody.js";
  * field; submitting hands the instruction to the caller, which starts a NEW run
  * from the PENDING proposal (this proposal's final source becomes the new base),
  * replacing this DiffReview when the chained run completes. The Accept semantics
- * are unchanged — `onRefine` is purely additive, and when absent DiffReview
- * renders exactly as before.
+ * are unchanged — `onRefine` is purely additive. Deterministic meaning-change
+ * cues accompany every proposal independently of refinement.
  */
 export function DiffReview({
   base,
@@ -31,7 +32,7 @@ export function DiffReview({
   /**
    * Optional (11.8c): iterate on this pending proposal. Receives the trimmed,
    * non-empty refine instruction; the caller starts a chained run. Absent → no
-   * Refine affordance, byte-for-byte the shipped DiffReview.
+   * Refine affordance.
    */
   onRefine?: (instruction: string) => void;
 }) {
@@ -119,11 +120,32 @@ export function DiffReview({
             aria-label="Refine instruction"
             spellCheck={false}
           />
-          <button type="submit" data-testid="refine-submit" disabled={trimmed === ""}>
+          <button
+            type="submit"
+            data-testid="refine-submit"
+            disabled={trimmed === ""}
+          >
             Refine
           </button>
         </form>
       )}
+      <details data-testid="meaning-changes">
+        <summary>
+          Meaning changes to check ({meaningChanges(base, next).length}{" "}
+          categories)
+        </summary>
+        <p>
+          Deterministic token changes only; verify context in the diff. This
+          does not validate facts or catch every consequential edit.
+        </p>
+        {meaningChanges(base, next).map((change) => (
+          <div key={change.kind}>
+            <strong>{change.kind}</strong>
+            <p>Removed: {change.removed.join(", ") || "None"}</p>
+            <p>Added: {change.added.join(", ") || "None"}</p>
+          </div>
+        ))}
+      </details>
       <DiffBody base={base} next={next} />
     </div>
   );

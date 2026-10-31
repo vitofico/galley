@@ -18,6 +18,15 @@ adversarial security audit of every network surface with a consolidated
 migrations, cross-browser, a11y). See the
 [CHANGELOG](../CHANGELOG.md) for the full feature inventory.
 
+## Document review tools
+
+[Before-send checks and layout auditions](document-checks.md) extend the existing
+writing constraints with current SVG checks, source marker scanning, deterministic
+meaning-change cues and compiled local layout alternatives. The
+[document workbench](document-workbench.md) provides linked values, evidence
+records and reviewer responses. These are human review aids with explicit
+unavailable/stale states, not factual or submission-compliance certification.
+
 ## Next — gated on environment, not code
 
 These are built and tested; they activate with configuration:
@@ -36,7 +45,7 @@ These are built and tested; they activate with configuration:
 
 ## Future directions (no commitment, in rough order of pull)
 
-- **"Connect GitHub" repo sync** — distinct from *login with* GitHub: an
+- **"Connect GitHub" repo sync** — distinct from _login with_ GitHub: an
   account-level GitHub connection (GitHub App preferred; PAT as the minimal
   v0) that can create a repository and push version snapshots through the
   existing git projection (`pushTree`/`fetchTree`, ADR-0019). The CRDT stays
@@ -46,8 +55,9 @@ These are built and tested; they activate with configuration:
 - **Literature search & citation dedup** on top of the existing Zotero/BibTeX
   support.
 - **HTML export** — blocked upstream: typst.ts has no HTML target yet.
-- **Richer import** — asset/multi-file mapping for LaTeX/Overleaf bundles;
-  docx via a pandoc service.
+- **Richer import** — improve conversion fidelity and unsupported-command repair;
+  docx via a pandoc service. Multi-file ZIP conversion, binary assets, upload and
+  asset preview already ship.
 - **In-browser Universe package resolution** — currently server-side only, by
   deliberate security choice.
 - **Semantic context ranking** — a real embedder behind the existing context

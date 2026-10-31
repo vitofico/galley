@@ -1,0 +1,44 @@
+.document-workbench {
+  margin: 0.6rem 0;
+  padding: 0.7rem;
+  border: 1px solid var(--border, #888);
+  border-radius: 0.4rem;
+}
+.document-workbench summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.document-workbench fieldset {
+  margin: 1rem 0;
+  min-width: 0;
+}
+.document-workbench label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.5rem 0;
+}
+.document-workbench textarea {
+  min-height: 4rem;
+  resize: vertical;
+  width: 100%;
+  box-sizing: border-box;
+}
+.document-workbench article {
+  border-top: 1px solid var(--border, #888);
+  margin-top: 0.8rem;
+  padding: 0.6rem 0;
+}
+.document-workbench button {
+  margin: 0.25rem;
+}
+.document-workbench pre {
+  max-height: 12rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.document-workbench blockquote {
+  margin: 0.5rem;
+  overflow-wrap: anywhere;
+}

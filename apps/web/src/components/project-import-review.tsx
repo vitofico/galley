@@ -59,9 +59,10 @@ export function ProjectImportBody({
   return (
     <div className="import-project" data-testid="import-project">
       <p className="import-project-hint">
-        Import an Overleaf / LaTeX project as a <code>.zip</code>. The whole
-        tree is converted to Typst and you review the migration report before
-        anything lands.
+        Import a Galley source bundle (<code>.tar</code>) or an Overleaf / LaTeX
+        project (<code>.zip</code>). Native Typst and validated workbench
+        records are preserved; LaTeX is converted. Review every file before
+        Accept creates a new project.
       </p>
 
       <div className="authoring-actions">
@@ -72,12 +73,12 @@ export function ProjectImportBody({
           disabled={unpacking}
           onClick={() => fileInputRef.current?.click()}
         >
-          {unpacking ? "Unpacking…" : "Choose .zip…"}
+          {unpacking ? "Unpacking…" : "Choose .zip or .tar…"}
         </button>
         <input
           ref={fileInputRef as RefObject<HTMLInputElement>}
           type="file"
-          accept=".zip,application/zip"
+          accept=".zip,.tar,application/zip,application/x-tar"
           data-testid="import-project-file"
           disabled={unpacking}
           style={{ display: "none" }}

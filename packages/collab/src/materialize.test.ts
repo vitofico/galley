@@ -426,3 +426,56 @@ describe("projectInstructionsFromTree (import side of the round-trip)", () => {
     );
   });
 });
+
+describe("portable workbench allowlist", () => {
+  const text = JSON.stringify({
+    version: 1,
+    bindings: [],
+    evidence: [],
+    reviews: [],
+  });
+  const snapshot = (metadata: string) =>
+    snap(
+      [
+        { fileId: "main", path: "/main.typ", text: "Hello" },
+        { fileId: "wb", path: "/.galley/workbench.json", text: metadata },
+        { fileId: "secret", path: "/.galley/device.json", text: "private" },
+      ],
+      "main",
+    );
+  it("exports only the exact validated path when explicitly opted in", () => {
+    const out = materializeProject(snapshot(text), { includeWorkbench: true });
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(
+      out.result.files.find((f) => f.path === ".galley/workbench.json")?.text,
+    ).toBe(text);
+    expect(out.result.files.some((f) => f.path === ".galley/device.json")).toBe(
+      false,
+    );
+    const defaults = materializeProject(snapshot(text));
+    expect(
+      defaults.ok &&
+        defaults.result.files.some((f) => f.path === ".galley/workbench.json"),
+    ).toBe(false);
+  });
+  it("fails closed for malformed data and unknown private fields", () => {
+    expect(
+      materializeProject(snapshot("{"), { includeWorkbench: true }).ok,
+    ).toBe(false);
+    expect(
+      materializeProject(
+        snapshot(
+          JSON.stringify({
+            version: 1,
+            bindings: [],
+            evidence: [],
+            reviews: [],
+            apiKey: "private",
+          }),
+        ),
+        { includeWorkbench: true },
+      ).ok,
+    ).toBe(false);
+  });
+});

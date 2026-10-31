@@ -1,12 +1,16 @@
+import { readProjectArchive } from "./native-project-import.js";
 import { useEffect, useRef, useState } from "react";
-import { markdownToTypst, latexToTypst, importLatexProject } from "@galley/agent";
+import { markdownToTypst, latexToTypst } from "@galley/agent";
 import type { LatexProjectReport, ProjectTextFile } from "@galley/agent";
 import { DiffReview } from "./DiffReview.js";
 import { appendSnippet } from "./authoring-insert.js";
 import type { ImportRepairDepsProp, RepairCompiler } from "./import-repair.js";
 import { repairStatusLabel, runImportRepair } from "./import-repair.js";
-import { readProjectZip, ZipImportError, MAX_ZIP_BYTES } from "./import-project.js";
-import { ProjectImportBody, type ProjectImport } from "./project-import-review.js";
+import { ZipImportError, MAX_ZIP_BYTES } from "./import-project.js";
+import {
+  ProjectImportBody,
+  type ProjectImport,
+} from "./project-import-review.js";
 import { Notice } from "./Notice.js";
 import "./authoring-panels.css";
 import "./import-project.css";
@@ -83,13 +87,23 @@ export function convert(format: ImportFormat, input: string): Conversion {
   return { typst: r.typst, report: r.unmapped };
 }
 
-export function ImportPanel({ open, onClose, currentSource, onInsert, repair, docked, onImportProject }: ImportPanelProps) {
+export function ImportPanel({
+  open,
+  onClose,
+  currentSource,
+  onInsert,
+  repair,
+  docked,
+  onImportProject,
+}: ImportPanelProps) {
   const [format, setFormat] = useState<ImportFormat>("markdown");
   const [input, setInput] = useState("");
   const [conversion, setConversion] = useState<Conversion | null>(null);
   // Project (.zip) mode (#17.3) — only reachable when `onImportProject` is set.
   const [mode, setMode] = useState<"paste" | "project">("paste");
-  const [projectImport, setProjectImport] = useState<ProjectImport | null>(null);
+  const [projectImport, setProjectImport] = useState<ProjectImport | null>(
+    null,
+  );
   const [zipError, setZipError] = useState<string | null>(null);
   const [unpacking, setUnpacking] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -174,8 +188,7 @@ export function ImportPanel({ open, onClose, currentSource, onInsert, repair, do
         );
       }
       const buf = await file.arrayBuffer();
-      const tree = await readProjectZip(buf);
-      const result = importLatexProject(tree);
+      const result = await readProjectArchive(buf, file.name);
       setProjectImport({
         files: result.files,
         report: result.report,
@@ -185,7 +198,7 @@ export function ImportPanel({ open, onClose, currentSource, onInsert, repair, do
     } catch (err) {
       const msg =
         err instanceof ZipImportError
-          ? `Could not import this .zip: ${err.message}`
+          ? `Could not import this project archive: ${err.message}`
           : err instanceof Error
             ? err.message
             : String(err);
@@ -200,11 +213,22 @@ export function ImportPanel({ open, onClose, currentSource, onInsert, repair, do
     setRepairing(true);
     setRepairError(null);
     try {
-      if (!compilerRef.current) compilerRef.current = await repair.compilerFactory();
+      if (!compilerRef.current)
+        compilerRef.current = await repair.compilerFactory();
       const compiler = compilerRef.current;
       const result = await runImportRepair(
-        { typst: conversion.typst, sourceKind: format, report: conversion.report },
-        { model: repair.model, compiler, ...(repair.maxAttempts !== undefined ? { maxAttempts: repair.maxAttempts } : {}) },
+        {
+          typst: conversion.typst,
+          sourceKind: format,
+          report: conversion.report,
+        },
+        {
+          model: repair.model,
+          compiler,
+          ...(repair.maxAttempts !== undefined
+            ? { maxAttempts: repair.maxAttempts }
+            : {}),
+        },
       );
       setRepaired(result.typst);
       setRepairOk(result.ok);
@@ -219,195 +243,228 @@ export function ImportPanel({ open, onClose, currentSource, onInsert, repair, do
   // The reviewable Typst: the repaired draft once available, else the raw
   // conversion. Accept always inserts whatever is currently under review.
   const reviewTypst = repaired ?? conversion?.typst ?? "";
-  const next = conversion ? appendSnippet(currentSource, reviewTypst) : currentSource;
+  const next = conversion
+    ? appendSnippet(currentSource, reviewTypst)
+    : currentSource;
 
   const panel = (
-      <div
-        className={`authoring-panel${docked ? " authoring-panel--docked" : ""}`}
-        data-testid="import-panel"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="authoring-header">
-          <h2 className="authoring-title">Import → Typst</h2>
-          <button type="button" className="authoring-close" aria-label="Close" onClick={onClose}>
-            ✕
-          </button>
-        </header>
+    <div
+      className={`authoring-panel${docked ? " authoring-panel--docked" : ""}`}
+      data-testid="import-panel"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <header className="authoring-header">
+        <h2 className="authoring-title">Import → Typst</h2>
+        <button
+          type="button"
+          className="authoring-close"
+          aria-label="Close"
+          onClick={onClose}
+        >
+          ✕
+        </button>
+      </header>
 
-        <div className="authoring-body">
-          {onImportProject && (
-            <div className="import-mode-tabs" role="tablist" aria-label="Import source">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === "paste"}
-                className={`import-mode-tab${mode === "paste" ? " import-mode-tab--active" : ""}`}
-                data-testid="import-mode-paste"
-                onClick={() => setMode("paste")}
-              >
-                Paste text
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === "project"}
-                className={`import-mode-tab${mode === "project" ? " import-mode-tab--active" : ""}`}
-                data-testid="import-mode-project"
-                onClick={() => setMode("project")}
-              >
-                Project (.zip)
-              </button>
-            </div>
-          )}
-
-          {(!onImportProject || mode === "paste") && (
-          <>
-          <div className="authoring-format" role="radiogroup" aria-label="Source format">
-            <label>
-              <input
-                type="radio"
-                name="import-format"
-                data-testid="import-format-markdown"
-                checked={format === "markdown"}
-                onChange={() => setFormat("markdown")}
-              />
-              Markdown
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="import-format"
-                data-testid="import-format-latex"
-                checked={format === "latex"}
-                onChange={() => setFormat("latex")}
-              />
-              LaTeX
-            </label>
-          </div>
-
-          <textarea
-            className="authoring-input"
-            data-testid="import-input"
-            value={input}
-            placeholder={`Paste ${format === "latex" ? "LaTeX" : "Markdown"} here…`}
-            aria-label="Source to import"
-            rows={6}
-            onChange={(e) => setInput(e.target.value)}
-          />
-
-          <div className="authoring-actions">
+      <div className="authoring-body">
+        {onImportProject && (
+          <div
+            className="import-mode-tabs"
+            role="tablist"
+            aria-label="Import source"
+          >
             <button
               type="button"
-              className="authoring-primary"
-              data-testid="import-convert"
-              disabled={input.trim().length === 0}
-              onClick={runConvert}
+              role="tab"
+              aria-selected={mode === "paste"}
+              className={`import-mode-tab${mode === "paste" ? " import-mode-tab--active" : ""}`}
+              data-testid="import-mode-paste"
+              onClick={() => setMode("paste")}
             >
-              Convert
+              Paste text
             </button>
-            {conversion && (
-              <button type="button" className="authoring-secondary" data-testid="import-reset" onClick={reset}>
-                Clear
-              </button>
-            )}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === "project"}
+              className={`import-mode-tab${mode === "project" ? " import-mode-tab--active" : ""}`}
+              data-testid="import-mode-project"
+              onClick={() => setMode("project")}
+            >
+              Project (.zip)
+            </button>
           </div>
+        )}
 
-          {conversion && (
-            <>
-              {conversion.report.length > 0 && (
-                <details className="authoring-report" data-testid="import-report" open>
-                  <summary>
-                    {conversion.report.length} construct(s) not fully converted (review below)
-                  </summary>
-                  <ul>
-                    {conversion.report.map((item, i) => (
-                      <li key={i} data-testid="import-report-item">
-                        <code>{item.kind}</code> · line {item.line}: {item.snippet}
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              )}
-              {repair && (
-                <div className="authoring-actions" data-testid="import-repair-actions">
-                  <button
-                    type="button"
-                    className="authoring-secondary"
-                    data-testid="import-repair-run"
-                    disabled={repairing}
-                    onClick={() => void runRepair()}
-                  >
-                    {repairing ? "Repairing…" : repaired ? "Repair again" : "Repair with agent"}
-                  </button>
-                </div>
-              )}
-
-              {repairError && (
-                <Notice
-                  severity="error"
-                  testId="import-repair-error"
-                  message={`Error: ${repairError}`}
+        {(!onImportProject || mode === "paste") && (
+          <>
+            <div
+              className="authoring-format"
+              role="radiogroup"
+              aria-label="Source format"
+            >
+              <label>
+                <input
+                  type="radio"
+                  name="import-format"
+                  data-testid="import-format-markdown"
+                  checked={format === "markdown"}
+                  onChange={() => setFormat("markdown")}
                 />
-              )}
+                Markdown
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="import-format"
+                  data-testid="import-format-latex"
+                  checked={format === "latex"}
+                  onChange={() => setFormat("latex")}
+                />
+                LaTeX
+              </label>
+            </div>
 
-              {repairStatus && (
-                <div
-                  className="authoring-status"
-                  data-testid="import-repair-result"
-                  data-ok={repairOk ? "true" : "false"}
-                >
-                  {repairStatus}
-                </div>
-              )}
-
-              <DiffReview
-                base={currentSource}
-                next={next}
-                outcome="import"
-                onAccept={() => {
-                  if (onInsert(reviewTypst)) onClose();
-                }}
-                onReject={reset}
-              />
-            </>
-          )}
-          </>
-          )}
-
-          {onImportProject && mode === "project" && (
-            <ProjectImportBody
-              projectImport={projectImport}
-              zipError={zipError}
-              unpacking={unpacking}
-              fileInputRef={fileInputRef}
-              onPickZip={onPickZip}
-              onClear={resetProject}
-              onAccept={() => {
-                if (!projectImport) return;
-                // §3: creating the new project is async (registry write + nav).
-                // On success the host navigates away (this panel unmounts); on
-                // failure surface the existing import error UI and stay put so a
-                // half-created project is never opened.
-                void (async () => {
-                  try {
-                    const ok = await onImportProject(
-                      projectImport.files,
-                      projectImport.report,
-                      projectImport.filename,
-                    );
-                    if (ok) {
-                      resetProject();
-                      onClose();
-                    }
-                  } catch (err) {
-                    setZipError(err instanceof Error ? err.message : String(err));
-                  }
-                })();
-              }}
+            <textarea
+              className="authoring-input"
+              data-testid="import-input"
+              value={input}
+              placeholder={`Paste ${format === "latex" ? "LaTeX" : "Markdown"} here…`}
+              aria-label="Source to import"
+              rows={6}
+              onChange={(e) => setInput(e.target.value)}
             />
-          )}
-        </div>
+
+            <div className="authoring-actions">
+              <button
+                type="button"
+                className="authoring-primary"
+                data-testid="import-convert"
+                disabled={input.trim().length === 0}
+                onClick={runConvert}
+              >
+                Convert
+              </button>
+              {conversion && (
+                <button
+                  type="button"
+                  className="authoring-secondary"
+                  data-testid="import-reset"
+                  onClick={reset}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+
+            {conversion && (
+              <>
+                {conversion.report.length > 0 && (
+                  <details
+                    className="authoring-report"
+                    data-testid="import-report"
+                    open
+                  >
+                    <summary>
+                      {conversion.report.length} construct(s) not fully
+                      converted (review below)
+                    </summary>
+                    <ul>
+                      {conversion.report.map((item, i) => (
+                        <li key={i} data-testid="import-report-item">
+                          <code>{item.kind}</code> · line {item.line}:{" "}
+                          {item.snippet}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+                {repair && (
+                  <div
+                    className="authoring-actions"
+                    data-testid="import-repair-actions"
+                  >
+                    <button
+                      type="button"
+                      className="authoring-secondary"
+                      data-testid="import-repair-run"
+                      disabled={repairing}
+                      onClick={() => void runRepair()}
+                    >
+                      {repairing
+                        ? "Repairing…"
+                        : repaired
+                          ? "Repair again"
+                          : "Repair with agent"}
+                    </button>
+                  </div>
+                )}
+
+                {repairError && (
+                  <Notice
+                    severity="error"
+                    testId="import-repair-error"
+                    message={`Error: ${repairError}`}
+                  />
+                )}
+
+                {repairStatus && (
+                  <div
+                    className="authoring-status"
+                    data-testid="import-repair-result"
+                    data-ok={repairOk ? "true" : "false"}
+                  >
+                    {repairStatus}
+                  </div>
+                )}
+
+                <DiffReview
+                  base={currentSource}
+                  next={next}
+                  outcome="import"
+                  onAccept={() => {
+                    if (onInsert(reviewTypst)) onClose();
+                  }}
+                  onReject={reset}
+                />
+              </>
+            )}
+          </>
+        )}
+
+        {onImportProject && mode === "project" && (
+          <ProjectImportBody
+            projectImport={projectImport}
+            zipError={zipError}
+            unpacking={unpacking}
+            fileInputRef={fileInputRef}
+            onPickZip={onPickZip}
+            onClear={resetProject}
+            onAccept={() => {
+              if (!projectImport) return;
+              // §3: creating the new project is async (registry write + nav).
+              // On success the host navigates away (this panel unmounts); on
+              // failure surface the existing import error UI and stay put so a
+              // half-created project is never opened.
+              void (async () => {
+                try {
+                  const ok = await onImportProject(
+                    projectImport.files,
+                    projectImport.report,
+                    projectImport.filename,
+                  );
+                  if (ok) {
+                    resetProject();
+                    onClose();
+                  }
+                } catch (err) {
+                  setZipError(err instanceof Error ? err.message : String(err));
+                }
+              })();
+            }}
+          />
+        )}
       </div>
+    </div>
   );
   if (docked) return panel;
   return (

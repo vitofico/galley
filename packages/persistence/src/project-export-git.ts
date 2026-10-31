@@ -123,7 +123,7 @@ export async function exportProjectAsGitRepo(
   // EXPORT surface (14-D round-trip): the committed tree carries the project's
   // `.galley/instructions` config alongside the manifest, so cloning the repo —
   // or fetching it back into Galley — preserves the agent-steering config.
-  const outcome = materializeProject(snapshot, { includeInstructions: true });
+  const outcome = materializeProject(snapshot, { includeInstructions: true, includeWorkbench: true });
   if (!outcome.ok) {
     return { error: `cannot export (${outcome.reason}): ${outcome.detail}` };
   }
