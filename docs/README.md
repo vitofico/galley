@@ -12,6 +12,13 @@
 
 - [`agent-loop.md`](agent-loop.md) · [`editing-and-diff.md`](editing-and-diff.md) —
   the AI loop and the search/replace + Accept-gate contract.
+- [`document-checks.md`](document-checks.md) — Before you send checks against
+  current SVG/source, deterministic meaning flags, scratch layout auditions and
+  preview reading-position behavior; these do not certify PDF compliance.
+- [`document-workbench.md`](document-workbench.md) — manual CSV/JSON scalar
+  bindings and reviewed refreshes, claim/source evidence links, reviewer response
+  drafts and Markdown letters; retained versions and validated native/Git
+  roundtrips, with no automatic fact-checking.
 - [`compiler.md`](compiler.md) · [`server-side-compile.md`](server-side-compile.md) ·
   [`UNIVERSE_INTEGRATION.md`](UNIVERSE_INTEGRATION.md) — in-browser WASM compile, the
   opt-in compile service, and the Typst Universe package-integrity manifest + fail-closed fetch.

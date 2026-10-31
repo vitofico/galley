@@ -1,11 +1,11 @@
 # Galley on Kubernetes (roadmap #5, ADR-0017)
 
-Self-host manifests for the three core services, managed with **Kustomize**.
-**Security-Analyst (GPT) reviewed** — the defaults are deliberately conservative:
-only the static **web** SPA is publicly exposed; **proxy** and **sync** are
-ClusterIP-only with a default-deny NetworkPolicy, because they have **no
-authentication yet** (roadmap #4). The web app is standalone (in-browser compile +
-local CRDT), so web-only is a complete Galley.
+Self-host manifests for web, proxy and sync, managed with **Kustomize**. Only
+the **web** SPA is publicly exposed by the base; **proxy** and **sync** are
+ClusterIP-only behind a default-deny NetworkPolicy. Authentication is off in the
+base. The opt-in auth component enables OIDC login and sync authorization; it
+does not configure authentication for the model proxy. Browser-local compilation
+and CRDT editing make web-only a complete Galley.
 
 ## Layout
 
@@ -66,20 +66,20 @@ kubectl kustomize deploy/k8s                          # or: kustomize build …
 
 ## Overlays (opt-in features)
 
-| Overlay | Adds | Apply |
-| --- | --- | --- |
-| `overlays/compile` | server-side compile, **sandbox-only** (packages fail closed, worker isolation — the default, set explicitly) | `kubectl apply -k deploy/k8s/overlays/compile` |
-| `overlays/compile-registry` | compile **+ Universe packages** (egress policy + integrity ConfigMap; isolation set to `inline`) | `kubectl apply -k deploy/k8s/overlays/compile-registry` |
-| `overlays/auth` | OIDC login + closed sync rooms (shared session PVC + example Secret) | `kubectl apply -k deploy/k8s/overlays/auth` |
-| `overlays/auth-compile` | both of the above (sandbox compile) | `kubectl apply -k deploy/k8s/overlays/auth-compile` |
-| `overlays/auth-compile-registry` | auth + compile with Universe packages | `kubectl apply -k deploy/k8s/overlays/auth-compile-registry` |
+| Overlay                          | Adds                                                                                                         | Apply                                                        |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| `overlays/compile`               | server-side compile, **sandbox-only** (packages fail closed, worker isolation — the default, set explicitly) | `kubectl apply -k deploy/k8s/overlays/compile`               |
+| `overlays/compile-registry`      | compile **+ Universe packages** (egress policy + integrity ConfigMap; isolation set to `inline`)             | `kubectl apply -k deploy/k8s/overlays/compile-registry`      |
+| `overlays/auth`                  | OIDC login + closed sync rooms (shared session PVC + example Secret)                                         | `kubectl apply -k deploy/k8s/overlays/auth`                  |
+| `overlays/auth-compile`          | both of the above (sandbox compile)                                                                          | `kubectl apply -k deploy/k8s/overlays/auth-compile`          |
+| `overlays/auth-compile-registry` | auth + compile with Universe packages                                                                        | `kubectl apply -k deploy/k8s/overlays/auth-compile-registry` |
 
 Each overlay header lists its prerequisites; the highlights:
 
 ### `+compile` — server-side compile (ADR-0015)
 
 The compile Service is **ClusterIP-only by design**. The browser's Server/Auto
-compile toggle fetches `GALLEY_COMPILE_URL` *from the user's browser*, so it must
+compile toggle fetches `GALLEY_COMPILE_URL` _from the user's browser_, so it must
 be an **external, browser-reachable URL** — NOT the internal
 `galley-compile.galley.svc` DNS name (unreachable from a browser; it would
 silently fail). Expose compile through your ingress (e.g.
@@ -97,10 +97,10 @@ Enables registry resolution. Two honest constraints, handled in the overlay:
 - **Isolation is set to `inline`.** The compile server **throws at startup** if
   `GALLEY_COMPILE_ISOLATION` resolves to `worker` (the default since 2026-07,
   including when the var is unset) and `REGISTRY_BASE_URL` is set (the per-request
-  worker_thread has no package resolver). So this overlay sets
+  worker*thread has no package resolver). So this overlay sets
   `GALLEY_COMPILE_ISOLATION=inline` **explicitly** (never relying on the default)
   and leans on the **container resource limits + a kubelet `podPidsLimit`** for
-  runaway protection. You cannot have terminable isolation *and* Universe packages
+  runaway protection. You cannot have terminable isolation \_and* Universe packages
   today — use the sandbox-only `compile` overlay (or an internal mirror) if you
   need isolation.
 - **The integrity ConfigMap ships with PLACEHOLDER hashes** — every package fails
@@ -127,11 +127,11 @@ dirs are missing — the security posture is identical to the previous commented
 blocks. Since #1 slice 2 the sync relay ALSO **requires
 `GALLEY_SYNC_ALLOWED_ORIGINS`** under `GALLEY_SYNC_AUTH=required` (set it to your
 exact public origin, e.g. `https://galley.example.com`) and refuses to start
-without it — add the env to the sync patch alongside `GALLEY_SYNC_AUTH`. The
-**web** pod additionally needs `GALLEY_DATA_DIR` (the same shared volume sync
-mounts) so its capability-room registration routes (Share / Agent Access) can
-write the registry the relay reads. Before applying: replace the **EXAMPLE** `galley-oidc` Secret with real
-values created out-of-band (never commit real secrets — see
+without it. The component already sets that env; replace its example origin
+for your deployment. The **web** pod additionally needs `GALLEY_DATA_DIR`
+(the same shared volume sync mounts) so its capability-room registration routes (Share / Agent Access) can
+write the registry the relay reads. Before applying, replace the **EXAMPLE**
+`galley-oidc` Secret with real values created out-of-band (never commit real secrets — see
 `components/auth/oidc-secret.example.yaml`), set `GALLEY_PUBLIC_BASE_URL` to your
 external origin, and set an **RWX-capable** `storageClassName` on the PVCs
 (`components/auth/pvcs.yaml`; default block storage usually does NOT support RWX —
@@ -180,19 +180,22 @@ errors that `kubeconform` catches — CI uses `kubeconform`.)
 
 `base/90-expose-proxy-sync.opt-in.yaml` adds their Ingress + the NetworkPolicy
 allow-rules. It is **not** in any kustomization (apply it explicitly with
-`kubectl apply -f base/90-expose-proxy-sync.opt-in.yaml`). **Do not apply it
-without an external auth layer** (oauth2-proxy / mTLS / source-IP allowlist): an
-open proxy lets anyone spend your model key, and an open sync relay lets anyone
-read/tamper any room. Even with the `+auth` overlay (which closes the rooms via
-OIDC), front these hosts with your own auth/allowlist — they have no
-authentication of their own yet (roadmap #4).
+`kubectl apply -f deploy/k8s/base/90-expose-proxy-sync.opt-in.yaml`). **Do not apply it
+without configuring protection for each exposed service**. An open proxy lets
+anyone spend your model key, and the base's open relay admits anyone who knows a
+room. The `+auth` overlay enables sync session/project authorization and registered
+capability-room checks, with an exact Origin allowlist. It does not protect the
+proxy: put edge authentication in front of it and configure the optional
+`PROXY_ACCESS_TOKEN` bearer gate for defense in depth, with clients that supply
+the matching header. Keep network and Origin restrictions in place. See the
+[security model](../../docs/security-model.md).
 
-### A pragmatic proxy-exposure pattern (capability path)
+### Route a protected proxy under a path
 
 The SPA's proxy transport needs a **browser-reachable** proxy URL (never the
-ClusterIP DNS name). For a personal/self-host deploy without a forward-auth
-stack, an **unguessable path prefix** on the existing web host works as a
-capability URL — the same model Galley uses for sync room ids:
+ClusterIP DNS name). Once proxy authentication is configured, an **unguessable path prefix** on
+the existing web host can add defense in depth. The path does not replace the
+authentication controls above:
 
 1. Route `/<random-token>` (e.g. `/llm-$(openssl rand -hex 12)`) on your web
    host to the proxy Service, with a strip-prefix rule (ingress-nginx:
@@ -208,8 +211,8 @@ name would leak via Certificate-Transparency logs.
 
 ## Compile sandboxing
 
-The compile overlays ship tight CPU/mem/ephemeral limits (a synchronous WASM
-compile can't be preempted by a JS timeout — the container limits are the
-isolation, ADR-0015 §4). Also set a kubelet `podPidsLimit` on its nodes. If you
-enable Universe fetch (`compile-registry`), restrict egress to the registry host
+The compile overlays ship tight CPU/mem/ephemeral limits. Sandbox-only compile
+also uses a terminable worker; registry compile runs inline, so container/node
+limits are its runaway-process boundary (ADR-0015). Also set a kubelet
+`podPidsLimit` on its nodes. If you enable Universe fetch (`compile-registry`), restrict egress to the registry host
 as described above, and remember it is mutually exclusive with worker isolation.

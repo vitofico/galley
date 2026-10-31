@@ -90,11 +90,39 @@ opt-in — one-click **Share** upgrades a project to Yjs CRDT co-editing with th
 **agent as a peer**, presence, and per-author attribution ([ADRs
 0005–0012](docs/decisions)). Multi-file projects and templates, named versions
 with visual compare, broad import/export (Markdown, LaTeX, Overleaf `.zip`,
-Zotero/`.bib` in; PDF/PNG out), and opt-in MCP access behind an explicit
+Zotero/`.bib` and native source `.tar` in; PDF/PNG, source bundles and Git projections out), and opt-in MCP access behind an explicit
 consent gate round it out. Self-host with Docker compose or Kubernetes; the
 whole test suite (typecheck + unit + Playwright e2e) runs **in Docker**. See
 the [CHANGELOG](CHANGELOG.md) for the full feature inventory and the
 [roadmap](docs/roadmap.md) for what's next.
+
+### Review the document before sharing
+
+The writing/agent pane has deterministic, offline review tools. Open **Agent
+panel** from the left rail if that pane is hidden.
+
+| Open                                              | What you can review                                                                                                                                                                                                      |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Before you send**                               | Current preview SVG page count and optional portrait A4/Letter checks, plus source editorial markers. Results distinguish passed, failed and unavailable; stale previews do not pass. PDF export is compiled separately. |
+| **Meaning changes to check** in a proposal diff   | Changed numbers, dates, units, citation keys and selected obligation/negation words alongside the normal diff. These are attention flags, not semantic or factual verification.                                          |
+| **Document workbench → Living numbers**           | Import project CSV/JSON, name a scalar and link its exact document passage. Changed source versions flag potentially stale prose; preview and Accept a compiled refresh.                                                 |
+| **Document workbench → Evidence lens**            | Manually link a claim passage to a retained source version and excerpt, mark your review, and see changed or unavailable links. This records a review decision, not an automatic fact-check.                             |
+| **Layout auditions** on the project main document | Compile three local scratch margin variants, compare previews and page caps, then review and Accept one. Original wording/assets/text-size rules stay intact; minimum rendered font size is not verified.                |
+| **Document workbench → Reviewer response desk**   | Paste comments, link passages, track resolutions, review proposed revisions and draft replies; use **Download response letter** for Markdown export.                                                                     |
+
+Workbench revisions and layout auditions require a successful local scratch
+compile and explicit **Accept**. Accept rechecks current source/project input,
+including main entry and resolved asset bytes, before any live write. Missing or
+changed dependencies require a new preview. These tools do not certify PDF
+compliance, claim truth or minimum font size.
+
+Workbench records live in the canonical project CRDT and retain their source
+versions. Native source bundles and Git projections carry only the validated
+known `.galley/workbench.json` record alongside existing export contracts;
+device/secret metadata stays excluded. Native import preserves source paths,
+contents and binary bytes through the review-and-Accept flow. See
+[document checks and layout auditions](docs/document-checks.md) and the
+[workbench workflows and limits](docs/document-workbench.md).
 
 ### Default product & routes
 
@@ -129,15 +157,19 @@ User clicks Accept ──► apply to live document
         or Reject  ──► discard scratch
 ```
 
-In the editor loop the human is always in control — the in-app agent never
-auto-applies an edit. (External MCP agents can be granted opt-in auto-accept — off
-by default, signed, checkpointed, and revertable — which only drives the same
-Accept path; see the [security model](docs/security-model.md).)
+**Ask** is the default: proposals wait for human **Accept** or **Reject**.
+Explicit per-project **Auto** settings for the in-app agent and separately
+authorized MCP grants use the established guarded acceptance paths, with
+checkpoints and Undo; MCP proposals additionally require authenticated provenance.
+See the [acceptance decision](docs/decisions/ADR-0025-agent-acceptance-unification.md)
+and [security model](docs/security-model.md). Workbench revisions and layout
+auditions retain their explicit human review gate.
 
 ## Bring your own agent (no API key)
 
-Galley's built-in agent needs a provider API key, billed per token. You can skip
-that entirely: Galley ships a **local MCP kernel** that carries no model at all.
+A configured cloud model usually needs a provider API key and may charge per
+token; the offline Demo agent and suitable local models do not. You can also
+use an agent you already run: Galley ships a **local MCP kernel** that carries no model at all.
 No provider, no key, no inference. It is a bridge that exposes your project as
 tools to an agent you already run, so **Claude Code or Codex drives Galley on the
 plan you already pay for**.
@@ -189,8 +221,9 @@ galley/
 `compiler` and `agent` are framework-agnostic (no React) so they can be reused
 server-side. The optional server pieces — `apps/proxy` (model proxy, keys off the
 browser), `apps/sync` (collaboration relay), and `apps/compile` (server-side
-compile) — are stateless, off by default, and self-hostable (see the
-[ADRs](docs/decisions)). The default single-user path needs none of them.
+compile) — are self-hostable and used only when configured. The sync relay can
+optionally persist project state; the proxy is stateless. The default browser
+single-user path needs none of them (see the [ADRs](docs/decisions)).
 
 ## Documentation
 
@@ -206,6 +239,8 @@ Read these in order:
 | [`docs/server-and-collaboration.md`](docs/server-and-collaboration.md) | Server topology, accounts/auth, Yjs collaboration, agent-as-peer (design rationale)     |
 | [`docs/agent-loop.md`](docs/agent-loop.md)                             | The agent state machine, tools, iteration/error/cancel handling, event stream           |
 | [`docs/editing-and-diff.md`](docs/editing-and-diff.md)                 | Search/replace contract, scratch isolation, diff, Accept/Reject conflicts               |
+| [`docs/document-checks.md`](docs/document-checks.md)                   | Current-output/source checks, meaning flags and compiled layout auditions               |
+| [`docs/document-workbench.md`](docs/document-workbench.md)             | Living numbers, evidence links, reviewer responses and portable records                 |
 | [`docs/compiler.md`](docs/compiler.md)                                 | typst.ts init, worker protocol, fonts, diagnostics normalization, preview/export        |
 | [`docs/providers.md`](docs/providers.md)                               | Provider types, capability probing, CORS/key caveats, local vs remote privacy           |
 | [`docs/mcp.md`](docs/mcp.md)                                           | Drive Galley from Claude Code or Codex over MCP, on your own plan instead of an API key |
@@ -223,29 +258,33 @@ The **Demo (offline)** model lets you try the full agent loop with no provider
 or API key configured; open **Settings** to point at an OpenAI-compatible
 endpoint, Anthropic, or a local Ollama.
 
-For development with a local toolchain (Node ≥ 20, pnpm 9):
+For development, use **Node ≥ 20** and **pnpm 9.15.9**, as declared in
+[`package.json`](package.json):
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
 pnpm dev          # runs @galley/web
 ```
 
-Tests build and run entirely **in Docker**:
+The canonical checks run **in Docker** from the current source:
 
 ```bash
-# Full green-gate: typecheck + unit + web build + Playwright e2e
-# (--build is required: plain `run` reuses a cached image and would test stale code)
-docker compose -f docker-compose.test.yml run --rm --build test
-
-# Fast typecheck + unit only
-docker compose -f docker-compose.test.yml run --rm --build unit
+scripts/check-ci        # lint, security/dependency audit, typechecks, PostgreSQL/unit tests, web build, Chromium
+scripts/check-ci unit   # iteration: lint, typechecks and unit tests
+scripts/check-ci cross  # Firefox/WebKit smoke for UI/compiler changes
 ```
+
+The wrapper builds fresh images and collects artifacts in `.ci-results` by
+default. See [security scanning](docs/security-scanning.md) for additional scanners.
 
 ## Self-hosting
 
-`docker compose up --build` runs Galley (web + proxy + sync) at
-http://localhost:8080 — see [`docs/self-host.md`](docs/self-host.md). The web app
-compiles Typst in the browser by default, so it is complete on its own.
+`docker compose up --build` starts **web + proxy + sync**, with their published
+ports bound to loopback. Open [localhost:8080](http://localhost:8080). The browser
+uses proxy/collaboration only when configured; server compile stays off.
+For a web-only process, run `docker compose up --build web`. The web app compiles
+Typst in the browser by default, so it is complete on its own. See the
+[self-host guide](docs/self-host.md) and [Kubernetes README](deploy/k8s/README.md).
 
 **Enabling server-side compile (opt-in).** The heavier compile service isn't run
 by default, so `Settings → Compile → Server` reports "Not configured." To wire it
@@ -258,7 +297,7 @@ docker compose -f docker-compose.yml -f docker-compose.compile.yml \
 
 It pre-sets `GALLEY_COMPILE_URL=http://127.0.0.1:3001/compile` (the
 browser-reachable endpoint) so Server/Auto "just work"; the default
-`docker compose up` stays web-only. Details in
+`docker compose up` leaves compile disabled. Details in
 [`docs/self-host.md`](docs/self-host.md#enabling-server-side-compile).
 
 ## License
