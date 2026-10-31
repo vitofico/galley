@@ -30,6 +30,12 @@ export type Materialize = () =>
   | { ok: true; files: VersionedFile[] }
   | { ok: false; reason: string };
 
+/** The UI and saved-project push callbacks share one exact portable-content policy. */
+export function materializeProjectForPush(project: CollabProject): ReturnType<Materialize> {
+  const outcome = materializeProject(project.snapshot(), { includeInstructions: true, includeWorkbench: true });
+  return outcome.ok ? { ok: true, files: outcome.result.files } : { ok: false, reason: `${outcome.reason} (${outcome.detail})` };
+}
+
 /**
  * Push the materialized project tree to `config`'s remote via the browser
  * `RemoteSync`. Returns a redacted outcome (never throws a raw token): a
@@ -328,12 +334,7 @@ export async function materializeProjectTreeFromIdb(
         if (u instanceof Uint8Array) Y.applyUpdate(doc, u);
         else if (u instanceof ArrayBuffer) Y.applyUpdate(doc, new Uint8Array(u));
       }
-      const outcome = materializeProject(new CollabProject(doc).snapshot(), {
-        includeInstructions: true,
-      });
-      return outcome.ok
-        ? { ok: true, files: outcome.result.files }
-        : { ok: false, reason: `${outcome.reason} (${outcome.detail})` };
+      return materializeProjectForPush(new CollabProject(doc));
     } finally {
       doc.destroy();
     }

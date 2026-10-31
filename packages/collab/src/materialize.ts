@@ -1,3 +1,7 @@
+import {
+  PORTABLE_WORKBENCH_PATH,
+  validPortableWorkbench,
+} from "./portable-workbench.js";
 /**
  * Roadmap #4 — the CRDT → git **projection** core (ADR-0018).
  *
@@ -79,6 +83,8 @@ export interface MaterializeOptions {
    * reserved config is not a document).
    */
   includeInstructions?: boolean;
+  /** Export only validated user workbench records; default off. */
+  includeWorkbench?: boolean;
 }
 
 const MANIFEST_SCHEMA = "galley.project/v1" as const;
@@ -215,6 +221,26 @@ export function materializeProject(
     }
   }
 
+  if (options.includeWorkbench) {
+    const workbench = snapshot.files.filter(
+      (f) =>
+        !f.deleted &&
+        (f.path === `/${PORTABLE_WORKBENCH_PATH}` ||
+          f.path === PORTABLE_WORKBENCH_PATH),
+    );
+    if (
+      workbench.length > 1 ||
+      (workbench[0] && !validPortableWorkbench(workbench[0].text))
+    )
+      return {
+        ok: false,
+        reason: "unsafe_path",
+        detail:
+          "Workbench metadata is duplicate or invalid; repair it before exporting",
+      };
+    if (workbench[0])
+      files.push({ path: PORTABLE_WORKBENCH_PATH, text: workbench[0].text });
+  }
   files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 
   return { ok: true, result: { files, manifest } };

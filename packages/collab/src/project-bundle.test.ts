@@ -279,3 +279,30 @@ describe("writeUstar (reusable archive core — shared with the git-repo export)
     expect(Array.from(entries[0]!.bytes)).toEqual(Array.from(blob));
   });
 });
+
+it("bundle preserves validated workbench records and excludes device metadata", () => {
+  const text = JSON.stringify({
+    version: 1,
+    bindings: [],
+    evidence: [],
+    reviews: [],
+  });
+  const out = bundleProject(
+    snap(
+      [
+        { fileId: "main", path: "/main.typ", text: "Hello" },
+        { fileId: "wb", path: "/.galley/workbench.json", text },
+        { fileId: "device", path: "/.galley/device.json", text: "secret" },
+      ],
+      "main",
+    ),
+  );
+  if ("error" in out) throw new Error(out.error);
+  const entries = parseTar(out.bytes);
+  expect(
+    new TextDecoder().decode(
+      entries.find((e) => e.name === ".galley/workbench.json")?.bytes,
+    ),
+  ).toBe(text);
+  expect(entries.some((e) => e.name === ".galley/device.json")).toBe(false);
+});

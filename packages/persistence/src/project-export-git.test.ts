@@ -392,3 +392,37 @@ describe("exportProjectAsGitRepo — canonical git tree-entry order", () => {
     }
   });
 });
+
+it("git export commits the validated workbench while excluding device records", async () => {
+  const text = JSON.stringify({
+    version: 1,
+    bindings: [],
+    evidence: [],
+    reviews: [],
+  });
+  const { root, gitdir } = await exportAndExtract(
+    snap(
+      [
+        { fileId: "main", path: "/main.typ", text: "Hello" },
+        { fileId: "wb", path: "/.galley/workbench.json", text },
+        { fileId: "device", path: "/.galley/device.json", text: "secret" },
+      ],
+      "main",
+    ),
+  );
+  try {
+    const oid = await git.resolveRef({ fs: nodeFs, gitdir, ref: "HEAD" });
+    const { blob } = await git.readBlob({
+      fs: nodeFs,
+      gitdir,
+      oid,
+      filepath: ".galley/workbench.json",
+    });
+    expect(new TextDecoder().decode(blob)).toBe(text);
+    expect(await git.listFiles({ fs: nodeFs, gitdir, ref: oid })).not.toContain(
+      ".galley/device.json",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -1,11 +1,7 @@
+import { readProjectArchive } from "./native-project-import.js";
 import { useEffect, useRef, useState } from "react";
-import { importLatexProject } from "@galley/agent";
 import type { LatexProjectReport, ProjectTextFile } from "@galley/agent";
-import {
-  readProjectZip,
-  ZipImportError,
-  MAX_ZIP_BYTES,
-} from "./import-project.js";
+import { ZipImportError, MAX_ZIP_BYTES } from "./import-project.js";
 import {
   ProjectImportBody,
   type ProjectImport,
@@ -98,8 +94,7 @@ export function ProjectImportPanel({
         );
       }
       const buf = await file.arrayBuffer();
-      const tree = await readProjectZip(buf);
-      const result = importLatexProject(tree);
+      const result = await readProjectArchive(buf, file.name);
       setProjectImport({
         files: result.files,
         report: result.report,
@@ -109,7 +104,7 @@ export function ProjectImportPanel({
     } catch (err) {
       const msg =
         err instanceof ZipImportError
-          ? `Could not import this .zip: ${err.message}`
+          ? `Could not import this project archive: ${err.message}`
           : err instanceof Error
             ? err.message
             : String(err);
@@ -168,6 +163,25 @@ export function ProjectImportPanel({
           </button>
         </header>
         <div className="authoring-body">
+          <details data-testid="import-decision-guide">
+            <summary>Choose the right import path</summary>
+            <p>
+              Overleaf or LaTeX project: choose a ZIP here, review each
+              converted file and warnings, then Accept to create a new project.
+              Conversion is local and may require manual repairs.
+            </p>
+            <p>
+              Single Markdown or LaTeX passage: open a document and use Insert →
+              Import. Existing Typst sources: add files to the project. Images
+              and PDFs: use the Files dock upload action; uploading an asset
+              does not convert it into editable prose.
+            </p>
+            <p>
+              Keep the original archive. Review the compiled document after
+              import, especially equations, bibliography and unsupported
+              commands.
+            </p>
+          </details>
           <ProjectImportBody
             projectImport={projectImport}
             zipError={zipError}

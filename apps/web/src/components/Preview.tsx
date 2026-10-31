@@ -39,6 +39,7 @@ import { ZoomPill } from "./ZoomPill.js";
 import { sanitizeCompiledSvg } from "./sanitize-svg.js";
 import { scaleSvgToPhysicalPx } from "./preview-svg-size.js";
 import { insertPageSeparators } from "./preview-page-separators.js";
+import { pageAnchor, anchorY, type PageAnchor } from "./preview-orientation.js";
 import { previewScrollTarget } from "./preview-scroll.js";
 
 export function Preview({
@@ -93,6 +94,37 @@ export function Preview({
 }) {
   const previewRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
+  const readingAnchor = useRef<PageAnchor | null>(null);
+  // Preserve the reader's page ordinal and within-page position after reflow.
+  // Source-map geometry is optional; absent geometry leaves native scroll alone.
+  const recordReadingAnchor = () => {
+    const container = previewRef.current;
+    const rendered = pageRef.current?.querySelector("svg");
+    const heights = sourceMap?.pages.map((page) => page.heightPt);
+    if (!container || !rendered || !heights?.length) return;
+    const rect = rendered.getBoundingClientRect();
+    const total = heights.reduce((sum, height) => sum + height, 0);
+    if (rect.height <= 0) return;
+    const y =
+      ((container.getBoundingClientRect().top - rect.top) * total) /
+      rect.height;
+    readingAnchor.current = pageAnchor(y, heights);
+  };
+  useLayoutEffect(() => {
+    const container = previewRef.current;
+    const rendered = pageRef.current?.querySelector("svg");
+    const heights = sourceMap?.pages.map((page) => page.heightPt);
+    if (!container || !rendered || !heights?.length || !readingAnchor.current)
+      return;
+    const y = anchorY(readingAnchor.current, heights);
+    const rect = rendered.getBoundingClientRect();
+    const total = heights.reduce((sum, height) => sum + height, 0);
+    if (y === null || rect.height <= 0 || total <= 0) return;
+    container.scrollTop +=
+      rect.top -
+      container.getBoundingClientRect().top +
+      (y * rect.height) / total;
+  }, [svg, sourceMap]);
   // Wraps the rendered <svg> on the forward-sync path and shrink-wraps it tightly
   // (`width: fit-content; max-width: 100%`). The highlight overlay lives INSIDE
   // this frame and is sized as a FRACTION of it, so the overlay tracks the SVG's
@@ -134,7 +166,10 @@ export function Preview({
     if (end < 0) return null;
     const m = /viewBox="([\d.\s-]+)"/.exec(safeSvg.slice(open, end));
     if (!m) return null;
-    const parts = m[1]!.trim().split(/[\s,]+/).map(Number);
+    const parts = m[1]!
+      .trim()
+      .split(/[\s,]+/)
+      .map(Number);
     if (parts.length < 4 || !parts.every(Number.isFinite)) return null;
     const w = parts[2]!;
     const h = parts[3]!;
@@ -177,7 +212,9 @@ export function Preview({
     const vbW = svgEl?.viewBox?.baseVal?.width ?? 0;
     const intrinsicFromViewBox = vbW > 0 ? vbW * (96 / 72) : 0;
     const currentScale = isActualSize(zoom) ? 1 : zoom / 100;
-    const svgLayoutW = svgEl ? svgEl.getBoundingClientRect().width / currentScale : 0;
+    const svgLayoutW = svgEl
+      ? svgEl.getBoundingClientRect().width / currentScale
+      : 0;
     const natural =
       intrinsicFromViewBox > 0
         ? intrinsicFromViewBox
@@ -231,7 +268,9 @@ export function Preview({
     const fRect = frame.getBoundingClientRect();
     // On-screen y of the region's top, expressed in the container's scroll space.
     const regionTop =
-      fRect.top - cRect.top + container.scrollTop +
+      fRect.top -
+      cRect.top +
+      container.scrollTop +
       (region.rect.y / docSize.h) * fRect.height;
     const regionLen = (region.rect.height / docSize.h) * fRect.height;
     // H2: vertical scroll is GATED on viewport bounds — recenter only when the
@@ -246,7 +285,9 @@ export function Preview({
     if (top !== null) container.scrollTo({ top, behavior: "smooth" });
     // Horizontal nudge only if the region sits outside the current view.
     const regionLeft =
-      fRect.left - cRect.left + container.scrollLeft +
+      fRect.left -
+      cRect.left +
+      container.scrollLeft +
       (region.rect.x / docSize.w) * fRect.width;
     const viewLeft = container.scrollLeft;
     const viewRight = viewLeft + container.clientWidth;
@@ -363,7 +404,12 @@ export function Preview({
           {staleNotice}
         </div>
       )}
-      <div className="preview" data-testid="preview" ref={previewRef}>
+      <div
+        className="preview"
+        data-testid="preview"
+        ref={previewRef}
+        onScroll={recordReadingAnchor}
+      >
         {svg ? (
           region ? (
             // Opt-in #11.3 path only: the SVG is injected into an inner host so the

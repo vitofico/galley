@@ -16,6 +16,8 @@ import {
   registerAuthor,
   renameAuthor,
   projectInstructionsFromTree,
+  portableWorkbenchFromTree,
+  PORTABLE_WORKBENCH_PATH,
   planBlobDemand,
   planBlobServe,
   decodeWantList,
@@ -1218,11 +1220,12 @@ function canonicalProjectPath(path: string): string {
  *
  * Reserved `.galley/*` entries (14-D): the WHOLE namespace is fenced out of the
  * regular create/diff loop (a tree from an untrusted remote must never raw-create
- * reserved config into the CRDT). The ONE recognized config file —
- * `.galley/instructions`, carried by the export surfaces — is applied through the
+ * reserved config into the CRDT). Recognized instructions are applied through the
  * coalescing {@link writeProjectInstructions} seam instead, completing the
- * export → import round-trip. A tree WITHOUT instructions (every version
- * snapshot, by design) leaves the project's existing instructions untouched.
+ * export → import round-trip. Exact validated `.galley/workbench.json` user records
+ * are admitted through their dedicated gate, validated before any regular-file
+ * write. A tree omitting either reserved entry (version snapshots, by design)
+ * leaves existing instructions and workbench records untouched.
  */
 export function restoreProjectFromTree(
   project: CollabProject,
@@ -1240,6 +1243,7 @@ export function restoreProjectFromTree(
   // Unsafe entries are dropped (never mutated into the project), mirroring the
   // zip import's `toSafeProjectFiles` gate; legitimate trees (every Galley
   // projection) never contain them.
+  const workbenchText = portableWorkbenchFromTree(tree);
   const fileEntries = tree.filter((f) => {
     const canonical = canonicalProjectPath(f.path);
     return !isReservedProjectPath(canonical) && isSafeProjectPath(canonical);
@@ -1294,6 +1298,23 @@ export function restoreProjectFromTree(
   // form and a re-import of identical text is a no-op.
   if (instructionsText !== undefined) {
     writeProjectInstructions(project, instructionsText, author);
+  }
+
+  if (workbenchText !== undefined) {
+    const path = `/${PORTABLE_WORKBENCH_PATH}`;
+    const entries = project
+      .snapshot()
+      .files.filter((f) => !f.deleted && f.path === path);
+    const keep = entries[0];
+    if (keep)
+      project.transactFile(
+        keep.fileId,
+        (text) => applyMinimalDiff(text, workbenchText),
+        author,
+      );
+    else project.create(path, workbenchText, author);
+    for (const duplicate of entries.slice(1))
+      project.delete(duplicate.fileId, author);
   }
 
   // Re-point main by PATH (manifest.main is already canonical, leading-slash).

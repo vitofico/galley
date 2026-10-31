@@ -1,3 +1,4 @@
+import { PORTABLE_WORKBENCH_PATH } from "@galley/collab";
 /**
  * `importProjectFromZip` — create a NEW project from a converted Overleaf/LaTeX
  * zip tree and navigate to it (project-model redesign §3, relocated from
@@ -56,13 +57,14 @@ export async function importProjectFromZip(
   // chars, the reserved `/.galley` namespace). Drop those rather than poison the
   // new project. The dropped paths are surfaced at REVIEW time before Accept.
   const { kept } = toSafeProjectFiles(files);
-  if (kept.length === 0) return false;
+  const ordinary = kept.filter((f) => f.path !== `/${PORTABLE_WORKBENCH_PATH}`);
+  if (ordinary.length === 0) return false;
   // Preserve the entrypoint shown in review, provided it survived the VFS gate.
   // Outcomes are alphabetically sorted and do not identify the main document.
   const preferredMain =
-    kept.find((f) => f.path === mainPath)?.path ??
-    kept.find((f) => f.path.toLowerCase().endsWith(".typ"))?.path ??
-    kept[0]!.path;
+    ordinary.find((f) => f.path === mainPath)?.path ??
+    ordinary.find((f) => f.path.toLowerCase().endsWith(".typ"))?.path ??
+    ordinary[0]!.path;
 
   // The binary bytes for THIS import, recorded by the zip reader into the
   // in-process handoff slot. Canonicalize + safety-gate them with the SAME VFS

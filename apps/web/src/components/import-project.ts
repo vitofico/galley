@@ -30,6 +30,7 @@
 import type { ImportLatexProjectInput, LatexProjectInputFile } from "@galley/agent";
 import type { LatexProjectReport, ProjectTextFile } from "@galley/agent";
 import { isReservedProjectPath, isSafeProjectPath } from "@galley/shared";
+import { portableWorkbenchFromTree, PORTABLE_WORKBENCH_PATH } from "@galley/collab";
 import { rememberImportedBinaries, type ImportedBinary } from "../binary-files.js";
 
 // ---------------------------------------------------------------------------
@@ -102,6 +103,7 @@ const ZIP64_SENTINEL_16 = 0xffff;
  */
 export async function readProjectZip(
   zip: ArrayBuffer | Uint8Array,
+  options: { preserveTextBytes?: boolean } = {},
 ): Promise<ImportLatexProjectInput> {
   const bytes = zip instanceof Uint8Array ? zip : new Uint8Array(zip);
 
@@ -254,7 +256,7 @@ export async function readProjectZip(
     totalBytes += data.length;
 
     if (isTextPath(safePath)) {
-      files.push({ path: safePath, text: new TextDecoder("utf-8", { fatal: false }).decode(data) });
+      files.push({ path: safePath, text: new TextDecoder("utf-8", { fatal: false }).decode(data), ...(options.preserveTextBytes ? { bytes: data } : {}) });
     } else {
       // Binary asset (#7): keep the bytes so images survive import (G1). `data` is
       // already bounded by the per-entry + archive-total caps above.
@@ -491,10 +493,12 @@ export interface SafeProjectFiles {
  * and reported, never silently kept.
  */
 export function toSafeProjectFiles(files: ProjectTextFile[]): SafeProjectFiles {
+  portableWorkbenchFromTree(files);
   const kept: ProjectTextFile[] = [];
   const dropped: string[] = [];
   for (const f of files) {
-    if (isSafeProjectPath(f.path)) kept.push(f);
+    // Only validated exact user-record metadata bypasses the reserved user-path gate.
+    if (isSafeProjectPath(f.path) || f.path === `/${PORTABLE_WORKBENCH_PATH}`) kept.push(f);
     else dropped.push(f.path);
   }
   return { kept, dropped };
@@ -617,7 +621,7 @@ const TEXT_EXTS = [
 ];
 
 /** Treat known LaTeX/text extensions as text; everything else is a binary asset. */
-function isTextPath(path: string): boolean {
+export function isTextPath(path: string): boolean {
   const lower = path.toLowerCase();
   return TEXT_EXTS.some((ext) => lower.endsWith(ext));
 }

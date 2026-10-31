@@ -61,7 +61,7 @@ export function bundleProject(
   // EXPORT surface (14-D round-trip): carry the project's `.galley/instructions`
   // config in the bundle at its real path, so an exported project's agent
   // steering survives a re-import. Version snapshots deliberately do NOT opt in.
-  const outcome = materializeProject(snapshot, { includeInstructions: true });
+  const outcome = materializeProject(snapshot, { includeInstructions: true, includeWorkbench: true });
   if (!outcome.ok) {
     return { error: `cannot bundle (${outcome.reason}): ${outcome.detail}` };
   }
