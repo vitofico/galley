@@ -78,6 +78,24 @@ describe("resolveTransport — proxy", () => {
   });
 });
 
+describe("anthropic via proxy — native Messages API through @galley/proxy", () => {
+  const anthropicProxy: ProviderConfig = {
+    kind: "anthropic",
+    label: "Claude via proxy",
+    baseUrl: "https://api.anthropic.com/v1",
+    model: "claude-haiku-4-5",
+    isLocal: false,
+    transport: { mode: "proxy", proxyUrl: "http://localhost:8787", upstreamId: "anthropic" },
+  };
+
+  it("still carries anthropic-version (Anthropic rejects requests without it)", () => {
+    expect(resolveTransport(anthropicProxy)).toEqual({
+      baseUrl: "http://localhost:8787/forward",
+      headers: { "anthropic-version": "2023-06-01", [GALLEY_UPSTREAM_HEADER]: "anthropic" },
+    });
+  });
+});
+
 describe("ollama via proxy — a self-hosted (server/cluster) Ollama", () => {
   // A deployed Galley reaches an in-cluster Ollama THROUGH @galley/proxy: the
   // browser can't call the cluster's internal/keyless endpoint directly (CORS +

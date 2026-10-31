@@ -80,8 +80,12 @@ All opt-in via the URL (or the in-app settings):
 
 - **Cloud models via the proxy:** configure a provider in Settings with the
   `proxy` transport pointing at the proxy origin; set `UPSTREAM_<ID>_URL` /
-  `UPSTREAM_<ID>_KEY` on the proxy (keys stay server-side). CORS is controlled by
-  `ALLOWED_ORIGINS`.
+  `UPSTREAM_<ID>_KEY` on the proxy (keys stay server-side). The key goes in
+  `Authorization` unless `UPSTREAM_<ID>_AUTH_HEADER` says otherwise: a native
+  Anthropic upstream (provider kind `anthropic`) needs
+  `UPSTREAM_<ID>_AUTH_HEADER=x-api-key` and the bare key, see
+  [providers.md](providers.md#proxy-mode--server-side-key). CORS is controlled
+  by `ALLOWED_ORIGINS`.
 - **Collaboration:** open a share/join link `/join/<room>?sync=ws://localhost:1234&role=editor` (or use the in-app **Share** action, which builds this link).
 - **Server-side compile:** `?serverCompile=1&compileUrl=http://localhost:3001/compile`
   (the URL is POSTed verbatim, so include the `/compile` path). Easier: use the
