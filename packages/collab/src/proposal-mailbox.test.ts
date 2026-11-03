@@ -304,6 +304,55 @@ describe("proposal mailbox — provenance (sig, seq, map-key guard)", () => {
   // field round-trips publish → read. "AAAA" is a valid base64url string.
   const fakeSigner: ProposalSigner = async () => "AAAA";
 
+  it("reserves and signs the durable sequence for both mailbox shapes", async () => {
+    const project = new CollabProject();
+    const seen: Array<[string, number]> = [];
+    const signer: ProposalSigner = Object.assign(
+      async (record: Parameters<ProposalSigner>[0], mailbox: Parameters<ProposalSigner>[1]) => {
+        seen.push([mailbox, record.seq]);
+        return "AAAA";
+      },
+      {
+        reserveSequence: async (mailbox: string) =>
+          mailbox === "mcpProposals" ? 1000000000001 : 1000000000011,
+      },
+    );
+    const single = await publishProposal(project, PROPOSAL, MCP, signer);
+    const multi = await publishFileProposal(project, FILE_INPUT, MCP, signer);
+    expect(getProposal(project, single)?.seq).toBe(1000000000001);
+    expect(getFileProposal(project, multi)?.seq).toBe(1000000000011);
+    expect(seen).toEqual([
+      ["mcpProposals", 1000000000001],
+      ["mcpFileProposals", 1000000000011],
+    ]);
+    project.destroy();
+  });
+
+  it("publishes nothing when durable reservation fails or yields an invalid number", async () => {
+    const project = new CollabProject();
+    for (const reserveSequence of [
+      async () => {
+        throw new Error("unwritable sequence store");
+      },
+      async () => NaN,
+      async () => -1,
+      async () => Number.MAX_SAFE_INTEGER + 1,
+    ]) {
+      const signer: ProposalSigner = Object.assign(async () => "AAAA", {
+        reserveSequence,
+      });
+      await expect(
+        publishProposal(project, PROPOSAL, MCP, signer),
+      ).rejects.toThrow();
+      await expect(
+        publishFileProposal(project, FILE_INPUT, MCP, signer),
+      ).rejects.toThrow();
+    }
+    expect(project.doc.getMap("mcpProposals").size).toBe(0);
+    expect(project.doc.getMap("mcpFileProposals").size).toBe(0);
+    project.destroy();
+  });
+
   it("a record published WITH a signer carries `sig` and surfaces it on read", async () => {
     const b = new CollabProject();
     b.create("/main.typ", "= Title\nbody\n", HUMAN);

@@ -1,7 +1,8 @@
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { test, expect, type Page } from "@playwright/test";
 import { gotoEditor } from "./app-helpers.js";
 import {
@@ -248,10 +249,12 @@ test("real stdio kernel reuses one approval and uploads a mixed binary project",
   const { Client } = await import(pathToFileURL(requireFromMcp.resolve("@modelcontextprotocol/sdk/client/index.js")).href);
   const { StdioClientTransport } = await import(pathToFileURL(requireFromMcp.resolve("@modelcontextprotocol/sdk/client/stdio.js")).href);
   let client = new Client({ name: "galley-binary-import-e2e", version: "1.0.0" });
+  const stateDir = await mkdtemp(resolve(tmpdir(), "galley-kernel-reconnect-"));
   const makeTransport = () => new StdioClientTransport({
     command: process.execPath,
     args: [fileURLToPath(new URL("../../mcp/bin/galley-mcp.mjs", import.meta.url)), "--sync", syncUrl],
     env: {
+      GALLEY_MCP_PAIRING_FILE: resolve(stateDir, "pairing.json"),
       GALLEY_MCP_CONTROL_ROOM: controlRoom,
       GALLEY_MCP_RESPONSE_KEY: bytesToBase64Url(responseKey),
     },
@@ -283,6 +286,11 @@ test("real stdio kernel reuses one approval and uploads a mixed binary project",
     await page.getByTestId("share-display-name-save").click();
     await page.getByTestId("share-button").click();
 
+    const before = await call("read_document");
+    await call("propose_edit", { request: "First kernel single-file edit", edits: [
+      { search: before.text, replace: before.text + "\n// First kernel sequence check\n" },
+    ] });
+    await expect.poll(async () => (await call("read_document")).text).toContain("First kernel sequence check");
     const original = await call("read_document");
     const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
     const pdf = Buffer.from("%PDF-1.4\n%%EOF\n");
@@ -309,8 +317,8 @@ test("real stdio kernel reuses one approval and uploads a mixed binary project",
       }).toBe(hash);
     }
     await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, { timeout: 60_000 });
-    await page.reload();
-    await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, { timeout: 60_000 });
+    // Keep the SAME mounted browser and its replay high-water marks while a
+    // fresh OS process reuses the grant. Reloading here hid sequence rollback.
     await client.close();
     client = new Client({ name: "galley-reconnect-e2e", version: "1.0.0" });
     await client.connect(makeTransport());
@@ -319,6 +327,10 @@ test("real stdio kernel reuses one approval and uploads a mixed binary project",
     await client.listTools();
     await expect(page.getByTestId("agent-open-consent")).toBeHidden();
     expect((await call("read_document")).text).toContain("= CV import");
+    await call("propose_edit", { request: "Fresh kernel single-file edit without tab reload", edits: [
+      { search: "CV import", replace: "CV import resumed" },
+    ] });
+    await expect.poll(async () => (await call("read_document")).text).toContain("CV import resumed");
     await page.getByTestId("share-button").click();
     await page.getByTestId("share-display-name").fill("CV reconnected host");
     await page.getByTestId("share-display-name-save").click();
@@ -352,10 +364,14 @@ test("real stdio kernel reuses one approval and uploads a mixed binary project",
       source: "browser",
     });
 
+    // A later browser reload must also keep the grant and updated binary file.
+    await page.reload();
+    await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, { timeout: 60_000 });
     await expect(page.getByTestId("agent-mode-auto")).toBeChecked();
     await page.keyboard.press("ControlOrMeta+,");
     await expect(page.getByTestId("agent-background-active")).toBeVisible();
   } finally {
     await client.close();
+    await rm(stateDir, { recursive: true, force: true });
   }
 });

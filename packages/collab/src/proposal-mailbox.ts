@@ -38,10 +38,23 @@ const MAILBOX_KEY = "mcpProposals";
  * scope (Task 4); local-mode publishes pass no signer and stay unsigned. Returns
  * the base64url HMAC to store as the record's `sig`.
  */
-export type ProposalSigner = (
-  signable: SignableProposal,
-  mailbox: "mcpProposals" | "mcpFileProposals",
-) => Promise<string>;
+export type ProposalSigner = {
+  (
+    signable: SignableProposal,
+    mailbox: "mcpProposals" | "mcpFileProposals",
+  ): Promise<string>;
+  /** Reserve before signing; durable kernels keep seq monotonic across restarts. */
+  reserveSequence?: (
+    mailbox: "mcpProposals" | "mcpFileProposals",
+  ) => Promise<number>;
+};
+
+function requireSafeSequence(sequence: number): number {
+  if (!Number.isSafeInteger(sequence) || sequence < 0) {
+    throw new Error("Proposal sequence must be a nonnegative safe integer");
+  }
+  return sequence;
+}
 
 export type ProposalStatus = "pending" | "accepted" | "rejected";
 
@@ -240,7 +253,9 @@ export async function publishProposal(
   if (violation !== null) throw new Error(`publishProposal: ${violation}`);
   const id = mintProposalId();
   const createdAt = Date.now();
-  const recordSeq = seq++;
+  const recordSeq = requireSafeSequence(
+    signer?.reserveSequence ? await signer.reserveSequence(MAILBOX_KEY) : seq++,
+  );
   // Sign BEFORE the transaction so the whole publish stays ONE transaction and
   // the signed canonical view matches the fields below exactly.
   const sig = signer
@@ -776,7 +791,9 @@ export async function publishFileProposal(
   if (violation !== null) throw new Error(`publishFileProposal: ${violation}`);
   const id = mintProposalId();
   const createdAt = Date.now();
-  const recordSeq = fileSeq++;
+  const recordSeq = requireSafeSequence(
+    signer?.reserveSequence ? await signer.reserveSequence(FILE_MAILBOX_KEY) : fileSeq++,
+  );
   // Sign BEFORE the transaction (see publishProposal) so the publish stays ONE
   // transaction and the signed canonical view matches the stored record.
   const sig = signer

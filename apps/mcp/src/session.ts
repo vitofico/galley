@@ -71,9 +71,10 @@ export interface ProposalSignerBase {
 export function buildProposalSigner(
   base: ProposalSignerBase,
   responseKey: Uint8Array,
+  reserveSequence?: ProposalSigner["reserveSequence"],
 ): ProposalSigner {
   const keys = new Map<string, ReturnType<typeof deriveProposalKey>>();
-  return (signable, mailbox) => {
+  const signer: ProposalSigner = (signable, mailbox) => {
     const scope: ProposalScope = { ...base, mailbox };
     let keyP = keys.get(mailbox);
     if (keyP === undefined) {
@@ -82,6 +83,8 @@ export function buildProposalSigner(
     }
     return keyP.then((key) => signProposal(key, scope, signable));
   };
+  if (reserveSequence !== undefined) signer.reserveSequence = reserveSequence;
+  return signer;
 }
 
 export interface KernelSession {
@@ -151,6 +154,8 @@ export function joinRoom(
     controlRoom?: string;
     projectId?: string;
     responseKey?: Uint8Array;
+    /** CLI-owned durable ordering metadata; absent for unsigned/local joins. */
+    reserveProposalSequence?: ProposalSigner["reserveSequence"];
     /** Lowered read caps from launch args (D2); absent ⇒ READ_LIMITS defaults. */
     readLimits?: ReadLimitOverrides;
   },
@@ -308,6 +313,7 @@ export function joinRoom(
             shareRoom: config.room,
           },
           config.responseKey,
+          config.reserveProposalSequence,
         )
       : undefined;
 
