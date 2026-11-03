@@ -65,10 +65,9 @@ export interface AutoAcceptCtx {
   /**
    * The highest seq already auto-applied for this grant, PER MAILBOX. The kernel
    * keeps two INDEPENDENT seq counters (one for `mcpProposals`, one for
-   * `mcpFileProposals`), each starting at 0 per session — so a single shared
-   * high-water mark would let one mailbox's counter false-reject the other's
-   * (e.g. a fresh multi-file proposal at fileSeq=0 blocked because a single-file
-   * proposal already advanced the mark). Each mailbox gates against its own.
+   * `mcpFileProposals`). Signed CLI publishes reserve durable numbers across
+   * kernel restarts; unsigned/local publishes keep process-local tie-breaks.
+   * A shared high-water mark would false-reject the other mailbox's counter.
    */
   lastAppliedSeq: Record<"mcpProposals" | "mcpFileProposals", number | null>;
   /** The per-window op/byte budget guarding against an anomalous burst. */

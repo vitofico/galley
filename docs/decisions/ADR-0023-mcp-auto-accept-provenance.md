@@ -261,3 +261,27 @@ no trust.
 - No asymmetric signing: the shared `responseKey` already authenticates the pair;
   an Ed25519 keypair adds a signing dependency and a key-distribution path for no
   threat-model gain here.
+
+## Addendum: proposal ordering across kernel restarts (November 2026)
+
+Reusing an approved project also reuses the mounted browser's per-mailbox replay
+high-water marks. Process-local producer counters restarted at zero, so a fresh
+kernel's valid signature could fall back to review even in Auto mode. Reloading
+the browser before reconnecting masked this case in the original acceptance test.
+
+The control-mode CLI now supplies the signer with a durable sequence allocator.
+Each mailbox reserves a number before signing or publishing, in a private sibling
+`proposal-sequences` directory beside the configured pairing file. The initial
+migration floor is 1,000,000,000,000, above legacy process-local counters. Atomic
+marker renames serialize reservations across local processes without a persistent
+lock owner; a failed publish or process crash consumes its reservation. Corrupt,
+unreadable or exhausted state fails closed. The store contains ordering metadata
+only, never project grants or signing keys. Keep it on a local filesystem with
+atomic rename and directory fsync support; do not delete it to repair a live grant.
+
+The collab signer accepts an optional `reserveSequence(mailbox)` callback; when
+present its nonnegative safe-integer result is covered by the existing signature.
+Unsigned/local callers retain their process-local tie-breaks. There is no wire
+format change, and no change to the browser's signature, scope, audit, rollback,
+volume, ownership, conflict or final-apply gates. The real stdio acceptance test
+now starts a second kernel while the same browser remains mounted.

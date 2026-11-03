@@ -6,6 +6,7 @@ import { createHttpCompileService } from "./compile-client.js";
 import { joinRoom } from "./session.js";
 import { joinControlRoom, runPairingHandshake } from "./control.js";
 import { loadPairing, savePairing } from "./pairing-store.js";
+import { createProposalSequenceAllocator } from "./proposal-sequence.js";
 import { createGalleyMcpServer } from "./server.js";
 import { registerControlTools } from "./control-tools.js";
 
@@ -148,6 +149,7 @@ async function main(): Promise<void> {
       // per-grant), so the project-room join needs it.
       responseKey,
       ...(compileService !== undefined ? { compileService } : {}),
+      reserveProposalSequence: createProposalSequenceAllocator(),
     });
     exitWhenClientDisconnects(() => control.destroy());
     await server.connect(new StdioServerTransport());

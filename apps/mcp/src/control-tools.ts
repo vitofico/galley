@@ -42,7 +42,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { isSafeProjectPath } from "@galley/shared";
 import { TOOL_REGISTRY, escapeControlChars } from "@galley/agent";
-import { sha256Hex, type ReceivedBlob } from "@galley/collab";
+import { sha256Hex, type ReceivedBlob, type ProposalSigner } from "@galley/collab";
 import type { CompileService } from "./compile-client.js";
 import { isLoopbackHost } from "./config.js";
 import { OPEN_PROJECT_REQUIRED_REFUSAL, type ControlRpcOutcome } from "./control.js";
@@ -383,6 +383,8 @@ export interface ControlToolDeps {
    * key that SIGNS proposals, so it is threaded into the project-room join.
    */
   responseKey: Uint8Array;
+  /** CLI-owned ordering store, retained across fresh kernel processes. */
+  reserveProposalSequence?: ProposalSigner["reserveSequence"];
   /** The compile seam for the per-project tools registered after open_project. */
   compileService?: CompileService;
   /** Injectable project-room join for tests; defaults to the REAL session machinery. */
@@ -394,6 +396,7 @@ export interface ControlToolDeps {
     controlRoom: string;
     projectId: string;
     responseKey: Uint8Array;
+    reserveProposalSequence?: ProposalSigner["reserveSequence"];
   }) => KernelSession;
   /** How long open_project waits for the project file to replicate after the join. */
   projectReadyTimeoutMs?: number;
@@ -1383,6 +1386,9 @@ export function registerControlTools(server: McpServer, deps: ControlToolDeps): 
           controlRoom: deps.controlRoom,
           projectId,
           responseKey: deps.responseKey,
+          ...(deps.reserveProposalSequence !== undefined
+            ? { reserveProposalSequence: deps.reserveProposalSequence }
+            : {}),
         });
         try {
           await session.whenFileReady(deps.projectReadyTimeoutMs ?? 15_000);
