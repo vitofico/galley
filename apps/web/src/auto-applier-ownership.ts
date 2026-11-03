@@ -76,7 +76,9 @@ export interface AutoApplierAwareness {
  * when the state carries no (valid) claim. Defensive: a peer could publish a
  * garbage `autoApplier` value, so every field is type-checked before it counts.
  */
-function readClaim(state: Record<string, unknown> | null | undefined): AutoApplierClaim | null {
+function readClaim(
+  state: Record<string, unknown> | null | undefined,
+): AutoApplierClaim | null {
   if (typeof state !== "object" || state === null) return null;
   const raw = state[AUTO_APPLIER_FIELD];
   if (typeof raw !== "object" || raw === null) return null;
@@ -92,15 +94,51 @@ function readClaim(state: Record<string, unknown> | null | undefined): AutoAppli
  * Carry the tab's own `clientID` in the claim so the election reads consistently
  * even before a peer's full state has replicated. Best-effort; never throws.
  */
-export function claimAutoApplier(aw: AutoApplierAwareness | null, grantId: string): void {
+export function claimAutoApplier(
+  aw: AutoApplierAwareness | null,
+  grantId: string,
+): void {
   if (aw === null) return;
   try {
+    const current = readClaim(aw.getLocalState?.());
+    if (current?.grantId === grantId && current.clientId === aw.clientID)
+      return;
     const claim: AutoApplierClaim = { grantId, clientId: aw.clientID };
     aw.setLocalStateField(AUTO_APPLIER_FIELD, claim);
   } catch {
     // best-effort: a failed publish just means this tab won't win the election
     // (fail-closed — it will not auto-apply), never a throw out of the caller.
   }
+}
+
+export interface ObservableAutoApplierAwareness extends AutoApplierAwareness {
+  getLocalState(): Record<string, unknown> | null;
+  on(event: "update", listener: () => void): unknown;
+  off(event: "update", listener: () => void): unknown;
+}
+
+/** Keep a scoped ownership hint in step with the live grant and presence. */
+export function maintainAutoApplierClaim(
+  aw: ObservableAutoApplierAwareness,
+  readGrantId: () => string | null,
+  subscribeGrant: (listener: () => void) => () => void,
+): () => void {
+  const refresh = () => {
+    // Presence replacement/reconnect can clear this hint. Never recreate a
+    // disconnected peer's null presence, or use a cached authorization decision.
+    if (aw.getLocalState() === null) return;
+    const grantId = readGrantId();
+    if (grantId === null) releaseAutoApplier(aw);
+    else claimAutoApplier(aw, grantId);
+  };
+  aw.on("update", refresh);
+  const unsubscribeGrant = subscribeGrant(refresh);
+  refresh();
+  return () => {
+    unsubscribeGrant();
+    aw.off("update", refresh);
+    releaseAutoApplier(aw);
+  };
 }
 
 /**
@@ -112,6 +150,10 @@ export function claimAutoApplier(aw: AutoApplierAwareness | null, grantId: strin
 export function releaseAutoApplier(aw: AutoApplierAwareness | null): void {
   if (aw === null) return;
   try {
+    const state = aw.getLocalState
+      ? aw.getLocalState()
+      : aw.getStates().get(aw.clientID);
+    if (state?.[AUTO_APPLIER_FIELD] == null) return;
     aw.setLocalStateField(AUTO_APPLIER_FIELD, null);
   } catch {
     // best-effort
@@ -132,7 +174,10 @@ export function releaseAutoApplier(aw: AutoApplierAwareness | null): void {
  * (Ask). A tie is impossible: clientIds are unique per awareness, so the minimum
  * is a single tab.
  */
-export function isAutoApplierOwner(aw: AutoApplierAwareness | null, grantId: string): boolean {
+export function isAutoApplierOwner(
+  aw: AutoApplierAwareness | null,
+  grantId: string,
+): boolean {
   if (aw === null) return false;
   let states: Map<number, Record<string, unknown>>;
   try {
@@ -199,7 +244,8 @@ export interface AutoApplierLockResult<T> {
 
 /** Resolve the ambient `navigator.locks`, or null when unavailable (jsdom/old runtime). */
 function defaultLockManager(): LockManagerLike | null {
-  const nav = (globalThis as { navigator?: { locks?: LockManagerLike } }).navigator;
+  const nav = (globalThis as { navigator?: { locks?: LockManagerLike } })
+    .navigator;
   return nav?.locks ?? null;
 }
 
@@ -229,12 +275,17 @@ export async function withAutoApplierLock<T>(
     return { ranWithLock: false }; // fail closed: no lock primitive → never auto-apply
   }
   try {
-    return await mgr.request(autoApplierLockName(grantId), { ifAvailable: true }, async (lock) => {
-      // `ifAvailable` hands back null when the lock is already held — do NOT run.
-      if (lock === null) return { ranWithLock: false } as AutoApplierLockResult<T>;
-      const result = await fn();
-      return { ranWithLock: true, result };
-    });
+    return await mgr.request(
+      autoApplierLockName(grantId),
+      { ifAvailable: true },
+      async (lock) => {
+        // `ifAvailable` hands back null when the lock is already held — do NOT run.
+        if (lock === null)
+          return { ranWithLock: false } as AutoApplierLockResult<T>;
+        const result = await fn();
+        return { ranWithLock: true, result };
+      },
+    );
   } catch {
     // A lock-manager throw must never become an unguarded apply (fail closed).
     return { ranWithLock: false };
