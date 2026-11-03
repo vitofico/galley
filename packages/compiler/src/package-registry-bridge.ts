@@ -36,7 +36,9 @@ function memRoot(spec: PackageSpec): string {
  * resolver doesn't have returns `undefined` → typst fails the import closed (never
  * a crash, never a network call).
  */
-export function packageRegistryBeforeBuild(resolver: PackageResolver): BeforeBuildFn[] {
+export function packageRegistryBeforeBuild(
+  resolver: PackageResolver,
+): BeforeBuildFn[] {
   const am = new MemoryAccessModel();
   // Packages are immutable (version-pinned) and the access model survives
   // `resetShadow()`, so insert each resolved package's files at most once.
@@ -56,7 +58,11 @@ export function packageRegistryBeforeBuild(resolver: PackageResolver): BeforeBui
         for (const f of files) {
           // ADR-0014 paths are already `/packages/<ns>/<name>/<version>/…`,
           // validated + traversal-checked; re-root under the memory namespace.
-          am.insertFile(`${MEM_PREFIX}${f.path}`, enc.encode(f.text), EPOCH);
+          am.insertFile(
+            `${MEM_PREFIX}${f.path}`,
+            "text" in f ? enc.encode(f.text) : f.bytes,
+            EPOCH,
+          );
         }
         inserted.add(root);
         return root;

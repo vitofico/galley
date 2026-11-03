@@ -1508,3 +1508,44 @@ describe("wireBlobSync (D1 online-only blob-sync, servable-provenance)", () => {
     expect(awareness.setCalls).toHaveLength(1);
   });
 });
+
+it("atomically applies binary path moves/deletes with text edits and preserves pointers", () => {
+  const project = new CollabProject(new Y.Doc());
+  const main = project.create("/main.typ", "before", HUMAN);
+  const font = project.createBinary(
+    "/font.otf",
+    { type: "binary", hash: "a".repeat(64), size: 10, mime: "font/otf" },
+    HUMAN,
+  );
+  const pdf = project.createBinary(
+    "/old.pdf",
+    { type: "binary", hash: "b".repeat(64), size: 5, mime: "application/pdf" },
+    HUMAN,
+  );
+  let updates = 0;
+  project.doc.on("update", () => updates++);
+  applyAcceptedFileSetAsAgent(
+    project,
+    {
+      creates: [],
+      edits: [{ fileId: main, source: "after" }],
+      renames: [{ fileId: font, newPath: "/fonts/font.otf", binary: true }],
+      deletes: [{ fileId: pdf, binary: true }],
+    },
+    "mcp",
+  );
+  expect(updates).toBe(1);
+  expect(project.getFile(main)?.text).toBe("after");
+  expect(project.snapshot().binaryFiles).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        fileId: font,
+        path: "/fonts/font.otf",
+        hash: "a".repeat(64),
+        deleted: false,
+      }),
+      expect.objectContaining({ fileId: pdf, deleted: true }),
+    ]),
+  );
+  project.destroy();
+});

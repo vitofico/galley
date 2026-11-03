@@ -50,7 +50,15 @@
 import type { OpenedProject, OpenProjectRefusal } from "./control-responder.js";
 
 /** The consent modal's decision (ProjectApp's 90s auto-deny maps to "timeout"). */
-export type ConsentOutcome = "approve" | "deny" | "timeout";
+export interface AgentAccessOptions {
+  mode: "ask" | "auto";
+  backgroundAccess: boolean;
+}
+
+export type ConsentOutcome = "approve" | "deny" | "timeout" | {
+  approved: true;
+  options: AgentAccessOptions;
+};
 
 /** SEC-16.3b: a joined/CONNECTED session never shares the project it is visiting. */
 export const REFUSAL_JOINED_SESSION =
@@ -91,7 +99,7 @@ export interface AgentOpenHandlerSeams {
    * The (idempotent) share-upgrade, read at CALL time (ProjectApp keeps the
    * latest closure in a ref), or null when sharing is unavailable.
    */
-  getEnsureShared(): (() => Promise<OpenedProject | OpenProjectRefusal>) | null;
+  getEnsureShared(): ((options?: AgentAccessOptions) => Promise<OpenedProject | OpenProjectRefusal>) | null;
   /**
    * ADR-0024 §3 reuse fast-path. Resolve a LIVE binding for `requestedProjectId`
    * to REUSE — without re-consent or a share re-mint — ONLY when ALL of:
@@ -262,6 +270,6 @@ export function createAgentOpenHandler(
     if (ensure === null) {
       return { refused: REFUSAL_SHARE_UNAVAILABLE };
     }
-    return ensure();
+    return ensure(typeof outcome === "object" ? outcome.options : undefined);
   };
 }

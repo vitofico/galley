@@ -435,3 +435,94 @@ describe("apps/compile CORS allowlist (#22.2)", () => {
     expect(res.headers.get("access-control-allow-origin")).toBeNull();
   });
 });
+
+describe("JSON-safe binary compile requests", () => {
+  it("round-trips a realistic 3 MiB asset set through the actual HTTP client and decoder", async () => {
+    const { RemoteCompilerClient } = await import("@galley/compiler");
+    const bytes = new Uint8Array(1536 * 1024).fill(217);
+    const input: ProjectInput = {
+      kind: "project",
+      main: "/main.typ",
+      files: [{ path: "/main.typ", text: "= CV" }],
+      binaryFiles: [
+        { path: "/fonts/a.otf", bytes },
+        { path: "/photo.jpg", bytes: bytes.slice() },
+      ],
+    };
+    let received: unknown;
+    const backend = {
+      check: async (value: unknown) => {
+        received = value;
+        return { ok: true, diagnostics: [], pageCount: 1, durationMs: 0 };
+      },
+      render: async () => {
+        throw Error("unused");
+      },
+      export: async () => {
+        throw Error("unused");
+      },
+    };
+    const service = createCompileApp({ backend });
+    const client = new RemoteCompilerClient({
+      url: "http://local/compile",
+      fetch: (async (_url, init) => {
+        expect(
+          new TextEncoder().encode(init!.body as string).length,
+        ).toBeLessThan(5 * 1024 * 1024);
+        return service.request("/compile", init);
+      }) as typeof fetch,
+    });
+    expect((await client.check(input)).ok).toBe(true);
+    expect(received).toEqual(input);
+  });
+
+  it("rejects malformed bytes, duplicate paths, and decoded-size overflow before the backend", async () => {
+    const { encodeCompileInput } = await import("@galley/compiler");
+    let called = false;
+    const service = createCompileApp({
+      backend: {
+        check: async () => {
+          called = true;
+          throw Error("must not compile");
+        },
+        render: async () => {
+          throw Error("unused");
+        },
+        export: async () => {
+          throw Error("unused");
+        },
+      },
+      limits: { maxFileBytes: 10 },
+    });
+    const base = {
+      kind: "project",
+      main: "/main.typ",
+      files: [{ path: "/main.typ", text: "x" }],
+    };
+    for (const binaryFiles of [
+      [{ path: "/a", bytes: { 0: 1 } }],
+      [{ path: "/a", base64: "!!!=" }],
+      [{ path: "/main.typ", base64: "AA==" }],
+      [{ path: "/../a", base64: "AA==" }],
+    ]) {
+      const res = await service.request("/compile", {
+        method: "POST",
+        body: JSON.stringify({ op: "check", input: { ...base, binaryFiles } }),
+      });
+      expect(res.status).toBe(400);
+    }
+    const res = await service.request("/compile", {
+      method: "POST",
+      body: JSON.stringify({
+        op: "check",
+        input: encodeCompileInput({
+          ...base,
+          kind: "project",
+          binaryFiles: [{ path: "/a", bytes: new Uint8Array(11) }],
+        }),
+      }),
+    });
+    expect(res.status).toBe(413);
+    expect(called).toBe(false);
+  });
+});

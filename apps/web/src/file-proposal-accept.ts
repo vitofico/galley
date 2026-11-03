@@ -17,16 +17,20 @@
  *             FULL-FILE REPLACEMENT: it applies the proposed text ONLY when the
  *             live file is unchanged since the proposal (resolveAccept's fast
  *             path), else it surfaces a STALE conflict — never a silent no-op.
- *   - rename: exactly ONE live text match for the source, and the destination
+ *   - rename: exactly ONE live text or binary match for the source, and the destination
  *             (`newPath`) must be FREE (move-into-folder is just a new path).
- *   - delete: exactly ONE live text match (a recoverable soft-delete on Accept).
+ *   - delete: exactly ONE live text or binary match (a recoverable soft-delete on Accept).
  *
  * Every op resolves against the ORIGINAL snapshot — the planner never simulates a
  * post-apply intermediate state, so ops can't depend on each other's path changes
  * within one set (the mailbox already forbids any path appearing twice). That keeps
  * "validate everything, then apply all-or-nothing" simple and impossible to half-apply.
  */
-import type { BinaryAsset, FileProposalOp, ProjectSnapshot } from "@galley/collab";
+import type {
+  BinaryAsset,
+  FileProposalOp,
+  ProjectSnapshot,
+} from "@galley/collab";
 import { resolveAccept } from "./accept.js";
 
 export interface FileProposalPlan {
@@ -35,9 +39,9 @@ export interface FileProposalPlan {
   /** Existing files to rewrite, with the conflict-resolved final source. */
   edits: { fileId: string; source: string }[];
   /** Existing files to move to a new (free) path — metadata-only, history-preserving. */
-  renames: { fileId: string; newPath: string }[];
+  renames: { fileId: string; newPath: string; binary?: true }[];
   /** Existing files to soft-delete (recoverable). */
-  deletes: { fileId: string }[];
+  deletes: { fileId: string; binary?: true }[];
   /**
    * New BINARY files to create (A2): a free path + a content-addressed pointer to
    * bytes that must already be present in the blob store. The PURE planner only
@@ -58,9 +62,8 @@ export function planFileProposalAccept(
   ops: FileProposalOp[],
 ): FileProposalPlanResult {
   const liveText = snapshot.files.filter((f) => !f.deleted);
-  const liveBinaryPaths = new Set(
-    (snapshot.binaryFiles ?? []).filter((f) => !f.deleted).map((f) => f.path),
-  );
+  const liveBinary = (snapshot.binaryFiles ?? []).filter((f) => !f.deleted);
+  const liveBinaryPaths = new Set(liveBinary.map((f) => f.path));
   const creates: FileProposalPlan["creates"] = [];
   const edits: FileProposalPlan["edits"] = [];
   const renames: FileProposalPlan["renames"] = [];
@@ -75,7 +78,9 @@ export function planFileProposalAccept(
   // rename / delete). Returns the file or a structured reason (missing/ambiguous).
   const resolveOne = (
     path: string,
-  ): { ok: true; file: (typeof liveText)[number] } | { ok: false; reason: string } => {
+  ):
+    | { ok: true; file: (typeof liveText)[number] }
+    | { ok: false; reason: string } => {
     const textMatches = liveText.filter((f) => f.path === path);
     if (textMatches.length === 0) {
       return { ok: false, reason: `${path} is no longer in the project.` };
@@ -92,11 +97,38 @@ export function planFileProposalAccept(
     return { ok: true, file: textMatches[0]! };
   };
 
+  const resolveMutable = (path: string) => {
+    const matches = [
+      ...liveText
+        .filter((f) => f.path === path)
+        .map((f) => ({ fileId: f.fileId })),
+      ...liveBinary
+        .filter((f) => f.path === path)
+        .map((f) => ({ fileId: f.fileId, binary: true as const })),
+    ];
+    return matches.length === 1
+      ? { ok: true as const, file: matches[0]! }
+      : {
+          ok: false as const,
+          reason:
+            matches.length === 0
+              ? `${path} is no longer in the project.`
+              : `${matches.length} files share the path ${path}. Resolve the duplicate-path conflict first.`,
+        };
+  };
+
   for (const op of ops) {
     if (op.kind === "create") {
       const textMatches = liveText.filter((f) => f.path === op.path);
-      if (textMatches.length > 0 || liveBinaryPaths.has(op.path) || plannedNewPaths.has(op.path)) {
-        return { ok: false, reason: `${op.path} already exists — cannot create it.` };
+      if (
+        textMatches.length > 0 ||
+        liveBinaryPaths.has(op.path) ||
+        plannedNewPaths.has(op.path)
+      ) {
+        return {
+          ok: false,
+          reason: `${op.path} already exists — cannot create it.`,
+        };
       }
       plannedNewPaths.add(op.path);
       creates.push({ path: op.path, text: op.proposedText });
@@ -110,13 +142,23 @@ export function planFileProposalAccept(
       // async job (it can't run in this pure planner); the asset pointer is
       // carried through so the orchestrator can verify + apply it.
       const textMatches = liveText.filter((f) => f.path === op.path);
-      if (textMatches.length > 0 || liveBinaryPaths.has(op.path) || plannedNewPaths.has(op.path)) {
-        return { ok: false, reason: `${op.path} already exists — cannot create it.` };
+      if (
+        textMatches.length > 0 ||
+        liveBinaryPaths.has(op.path) ||
+        plannedNewPaths.has(op.path)
+      ) {
+        return {
+          ok: false,
+          reason: `${op.path} already exists — cannot create it.`,
+        };
       }
       if (op.binaryAsset === undefined) {
         // A well-formed create-binary op always carries a pointer (the mailbox
         // validator guarantees it); a missing one is a corrupt record — refuse.
-        return { ok: false, reason: `${op.path} is a binary file with no asset pointer.` };
+        return {
+          ok: false,
+          reason: `${op.path} is a binary file with no asset pointer.`,
+        };
       }
       plannedNewPaths.add(op.path);
       binaryCreates.push({ path: op.path, asset: op.binaryAsset });
@@ -124,14 +166,14 @@ export function planFileProposalAccept(
     }
 
     if (op.kind === "delete") {
-      const resolved = resolveOne(op.path);
+      const resolved = resolveMutable(op.path);
       if (!resolved.ok) return resolved;
-      deletes.push({ fileId: resolved.file.fileId });
+      deletes.push(resolved.file);
       continue;
     }
 
     if (op.kind === "rename") {
-      const resolved = resolveOne(op.path);
+      const resolved = resolveMutable(op.path);
       if (!resolved.ok) return resolved;
       const dest = op.newPath!;
       const destTaken =
@@ -139,10 +181,13 @@ export function planFileProposalAccept(
         liveBinaryPaths.has(dest) ||
         plannedNewPaths.has(dest);
       if (destTaken) {
-        return { ok: false, reason: `${dest} already exists — cannot move ${op.path} onto it.` };
+        return {
+          ok: false,
+          reason: `${dest} already exists — cannot move ${op.path} onto it.`,
+        };
       }
       plannedNewPaths.add(dest);
-      renames.push({ fileId: resolved.file.fileId, newPath: dest });
+      renames.push({ ...resolved.file, newPath: dest });
       continue;
     }
 
@@ -150,7 +195,12 @@ export function planFileProposalAccept(
     const resolved = resolveOne(op.path);
     if (!resolved.ok) return resolved;
     const file = resolved.file;
-    const outcome = resolveAccept(file.text, op.baseText, op.proposedText, op.blocks);
+    const outcome = resolveAccept(
+      file.text,
+      op.baseText,
+      op.proposedText,
+      op.blocks,
+    );
     if (!outcome.applied) {
       // An empty-blocks edit (a restore op) is a full-file replacement, so its
       // conflict is a "file moved since the proposal", not a block re-match miss —
@@ -164,7 +214,10 @@ export function planFileProposalAccept(
     edits.push({ fileId: file.fileId, source: outcome.source! });
   }
 
-  return { ok: true, plan: { creates, edits, renames, deletes, binaryCreates } };
+  return {
+    ok: true,
+    plan: { creates, edits, renames, deletes, binaryCreates },
+  };
 }
 
 /**
@@ -210,6 +263,9 @@ export async function verifyBinaryBlobsPresent(
  * entry blocks the delete. Versions are text-only, so `binaryFiles` is the complete
  * reference set. Pure, so the unit gate pins it directly.
  */
-export function blobHashIsReferenced(snapshot: ProjectSnapshot, hash: string): boolean {
+export function blobHashIsReferenced(
+  snapshot: ProjectSnapshot,
+  hash: string,
+): boolean {
   return (snapshot.binaryFiles ?? []).some((f) => f.hash === hash);
 }

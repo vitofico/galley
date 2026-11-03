@@ -19,7 +19,7 @@ describe("dropPackagePathRefs", () => {
     const source = '#import "@preview/cetz:0.2.2"\n= Needs a package';
     // The raw lint flags `@preview` (the scanner stops the name at `/`).
     const raw = lint(source);
-    expect(raw.some((d) => d.message.includes("@preview"))).toBe(true);
+    expect(raw.some((d) => d.message.includes("@preview"))).toBe(false);
     // The filter removes it — the ref token is immediately followed by `/`.
     const filtered = dropPackagePathRefs(source, raw);
     expect(filtered.some((d) => d.message.includes("@preview"))).toBe(false);
@@ -73,4 +73,14 @@ describe("dropPackagePathRefs", () => {
     const d: Diagnostic = { severity: "warning", message: "unknown reference @pkg", span };
     expect(dropPackagePathRefs(source, [d])).toHaveLength(0);
   });
+});
+
+it("ignores quoted emails, escaped string quotes, comments and raw text while preserving real refs", () => {
+  const source =
+    '#let email = "person@example.com"\n#let s = "quote \\" @hidden"\n// @comment\n`@raw`\nSee @missing';
+  const got = lint(source);
+  expect(got.map((d) => d.message)).toEqual(["unknown reference @missing"]);
+  expect(source.slice(got[0]!.span!.offset, got[0]!.span!.endOffset)).toBe(
+    "@missing",
+  );
 });

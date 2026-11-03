@@ -220,6 +220,27 @@ describe("mcp kernel control mode ⇄ real relay ⇄ fake browser responder", ()
     }
   });
 
+  it.each([
+    "only the currently-open project can be shared with the agent right now",
+    "no project is open to share with the agent",
+  ])("a known open refusal returns a safe next action: %s", async (error) => {
+    const room = `ctl-open-required-${Math.random().toString(16).slice(2)}`;
+    const responder = startFakeControlResponder({
+      syncUrl, controlRoom: room, projects: PROJECTS, responseKey: RESPONSE_KEY,
+      answer: (request) => request.op === "open_project" ? { id: request.id, ok: false, error } : null,
+    });
+    const k = await controlClient(room);
+    try {
+      const result = await k.client.callTool({ name: "open_project", arguments: { projectId: "proj-aaaa" } });
+      expect(JSON.parse(firstText(result))).toMatchObject({
+        status: "open_required", projectId: "proj-aaaa", projectPath: "/p/proj-aaaa",
+      });
+    } finally {
+      k.destroy();
+      responder.stop();
+    }
+  });
+
   it("PRODUCTION RELAY (C2): a CONSENT refusal still flattens to the clean grant-it error (stays a refusal)", async () => {
     // Consent is the ONE outcome kept as a refusal (no existence oracle). Over the
     // real relay the verified consent-required refusal must still map to the clean

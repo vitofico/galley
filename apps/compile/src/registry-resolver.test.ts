@@ -260,3 +260,41 @@ describe("prewarmRegistry", () => {
     expect(calls).toBe(1);
   });
 });
+
+it("prewarms pinned transitive imports once and never fetches an unpinned dependency", async () => {
+  const root = new Uint8Array(
+    gzipSync(
+      makeTar([
+        {
+          path: "typst.toml",
+          text: '[package]\nname="root"\nversion="1.0.0"\nentrypoint="lib.typ"',
+        },
+        {
+          path: "lib.typ",
+          text: '#import "@preview/probe:0.1.0": hi\n#import "@preview/absent:1.0.0": *',
+        },
+      ]),
+    ),
+  );
+  const requests: string[] = [];
+  const resolver = await prewarmRegistry(
+    [{ namespace: "preview", name: "root", version: "1.0.0" }],
+    {
+      baseUrl: "https://packages.typst.org",
+      integrity: {
+        ...PROBE_INTEGRITY,
+        "@preview/root:1.0.0": {
+          sha256: createHash("sha256").update(root).digest("hex"),
+          size: root.length,
+        },
+      },
+      fetch: (async (url) => {
+        requests.push(String(url));
+        return new Response(String(url).includes("root-") ? root : PROBE_GZ);
+      }) as typeof fetch,
+    },
+  );
+  expect(requests).toHaveLength(2);
+  expect(resolver.resolve(PROBE_SPEC)).not.toBeNull();
+  expect(requests.some((x) => x.includes("absent"))).toBe(false);
+});

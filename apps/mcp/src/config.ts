@@ -69,8 +69,10 @@ export interface ControlKernelConfig {
    *     `controlRoom`/`responseKey` are NOT yet known here; main.ts first tries a
    *     MAC-verified durable pairing, then runs the handshake with `pairingCode`,
    *     then persists the result so future runs need no re-paste.
+   *   - `"durable"`: only the relay was supplied; startup must authenticate an
+   *     existing saved pairing or fail with a re-pair instruction.
    */
-  authSource: "args" | "pairing-code";
+  authSource: "args" | "pairing-code" | "durable";
   /** The control-room id — present for `authSource:"args"`, else resolved at runtime. */
   controlRoom?: string;
   /**
@@ -113,6 +115,7 @@ export const KERNEL_USAGE = [
   "               [--compile-url http://localhost:3001]",
   "    The kernel runs a handshake to obtain the room + response key, then stores",
   "    them durably so later runs need no re-paste. Re-paste only after a Revoke.",
+  "  resume a saved pairing: galley-mcp --sync ws://localhost:1234",
   "  control mode (legacy, #16.3a/ADR-0021) — paste the room + key directly (CI/manual):",
   "    galley-mcp --sync ws://localhost:1234 --control-room <control-room-id> \\",
   "               --response-key <base64url-key> [--compile-url http://localhost:3001]",
@@ -422,10 +425,13 @@ export function parseKernelConfig(
   }
 
   if (!room && !file) {
-    fail(
-      "missing a mode: pass --room + --file (per-project mode), --pairing-code (B2 control " +
-        "mode), or --control-room + --response-key (legacy control mode)",
-    );
+    return {
+      mode: "control",
+      syncUrl: syncUrl.replace(/\/+$/, ""),
+      authSource: "durable",
+      ...compilePart,
+      ...readLimitsPart,
+    };
   }
   if (!room) fail("missing --room (or GALLEY_MCP_ROOM): the shared room id from the Share link");
   if (!file) fail("missing --file (or GALLEY_MCP_FILE): the target file path, e.g. /main.typ");

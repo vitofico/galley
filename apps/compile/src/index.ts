@@ -16,7 +16,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { bytesToBase64 } from "@galley/compiler";
-import { isProjectInput } from "@galley/shared";
+import { decodeCompileInput } from "./compile-input-wire.js";
 import { CompileUnavailableError } from "./isolated-backend.js";
 import type {
   CheckResult,
@@ -81,7 +81,9 @@ export const DEFAULT_MAX_CONCURRENT_COMPILES = 4;
  * misconfigured cap. Mirrors `parseIsolationTimeoutMs`: a clean positive integer
  * only, failing loud at startup.
  */
-export function parseMaxConcurrentCompiles(raw: string | undefined): number | undefined {
+export function parseMaxConcurrentCompiles(
+  raw: string | undefined,
+): number | undefined {
   if (raw === undefined || raw.trim() === "") return undefined;
   const trimmed = raw.trim();
   const n = /^\d+$/.test(trimmed) ? Number.parseInt(trimmed, 10) : NaN;
@@ -147,7 +149,11 @@ export function createCachedReadiness(
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const timeout = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`readiness probe timed out after ${timeoutMs}ms`)), timeoutMs);
+        timer = setTimeout(
+          () =>
+            reject(new Error(`readiness probe timed out after ${timeoutMs}ms`)),
+          timeoutMs,
+        );
         timer.unref?.();
       });
       // The probe input is a fixed empty source — never user-controlled. Success
@@ -180,48 +186,35 @@ export function createCachedReadiness(
 const OPS = new Set(["check", "render", "export"]);
 const utf8 = new TextEncoder();
 
-/** Validate an untrusted request body into a CompileServiceRequest, or return a reason. */
-function parseRequest(body: unknown): { req: CompileServiceRequest } | { error: string } {
-  if (typeof body !== "object" || body === null) return { error: "body must be a JSON object" };
+/** Validate before the backend sees any untrusted input. */
+function parseRequest(
+  body: unknown,
+  limits: CompileLimits,
+):
+  | { req: { op: CompileServiceRequest["op"]; input: CompileInput } }
+  | { error: string; status: 400 | 413 } {
+  if (typeof body !== "object" || body === null)
+    return { error: "body must be a JSON object", status: 400 };
   const { op, input } = body as Record<string, unknown>;
-  if (typeof op !== "string" || !OPS.has(op)) return { error: "op must be one of check|render|export" };
-  if (typeof input === "string") {
-    return { req: { op: op as CompileServiceRequest["op"], input } };
-  }
-  // Only treat `input` as a possible ProjectInput when it is a plain object:
-  // `isProjectInput` dereferences fields, so passing null / a number / an array
-  // (e.g. {op:"check",input:null}) would throw a TypeError. Guard the shape here
-  // so anything that isn't a string or a non-array object yields the clean 400
-  // below instead of an unhandled 500.
-  if (typeof input === "object" && input !== null && !Array.isArray(input)) {
-    if (isProjectInput(input as CompileInput)) {
-      return { req: { op: op as CompileServiceRequest["op"], input: input as CompileInput } };
-    }
-  }
-  return { error: "input must be a source string or a ProjectInput" };
-}
-
-/** Enforce per-input size caps. Returns an error reason, or null if within caps. */
-function checkInputLimits(input: CompileInput, limits: CompileLimits): string | null {
-  if (typeof input === "string") {
-    if (utf8.encode(input).length > limits.maxFileBytes) return "source exceeds size cap";
-    return null;
-  }
-  if (input.files.length > limits.maxFiles) return "too many files";
-  let total = 0;
-  for (const f of input.files) {
-    const bytes = utf8.encode(f.text).length;
-    if (bytes > limits.maxFileBytes) return `file ${f.path} exceeds size cap`;
-    total += bytes;
-    if (total > limits.maxTotalBytes) return "project exceeds total size cap";
-  }
-  return null;
+  if (typeof op !== "string" || !OPS.has(op))
+    return { error: "op must be one of check|render|export", status: 400 };
+  const decoded = decodeCompileInput(input, limits);
+  if ("error" in decoded) return decoded;
+  return {
+    req: { op: op as CompileServiceRequest["op"], input: decoded.input },
+  };
 }
 
 export function createCompileApp(options: CompileAppOptions): Hono {
   const { backend, allowedOrigins = [], checkReadiness } = options;
-  const limits: CompileLimits = { ...DEFAULT_COMPILE_LIMITS, ...options.limits };
-  const maxConcurrent = Math.max(1, options.maxConcurrentCompiles ?? DEFAULT_MAX_CONCURRENT_COMPILES);
+  const limits: CompileLimits = {
+    ...DEFAULT_COMPILE_LIMITS,
+    ...options.limits,
+  };
+  const maxConcurrent = Math.max(
+    1,
+    options.maxConcurrentCompiles ?? DEFAULT_MAX_CONCURRENT_COMPILES,
+  );
   // In-flight compile counter for the concurrency cap (SEC: /compile DoS). The
   // check-then-increment below has no `await` between the test and the bump, so
   // it is atomic on the single JS thread — no lock needed.
@@ -275,12 +268,11 @@ export function createCompileApp(options: CompileAppOptions): Hono {
     } catch {
       return c.json({ error: "invalid JSON" }, 400);
     }
-    const parsed = parseRequest(body);
-    if ("error" in parsed) return c.json({ error: parsed.error }, 400);
+    const parsed = parseRequest(body, limits);
+    if ("error" in parsed)
+      return c.json({ error: parsed.error }, parsed.status);
 
     const { op, input } = parsed.req;
-    const limitError = checkInputLimits(input, limits);
-    if (limitError) return c.json({ error: limitError }, 413);
 
     // Concurrency cap (SEC: /compile DoS). Every compile does WASM work — in a
     // fresh worker_thread under the default backend (worker isolation), or inline

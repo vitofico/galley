@@ -83,6 +83,24 @@
   margin-top: 0.35rem;
 }
 
+.agent-consent-options {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0.7rem;
+  border: 1px solid var(--chrome-border);
+  border-radius: 10px;
+  font-size: 0.85rem;
+}
+
+.agent-consent-options label,
+.agent-consent-background {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
 .agent-consent-deny {
   appearance: none;
   font: inherit;

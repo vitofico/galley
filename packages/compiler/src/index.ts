@@ -55,6 +55,7 @@ export {
 export type {
   PackageSpec,
   PackageResolver,
+  PackageFile,
   PackageLimits,
 } from "./package-resolver.js";
 // Bridges the resolver seam to typst.ts's package-registry callback (roadmap #3).
@@ -78,6 +79,7 @@ export { RemoteCompilerClient } from "./remote-compiler-client.js";
 export type { RemoteCompilerOptions } from "./remote-compiler-client.js";
 // base64 for PDF bytes on the compile-service wire.
 export { bytesToBase64, base64ToBytes } from "./base64.js";
+export { encodeCompileInput } from "./compile-wire.js";
 export type { WorkerRequest, WorkerResponse } from "./worker-protocol.js";
 // The worker handler (installed on a first-party worker entry by the app).
 export { serveWorker } from "./worker.js";

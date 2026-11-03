@@ -69,13 +69,23 @@ const DEFAULT_MAX_PACKAGES = 256;
  * but COMPUTES the hash instead of checking it. Throws on any failure; the caller
  * turns that into an omission.
  */
-async function snapshotOne(spec: PackageSpec, options: BuildManifestOptions): Promise<IntegrityEntry> {
+async function snapshotOne(
+  spec: PackageSpec,
+  options: BuildManifestOptions,
+): Promise<IntegrityEntry> {
   const bytes = await fetchRegistryArtifact(spec, options);
   // Prove the artifact is actually usable BEFORE we bless its hash: it must
   // decompress within the cap, parse as a strict ustar, and pass ADR-0014's
   // re-root/traversal/extension/size validation — exactly what the runtime does.
-  const tar = await gunzipWithCap(bytes, options.maxDecompressedBytes ?? DEFAULT_MAX_DECOMPRESSED);
-  const files = untarStrict(tar, options.archiveLimits ?? DEFAULT_ARCHIVE_LIMITS);
+  const tar = await gunzipWithCap(
+    bytes,
+    options.maxDecompressedBytes ?? DEFAULT_MAX_DECOMPRESSED,
+  );
+  const files = untarStrict(
+    tar,
+    options.archiveLimits ?? DEFAULT_ARCHIVE_LIMITS,
+    true,
+  );
   resolvePackagePaths(spec, files); // throws → omit
   return { sha256: sha256Hex(bytes), size: bytes.length };
 }
@@ -100,7 +110,10 @@ export async function buildIntegrityManifest(
 
   for (const raw of specStrings) {
     if (ok.length + failed.length >= cap) {
-      failed.push({ spec: String(raw), reason: `skipped: exceeds maxPackages (${cap})` });
+      failed.push({
+        spec: String(raw),
+        reason: `skipped: exceeds maxPackages (${cap})`,
+      });
       continue;
     }
     const spec = parsePackageSpec(typeof raw === "string" ? raw.trim() : "");
@@ -116,7 +129,10 @@ export async function buildIntegrityManifest(
       manifest[key] = await snapshotOne(spec, options);
       ok.push(key);
     } catch (err) {
-      failed.push({ spec: key, reason: err instanceof Error ? err.message : "fetch/verify failed" });
+      failed.push({
+        spec: key,
+        reason: err instanceof Error ? err.message : "fetch/verify failed",
+      });
     }
   }
 

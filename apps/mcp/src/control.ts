@@ -275,6 +275,8 @@ export const CONSENT_REQUIRED_REFUSAL =
 
 /** The kernel's LOCAL generic refusal for every other responder-sent failure (MEDIUM-3). */
 export const GENERIC_REFUSAL = "the responder refused this request";
+export const OPEN_PROJECT_REQUIRED_REFUSAL =
+  "open-project-required: open the requested project in this Galley tab, then retry open_project";
 
 /**
  * Classify a VERIFIED responder failure into a LOCAL error string (MEDIUM-3 —
@@ -284,6 +286,10 @@ export const GENERIC_REFUSAL = "the responder refused this request";
  */
 function classifyRefusal(wireError: string): string {
   if (wireError.startsWith("consent-required")) return CONSENT_REQUIRED_REFUSAL;
+  if (wireError === "only the currently-open project can be shared with the agent right now" ||
+      wireError === "no project is open to share with the agent") {
+    return OPEN_PROJECT_REQUIRED_REFUSAL;
+  }
   return GENERIC_REFUSAL;
 }
 

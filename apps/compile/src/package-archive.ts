@@ -1,3 +1,4 @@
+import type { PackageFile } from "@galley/compiler";
 /**
  * Package-archive CORE (roadmap #3 slice 5a) — the security-critical, **pure**
  * (no network, no FS) byte handling for a fetched Typst package: capped gunzip,
@@ -41,13 +42,18 @@ export const DEFAULT_ARCHIVE_LIMITS: ArchiveLimits = {
  * can't expand without bound. Async, so it never blocks the event loop on the
  * request path.
  */
-export async function gunzipWithCap(gz: Uint8Array, maxOutputBytes: number): Promise<Uint8Array> {
+export async function gunzipWithCap(
+  gz: Uint8Array,
+  maxOutputBytes: number,
+): Promise<Uint8Array> {
   try {
     const out = await gunzipAsync(gz, { maxOutputLength: maxOutputBytes });
     return new Uint8Array(out.buffer, out.byteOffset, out.byteLength);
   } catch {
     // Includes the RangeError zlib throws past maxOutputLength.
-    throw new ArchiveError("gunzip failed or exceeded the decompressed size cap");
+    throw new ArchiveError(
+      "gunzip failed or exceeded the decompressed size cap",
+    );
   }
 }
 
@@ -65,11 +71,13 @@ function decodeUtf8(bytes: Uint8Array): string {
 
 function readOctal(field: Uint8Array): number {
   // Reject GNU base-256 sizes (high bit set) outright — we don't support them.
-  if ((field[0]! & 0x80) !== 0) throw new ArchiveError("base-256/binary numeric field rejected");
+  if ((field[0]! & 0x80) !== 0)
+    throw new ArchiveError("base-256/binary numeric field rejected");
   let s = "";
   for (const b of field) {
     if (b === 0 || b === 0x20) break; // NUL or space terminates
-    if (b < 0x30 || b > 0x37) throw new ArchiveError("non-octal byte in numeric field");
+    if (b < 0x30 || b > 0x37)
+      throw new ArchiveError("non-octal byte in numeric field");
     s += String.fromCharCode(b);
   }
   if (s.length === 0) return 0;
@@ -105,11 +113,25 @@ function cstr(field: Uint8Array): string {
  */
 export function untarStrict(
   data: Uint8Array,
+  limits?: ArchiveLimits,
+  sourcesOnly?: false,
+): Array<{ path: string; text: string }>;
+export function untarStrict(
+  data: Uint8Array,
+  limits: ArchiveLimits,
+  sourcesOnly: true,
+): PackageFile[];
+export function untarStrict(
+  data: Uint8Array,
   limits: ArchiveLimits = DEFAULT_ARCHIVE_LIMITS,
-): Array<{ path: string; text: string }> {
-  if (data.length % BLOCK !== 0) throw new ArchiveError("archive length is not a multiple of 512");
-  const out: Array<{ path: string; text: string }> = [];
+  sourcesOnly = false,
+): PackageFile[] {
+  if (data.length % BLOCK !== 0)
+    throw new ArchiveError("archive length is not a multiple of 512");
+  const out: PackageFile[] = [];
   let total = 0;
+  let fileCount = 0;
+  const seen = new Set<string>();
   let offset = 0;
 
   while (offset + BLOCK <= data.length) {
@@ -118,18 +140,21 @@ export function untarStrict(
       // End-of-archive: everything after the (one or two) zero blocks must be
       // zero padding — reject any trailing non-zero garbage.
       for (let i = offset; i < data.length; i++) {
-        if (data[i] !== 0) throw new ArchiveError("non-zero data after end-of-archive marker");
+        if (data[i] !== 0)
+          throw new ArchiveError("non-zero data after end-of-archive marker");
       }
       return out;
     }
 
     // Verify the header checksum before trusting any field.
     const stored = readOctal(header.subarray(148, 156));
-    if (stored !== headerChecksum(header)) throw new ArchiveError("bad tar header checksum");
+    if (stored !== headerChecksum(header))
+      throw new ArchiveError("bad tar header checksum");
 
     const typeflag = header[156]!;
     const size = readOctal(header.subarray(124, 136));
-    if (size < 0 || !Number.isSafeInteger(size)) throw new ArchiveError("invalid entry size");
+    if (size < 0 || !Number.isSafeInteger(size))
+      throw new ArchiveError("invalid entry size");
 
     // Regular file = '0' (0x30) or NUL (0x00). Directory = '5' (skip). Everything
     // else — symlink '2', hardlink '1', char/block/fifo '3'/'4'/'6', GNU 'L'/'K',
@@ -137,28 +162,61 @@ export function untarStrict(
     const isRegular = typeflag === 0x30 || typeflag === 0;
     const isDir = typeflag === 0x35;
     if (!isRegular && !isDir) {
-      throw new ArchiveError(`unsupported tar entry type: 0x${typeflag.toString(16)}`);
+      throw new ArchiveError(
+        `unsupported tar entry type: 0x${typeflag.toString(16)}`,
+      );
     }
 
     const dataStart = offset + BLOCK;
     const padded = Math.ceil(size / BLOCK) * BLOCK;
-    if (dataStart + padded > data.length) throw new ArchiveError("truncated archive entry data");
+    if (dataStart + padded > data.length)
+      throw new ArchiveError("truncated archive entry data");
 
     if (isRegular) {
-      if (size > limits.maxFileBytes) throw new ArchiveError("package file exceeds size cap");
+      if (size > limits.maxFileBytes)
+        throw new ArchiveError("package file exceeds size cap");
       total += size;
-      if (total > limits.maxTotalBytes) throw new ArchiveError("package exceeds total size cap");
-      if (out.length >= limits.maxFiles) throw new ArchiveError("package exceeds file-count cap");
+      if (total > limits.maxTotalBytes)
+        throw new ArchiveError("package exceeds total size cap");
+      if (++fileCount > limits.maxFiles)
+        throw new ArchiveError("package exceeds file-count cap");
 
       const name = cstr(header.subarray(0, 100));
       const prefix = cstr(header.subarray(345, 500));
       const path = prefix ? `${prefix}/${name}` : name;
       // Defense in depth (resolvePackagePaths is the authoritative gate downstream).
-      if (path.length === 0 || path.includes("\0") || path.split("/").some((s) => s === ".." )) {
-        throw new ArchiveError(`illegal path in archive: ${JSON.stringify(path)}`);
+      if (
+        path.length === 0 ||
+        path.startsWith("/") ||
+        /[\\\x00-\x1f:]/.test(path) ||
+        path.split("/").some((s) => s === ".." || s === "." || s === "")
+      ) {
+        throw new ArchiveError(
+          `illegal path in archive: ${JSON.stringify(path)}`,
+        );
       }
-      const text = decodeUtf8(data.subarray(dataStart, dataStart + size));
-      out.push({ path, text });
+      if (seen.has(path))
+        throw new ArchiveError("duplicate package archive path");
+      seen.add(path);
+      // Every entry was validated/counted above. Documentation stays outside the
+      // VFS; supported passive images remain bytes (some template defaults use them).
+      if (sourcesOnly && /\.(?:png|jpe?g|gif|svg)$/i.test(path)) {
+        out.push({ path, bytes: data.slice(dataStart, dataStart + size) });
+      } else if (sourcesOnly && !/\.(typ|toml)$/.test(path)) {
+        if (
+          !/(?:^|\/)(?:LICENSE|LICENCE|COPYING|NOTICE)(?:\.[a-zA-Z0-9-]+)?$/.test(
+            path,
+          ) &&
+          !/\.(?:md|txt|pdf)$/i.test(path)
+        ) {
+          throw new ArchiveError(
+            `disallowed package file type: ${JSON.stringify(path)}`,
+          );
+        }
+      } else {
+        const text = decodeUtf8(data.subarray(dataStart, dataStart + size));
+        out.push({ path, text });
+      }
     }
 
     offset = dataStart + padded;
@@ -178,8 +236,12 @@ export function sha256Hex(bytes: Uint8Array): string {
  * closed. The expected entry comes from an operator-supplied manifest (5b); there
  * is no "skip when absent" in the production path.
  */
-export function verifyIntegrity(bytes: Uint8Array, expected: { sha256: string; size: number }): void {
-  if (bytes.length !== expected.size) throw new ArchiveError("package size mismatch");
+export function verifyIntegrity(
+  bytes: Uint8Array,
+  expected: { sha256: string; size: number },
+): void {
+  if (bytes.length !== expected.size)
+    throw new ArchiveError("package size mismatch");
   const got = Buffer.from(sha256Hex(bytes), "hex");
   const want = Buffer.from(expected.sha256, "hex");
   if (got.length !== want.length || !timingSafeEqual(got, want)) {

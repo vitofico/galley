@@ -1993,6 +1993,7 @@ describe("control-responder-mount — expect_blob is consent-gated + wired to th
     expect(resp?.ok).toBe(true);
     expect((resp as Extract<ControlResponse, { ok: true }>).result).toEqual({
       reserved: true,
+      protocol: "galley-blob-v1",
     });
     expect(calls).toEqual([{ hash: HASH, size: 100 }]);
   });
@@ -2009,6 +2010,7 @@ describe("control-responder-mount — expect_blob is consent-gated + wired to th
     expect(resp?.ok).toBe(true);
     expect((resp as Extract<ControlResponse, { ok: true }>).result).toEqual({
       reserved: false,
+      protocol: "galley-blob-v1",
     });
   });
 

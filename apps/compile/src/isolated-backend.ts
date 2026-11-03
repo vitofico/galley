@@ -35,6 +35,7 @@ import type {
   RenderResult,
 } from "@galley/shared";
 import type { CompileBackend } from "./index.js";
+import type { WorkerRegistryConfig } from "./package-compile.js";
 
 export type { CompileOp };
 
@@ -82,7 +83,9 @@ export const DEFAULT_ISOLATION_TIMEOUT_MS = 20_000;
  * runaway compile hangs the request and leaks a thread, defeating the flag). We
  * require an explicit positive integer so misconfiguration fails loud at startup.
  */
-export function parseIsolationTimeoutMs(raw: string | undefined): number | undefined {
+export function parseIsolationTimeoutMs(
+  raw: string | undefined,
+): number | undefined {
   if (raw === undefined || raw.trim() === "") return undefined;
   const trimmed = raw.trim();
   // Reject anything that isn't a plain base-10 integer (parseInt would swallow
@@ -130,7 +133,9 @@ export class CompileUnavailableError extends Error {
  * Build a `CompileBackend` (drop-in for the inline engine) that runs each compile
  * in a terminable worker under a hard timeout.
  */
-export function createIsolatedBackend(options: IsolatedBackendOptions): CompileBackend {
+export function createIsolatedBackend(
+  options: IsolatedBackendOptions,
+): CompileBackend {
   const { createWorker } = options;
   const timeoutMs = options.timeoutMs ?? DEFAULT_ISOLATION_TIMEOUT_MS;
   // Defensive: a non-finite / non-positive / non-integer timeout would silently
@@ -175,7 +180,12 @@ export function createIsolatedBackend(options: IsolatedBackendOptions): CompileB
         settled = true;
         cleanup();
         kill();
-        reject(new CompileUnavailableError(`compile worker faulted: ${err.message}`, "fault"));
+        reject(
+          new CompileUnavailableError(
+            `compile worker faulted: ${err.message}`,
+            "fault",
+          ),
+        );
       });
 
       if (timeoutMs > 0) {
@@ -225,7 +235,9 @@ export function createIsolatedBackend(options: IsolatedBackendOptions): CompileB
  * `CompileUnavailableError` → HTTP 503. Pinned by isolated-default-entry.test.ts.
  */
 function defaultWorkerEntry(): URL {
-  const fromTypeScriptSource = /\.m?ts$/.test(new URL(import.meta.url).pathname);
+  const fromTypeScriptSource = /\.m?ts$/.test(
+    new URL(import.meta.url).pathname,
+  );
   return fromTypeScriptSource
     ? new URL("./compile-worker-boot.mjs", import.meta.url)
     : new URL("./compile-worker.js", import.meta.url);
@@ -240,10 +252,15 @@ function defaultWorkerEntry(): URL {
  * how the zero-arg default is resolved, and note that ONLY the zero-arg call is
  * what the deploy exercises.
  */
-export function realWorkerFactory(workerUrl?: URL): () => IsolatedWorker {
+export function realWorkerFactory(
+  workerUrl?: URL,
+  registry?: WorkerRegistryConfig,
+): () => IsolatedWorker {
   const entry = workerUrl ?? defaultWorkerEntry();
   return () => {
-    const worker = new Worker(fileURLToPath(entry));
+    const worker = new Worker(fileURLToPath(entry), {
+      workerData: { registry },
+    });
     return {
       post: (job) => worker.postMessage(job),
       onMessage: (handler) => worker.on("message", handler),
@@ -283,7 +300,9 @@ export class WorkerInitializationError extends Error {
  *
  * The input is a fixed trivial document, never user-controlled.
  */
-export async function assertIsolatedBackendUsable(backend: CompileBackend): Promise<void> {
+export async function assertIsolatedBackendUsable(
+  backend: CompileBackend,
+): Promise<void> {
   try {
     await backend.check("= preflight");
   } catch (err) {

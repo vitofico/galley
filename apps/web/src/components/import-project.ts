@@ -162,7 +162,16 @@ export async function readProjectZip(
   const files: LatexProjectInputFile[] = [];
   const utf8 = new TextDecoder("utf-8", { fatal: false });
   let totalBytes = 0;
+  let declaredTotal = 0;
   let scanned = 0;
+  const entries: {
+    safePath: string;
+    rawName: string;
+    localHeaderOffset: number;
+    method: number;
+    compSize: number;
+    uncompSize: number;
+  }[] = [];
 
   let p = cdOffset;
   const cdEnd = cdOffset + cdSize;
@@ -237,6 +246,20 @@ export async function readProjectZip(
       );
     }
 
+    // Reject an oversized declaration before inflating ANY entry. Headers may
+    // under-report sizes, so this is an early rejection only: the actual output
+    // still passes the streaming per-entry and archive-total caps below.
+    if (uncompSize > MAX_ENTRY_BYTES) {
+      throw new ZipImportError("entry-too-large", `entry "${rawName}" declares more than ${MAX_ENTRY_BYTES} bytes`);
+    }
+    declaredTotal += uncompSize;
+    if (declaredTotal > MAX_TOTAL_BYTES) {
+      throw new ZipImportError("archive-too-large", `archive declares more than ${MAX_TOTAL_BYTES} uncompressed bytes`);
+    }
+    entries.push({ safePath, rawName, localHeaderOffset, method, compSize, uncompSize });
+  }
+
+  for (const { safePath, rawName, localHeaderOffset, method, compSize, uncompSize } of entries) {
     // -- Locate + read the local data ------------------------------------------
     // The running archive budget is threaded in so decompression aborts MID-ENTRY
     // the instant the archive-wide total would be exceeded — not after the entry

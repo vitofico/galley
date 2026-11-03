@@ -89,6 +89,8 @@ export interface UseCompiler {
   ready: boolean;
   /** True only when the displayed SVG was successfully rendered for this input. */
   renderFresh: boolean;
+  /** Diagnostics belong to the current input and compile mode, including failures. */
+  diagnosticsFresh: boolean;
   /**
    * H1: a recompile is in flight AND has outlasted {@link BUSY_THRESHOLD_MS}, so
    * the visible preview is stale. The shell surfaces this as the `◌` chip cue.
@@ -168,6 +170,7 @@ export function useCompiler(
   const mountedRef = useRef(true);
   const fallbackRef = useRef<FallbackState>(createFallbackState());
   const [ready, setReady] = useState(false);
+  const [compilerGeneration, setCompilerGeneration] = useState(0);
   // H1: the busy cue + its threshold timer. The timer fires ~150ms into a
   // recompile and flips `busy` true only if the compile is still running, so a
   // warm edit (resolving sooner) never shows the cue.
@@ -175,6 +178,7 @@ export function useCompiler(
   const busyTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
+  const [settledKey, setSettledKey] = useState<string | null>(null);
   const [renderedKey, setRenderedKey] = useState<string | null>(null);
   const [svg, setSvg] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
@@ -285,6 +289,7 @@ export function useCompiler(
           return;
         }
         compilerRef.current = compiler;
+        setCompilerGeneration(value => value + 1);
         setReady(true);
       })
       .catch((err) => {
@@ -362,6 +367,13 @@ export function useCompiler(
       setPackagesUnavailableReason(route.reason);
       setPackagesOnServer(false);
       setPackagesOnServerReason(null);
+      setDiagnostics([
+        {
+          severity: "error",
+          message: route.reason ?? "Package compilation is unavailable.",
+        },
+      ]);
+      setSettledKey(`${mode}\0${inputKey}`);
       return;
     }
     setPackagesUnavailable(false);
@@ -436,7 +448,19 @@ export function useCompiler(
         .then((res) => {
           endBusy();
           if (!fresh()) return; // superseded / unmounted / mode-changed
-          setDiagnostics(res.diagnostics);
+          setDiagnostics(
+            res.ok || res.diagnostics.some((d) => d.severity === "error")
+              ? res.diagnostics
+              : [
+                  ...res.diagnostics,
+                  {
+                    severity: "error",
+                    message: "The preview could not be rendered.",
+                  },
+                ],
+          );
+          setSettledKey(`${mode}\0${inputKey}`);
+          if (!res.ok) setPageCount(null);
           if (res.ok && res.pages[0]) {
             setSvg(res.pages[0].svg);
             setRenderedKey(`${mode}\0${inputKey}`);
@@ -456,7 +480,21 @@ export function useCompiler(
             endBusy();
             return;
           }
-          console.error("render failed", err);
+          const recordFailure = (error: unknown) => {
+            if (!fresh()) return;
+            setDiagnostics([
+              {
+                severity: "error",
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : "Preview compilation failed.",
+              },
+            ]);
+            setSettledKey(`${mode}\0${inputKey}`);
+            setPageCount(null);
+          };
+          recordFailure(err);
           if (!mayAutoFallback) {
             endBusy(); // H1: terminal — error with no fallback, the cue must clear
             return; // H1: never fall back off a remote attempt
@@ -476,6 +514,7 @@ export function useCompiler(
                 .then((res) => {
                   if (!fresh()) return;
                   setDiagnostics(res.diagnostics);
+                  setSettledKey(`${mode}\0${inputKey}`);
                   if (res.ok && res.pages[0]) {
                     setSvg(res.pages[0].svg);
                     setRenderedKey(`${mode}\0${inputKey}`);
@@ -486,8 +525,7 @@ export function useCompiler(
                   }
                 })
                 .catch((e) => {
-                  if (!(e instanceof CompileCancelledError))
-                    console.error("server render failed", e);
+                  if (!(e instanceof CompileCancelledError)) recordFailure(e);
                 });
             },
             () => false,
@@ -513,7 +551,7 @@ export function useCompiler(
       renderCompiler.cancel();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- inputKey stands in for `input`
-  }, [inputKey, ready]);
+  }, [inputKey, ready, mode, compilerGeneration]);
 
   /**
    * Compile + return the PDF BYTES of the current document, applying the SAME
@@ -598,6 +636,7 @@ export function useCompiler(
 
   return {
     ready,
+    diagnosticsFresh: ready && settledKey === `${mode}\0${inputKey}`,
     renderFresh:
       ready && svg !== null && renderedKey === `${mode}\0${inputKey}`,
     busy,

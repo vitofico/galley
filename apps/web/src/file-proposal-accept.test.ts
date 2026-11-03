@@ -365,3 +365,40 @@ describe("blobHashIsReferenced (A2/C1 release-orphan guard)", () => {
     expect(blobHashIsReferenced(s, "anything")).toBe(false);
   });
 });
+
+it("plans binary moves/deletes and refuses ambiguous binary sources atomically", () => {
+  const move: FileProposalOp = {
+    kind: "rename",
+    path: "/font.otf",
+    newPath: "/fonts/font.otf",
+    baseText: "",
+    proposedText: "",
+    blocks: [],
+  };
+  const remove: FileProposalOp = {
+    kind: "delete",
+    path: "/old.pdf",
+    baseText: "",
+    proposedText: "",
+    blocks: [],
+  };
+  const s = snap(
+    [{ fileId: "m", path: "/main.typ", text: "= Title\nbody\n" }],
+    [
+      { fileId: "f", path: "/font.otf" },
+      { fileId: "p", path: "/old.pdf" },
+    ],
+  );
+  expect(planFileProposalAccept(s, [editMain, move, remove])).toMatchObject({
+    ok: true,
+    plan: {
+      renames: [{ fileId: "f", newPath: "/fonts/font.otf", binary: true }],
+      deletes: [{ fileId: "p", binary: true }],
+    },
+  });
+  s.binaryFiles!.push({ ...s.binaryFiles![0]!, fileId: "duplicate" });
+  expect(planFileProposalAccept(s, [editMain, move])).toMatchObject({
+    ok: false,
+    reason: expect.stringMatching(/2 files share/),
+  });
+});

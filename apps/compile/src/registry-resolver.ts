@@ -19,9 +19,11 @@ import {
   FakeRegistry,
   packageSpecString,
   parsePackageSpec,
+  parsePackageImports,
   resolvePackagePaths,
   type PackageResolver,
   type PackageSpec,
+  type PackageFile,
 } from "@galley/compiler";
 import {
   DEFAULT_ARCHIVE_LIMITS,
@@ -74,7 +76,8 @@ function assertSafeBase(baseUrl: string): void {
   } catch {
     throw new RegistryError("invalid registry base URL");
   }
-  if (u.username || u.password) throw new RegistryError("registry base URL must not contain credentials");
+  if (u.username || u.password)
+    throw new RegistryError("registry base URL must not contain credentials");
   // SSRF defense-in-depth (#22.2): a link-local / cloud-metadata destination is
   // NEVER a legitimate registry — refuse it regardless of scheme (a metadata IP
   // over https is still a metadata IP). Applied before the scheme split so it also
@@ -84,9 +87,14 @@ function assertSafeBase(baseUrl: string): void {
     throw new RegistryError("registry base URL host is not allowed");
   }
   if (u.protocol === "https:") return;
-  const loopback = u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "[::1]";
+  const loopback =
+    u.hostname === "127.0.0.1" ||
+    u.hostname === "localhost" ||
+    u.hostname === "[::1]";
   if (u.protocol === "http:" && loopback) return;
-  throw new RegistryError("registry base URL must be https (http allowed only for loopback)");
+  throw new RegistryError(
+    "registry base URL must be https (http allowed only for loopback)",
+  );
 }
 
 /** Network-edge options shared by the runtime fetch and the manifest builder. */
@@ -113,23 +121,32 @@ export async function fetchRegistryArtifact(
   spec: PackageSpec,
   options: ArtifactFetchOptions,
 ): Promise<Uint8Array> {
-  if (spec.namespace !== "preview") throw new RegistryError("only the @preview namespace is supported");
+  if (spec.namespace !== "preview")
+    throw new RegistryError("only the @preview namespace is supported");
   // Defense in depth at the URL-construction site: the spec must round-trip through
   // the strict parser, so `name`/`version` can carry no path/scheme/traversal even
   // if a caller hands this exported function an unvalidated PackageSpec.
-  if (!parsePackageSpec(packageSpecString(spec))) throw new RegistryError("invalid package spec");
+  if (!parsePackageSpec(packageSpecString(spec)))
+    throw new RegistryError("invalid package spec");
   assertSafeBase(options.baseUrl);
 
-  const maxCompressed = options.maxCompressedBytes ?? DEFAULTS.maxCompressedBytes;
+  const maxCompressed =
+    options.maxCompressedBytes ?? DEFAULTS.maxCompressedBytes;
   const url = `${options.baseUrl.replace(/\/+$/, "")}/preview/${spec.name}-${spec.version}.tar.gz`;
   const doFetch = options.fetch ?? fetch;
   const controller = new AbortController();
   // ONE deadline covers both the response headers AND the body read, so a
   // slow-drip body can't outlast the timeout (clearing it before arrayBuffer()
   // would leave the body read unbounded).
-  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? DEFAULTS.timeoutMs);
+  const timer = setTimeout(
+    () => controller.abort(),
+    options.timeoutMs ?? DEFAULTS.timeoutMs,
+  );
   try {
-    const res = await doFetch(url, { redirect: "manual", signal: controller.signal });
+    const res = await doFetch(url, {
+      redirect: "manual",
+      signal: controller.signal,
+    });
     // redirect:"manual" surfaces a 3xx as the response; only an exact 200 is allowed.
     if (res.status !== 200) throw new RegistryError("package fetch failed");
     // Reject an over-cap body up front when the server declares its length…
@@ -139,7 +156,8 @@ export async function fetchRegistryArtifact(
     }
     const bytes = new Uint8Array(await res.arrayBuffer());
     // …and again after reading, in case Content-Length was absent or lied.
-    if (bytes.length > maxCompressed) throw new RegistryError("compressed package too large");
+    if (bytes.length > maxCompressed)
+      throw new RegistryError("compressed package too large");
     return bytes;
   } catch (err) {
     if (err instanceof RegistryError) throw err; // preserve specific reasons (e.g. "too large")
@@ -157,17 +175,25 @@ export async function fetchRegistryArtifact(
 export async function fetchPackageFiles(
   spec: PackageSpec,
   options: RegistryFetchOptions,
-): Promise<Array<{ path: string; text: string }>> {
+): Promise<PackageFile[]> {
   // Namespace BEFORE the integrity lookup so a non-preview spec reports as such
   // (it would ALSO miss the manifest, but the namespace reason is the precise one).
-  if (spec.namespace !== "preview") throw new RegistryError("only the @preview namespace is supported");
+  if (spec.namespace !== "preview")
+    throw new RegistryError("only the @preview namespace is supported");
   const expected = options.integrity[packageSpecString(spec)];
   if (!expected) throw new RegistryError("no integrity entry for package"); // fail closed
 
   const bytes = await fetchRegistryArtifact(spec, options);
   verifyIntegrity(bytes, expected); // throws on size/hash mismatch
-  const tar = await gunzipWithCap(bytes, options.maxDecompressedBytes ?? DEFAULTS.maxDecompressedBytes);
-  return untarStrict(tar, options.archiveLimits ?? DEFAULT_ARCHIVE_LIMITS);
+  const tar = await gunzipWithCap(
+    bytes,
+    options.maxDecompressedBytes ?? DEFAULTS.maxDecompressedBytes,
+  );
+  return untarStrict(
+    tar,
+    options.archiveLimits ?? DEFAULT_ARCHIVE_LIMITS,
+    true,
+  );
 }
 
 export interface PrewarmOptions extends RegistryFetchOptions {
@@ -198,12 +224,25 @@ export async function prewarmRegistry(
     if (unique.length >= (options.maxPackages ?? DEFAULT_MAX_PACKAGES)) break;
   }
 
-  const entries: Record<string, Array<{ path: string; text: string }>> = {};
+  const entries: Record<string, PackageFile[]> = {};
   for (const spec of unique) {
     try {
       const files = await fetchPackageFiles(spec, options);
       resolvePackagePaths(spec, files); // validate (extension/traversal/caps) — throws → omit
       entries[packageSpecString(spec)] = files;
+      for (const file of files) {
+        if (!("text" in file) || !file.path.endsWith(".typ")) continue;
+        for (const dep of parsePackageImports(file.text)) {
+          const key = packageSpecString(dep);
+          if (
+            seen.has(key) ||
+            unique.length >= (options.maxPackages ?? DEFAULT_MAX_PACKAGES)
+          )
+            continue;
+          seen.add(key);
+          unique.push(dep);
+        }
+      }
     } catch {
       // Fail closed for this package: leave it out of the resolver.
     }

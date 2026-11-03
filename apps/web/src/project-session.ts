@@ -1130,8 +1130,8 @@ export function applyAcceptedFileSetAsAgent(
   plan: {
     creates: { path: string; text: string }[];
     edits: { fileId: string; source: string }[];
-    renames?: { fileId: string; newPath: string }[];
-    deletes?: { fileId: string }[];
+    renames?: { fileId: string; newPath: string; binary?: true }[];
+    deletes?: { fileId: string; binary?: true }[];
     /**
      * A2: new binary files — a path + a content-addressed pointer. The CALLER
      * (the accept orchestrator) MUST have verified every blob's bytes are present
@@ -1182,10 +1182,12 @@ export function applyAcceptedFileSetAsAgent(
     // Rename is metadata-only (path is not the key) so the Y.Text + its
     // attribution history survive; delete sets the recoverable soft-delete flag.
     for (const r of renames) {
-      agentProject.rename(r.fileId, r.newPath, agent);
+      if (r.binary) agentProject.renameBinary(r.fileId, r.newPath, agent);
+      else agentProject.rename(r.fileId, r.newPath, agent);
     }
     for (const d of deletes) {
-      agentProject.delete(d.fileId, agent);
+      if (d.binary) agentProject.deleteBinary(d.fileId, agent);
+      else agentProject.delete(d.fileId, agent);
     }
     // A2: write the binary file POINTER (path + {hash,size,mime}); the bytes are
     // already in the project blob store (the orchestrator verified them before

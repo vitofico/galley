@@ -189,10 +189,23 @@ Three things stay under your control:
   timestamps. Nothing else.
 - **Reading requires a per-project grant.** `search_project`, `list_files`,
   `read_file` and `list_bibliography` answer only for projects where you clicked
-  **"Allow file access (this session)"**. The default is zero grants, and closing
-  the tab clears them.
-- **Opening requires approval.** `open_project` triggers a blocking confirmation
-  in the browser, and the project opens visibly. One project per kernel run.
+  **"Allow file access (this session)"** or approved project access. The default
+  is zero grants.
+- **Approve project access once.** The first `open_project` for a new scope shows
+  one dialog for file access, Ask/Auto review mode, and optional background access.
+  Ask is the default; background access starts off. Matching approved grants are
+  reused on reconnect and reload. Revoke or changed access requires approval again.
+  One project per kernel run; reopening that same project succeeds without a prompt.
+
+`create_project` returns `projectPath` and `nextAction: "open_in_browser"`.
+Open that path in the existing Galley tab before calling `open_project`; the
+kernel does not navigate the browser. If the requested project is not open,
+`open_project` returns `status: "open_required"` and the path to open.
+
+Binary uploads require a compatible web app and sync relay. The kernel checks
+the browser's `galley-blob-v1` capability before sending bytes. An older browser
+returns `binary_protocol_unsupported` with an update/reload instruction, without
+publishing a partial proposal. Failed transfers release their reservations.
 
 ---
 

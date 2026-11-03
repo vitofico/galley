@@ -284,6 +284,7 @@ Connect exactly as in per-project step 4, but with `--control-room` instead of
 | Tool | What it does |
 | --- | --- |
 | `list_projects` | The browser returns its projects' metadata (id, name, lastModified). |
+| `create_project` | Creates an empty library project and returns its `projectPath` plus `nextAction: "open_in_browser"`. It does not navigate or share files. |
 | `list_versions` | One project's named-version metadata (no file contents). |
 | `open_project` | Asks the browser to open a project; it mints a share room (plus a per-grant `grantId` for proposal provenance) and the kernel joins it. |
 | `search_project` | Searches a **file-access-granted** project's files for literal text (see step 4). |
@@ -291,13 +292,21 @@ Connect exactly as in per-project step 4, but with `--control-room` instead of
 | `read_file` | Reads one file of a **granted** project by path (read-only, line-numbered). |
 | `list_bibliography` | Lists a **granted** project's bibliography — every `.bib` file, de-duplicated, as compact one-line entries (read-only). Prefer it over `read_file` for a bibliography, which is often too large to read whole. Only BibTeX `.bib`, **not** Hayagriva `.yml`. |
 
-**`open_project` requires your approval.** When the agent calls it, the browser
-shows a **blocking confirmation** and only opens the project — *visibly* — after
-you approve. It's limited to one project per kernel run: after a successful
+**Approve project access once.** Open the requested project in the existing
+Galley tab first. The first `open_project` for a new access scope shows one dialog
+that combines access to all project files, Ask/Auto mode, and optional background
+access. Ask is the default and background access starts off. A matching approved
+grant is reused across reconnects and reloads; its saved MAC is checked before
+deciding whether another prompt is needed. Revoke, a new project, or a changed
+scope requires a fresh approval. If the wrong project is open, the tool returns
+`status: "open_required"` with the `projectPath` to open.
+
+It's limited to one project per kernel run: after a successful
 `open_project`, the per-project tools (`read_document`, `list_files`,
 `read_file`, `project_context`, `propose_edit`, `propose_files`, `compile`) become available
-scoped to that project's main file, and further `open_project` calls fail until
-you restart the kernel. (The control-mode `search_project`/`list_files`/
+scoped to that project's main file. Reopening the same project returns
+`status: "opened", reused: true`; switching projects requires a new kernel.
+(The control-mode `search_project`/`list_files`/
 `read_file`/`list_bibliography` tools above are retired at that point — the
 per-project versions of `list_files`/`read_file` take over. There is **no**
 per-project `list_bibliography`: after `open_project` that tool is gone until you
@@ -335,6 +344,10 @@ in the browser, never from the agent side:
 Until you grant a project, the agent's calls fail with a `consent-required`
 error telling it (and you) where to grant.
 
+Approving `open_project` also grants that project's file access, so no second
+"Allow file access" click is needed. Its dialog can enable Auto and background
+access together; these choices remain limited to the approved project.
+
 For exactness: behind the grant, the **browser responder** answers every
 *read-only* registry op over the control mailbox — `search_project`,
 `list_files`, `read_file`, `list_bibliography`, plus `read_document` (mapped to
@@ -348,6 +361,15 @@ and expose nothing beyond what the grant already covers. Mutating ops
 ---
 
 ## Troubleshooting
+
+**`binary_protocol_unsupported` / a binary upload cannot complete**
+The web app, sync relay, and local kernel must support the same blob protocol.
+Update the deployed web app and relay, then reload Galley. The kernel checks the
+signed `expect_blob` response for `protocol: "galley-blob-v1"` before sending bytes;
+an older browser fails immediately with an update instruction. If a compatible
+browser reserves capacity but transfer completion still fails, check that the
+relay routes the `galley-blob-v1` WebSocket subprotocol. Failed uploads release
+their reservations and publish no partial proposal.
 
 **`timed out waiting for /<file> in room …`**
 The kernel is running but the file never replicated within the timeout. It keeps

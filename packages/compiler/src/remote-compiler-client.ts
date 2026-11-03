@@ -20,8 +20,12 @@ import type {
   RenderResult,
 } from "@galley/shared";
 import type { Compiler } from "./compiler-client.js";
-import { CompileCancelledError, CompileTimeoutError } from "./compiler-client.js";
+import {
+  CompileCancelledError,
+  CompileTimeoutError,
+} from "./compiler-client.js";
 import { base64ToBytes } from "./base64.js";
+import { encodeCompileInput } from "./compile-wire.js";
 
 export interface RemoteCompilerOptions {
   /** The compile service endpoint (a single POST handler). */
@@ -64,7 +68,7 @@ export class RemoteCompilerClient implements Compiler {
       const res = await this.doFetch(this.url, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ op, input }),
+        body: JSON.stringify({ op, input: encodeCompileInput(input) }),
         signal: controller.signal,
       });
       if (!res.ok) {
@@ -74,7 +78,9 @@ export class RemoteCompilerClient implements Compiler {
     } catch (err) {
       // An abort surfaces as the fake/real fetch rejecting; map it to our errors.
       if (controller.signal.aborted) {
-        throw timedOut ? new CompileTimeoutError(this.timeoutMs) : new CompileCancelledError();
+        throw timedOut
+          ? new CompileTimeoutError(this.timeoutMs)
+          : new CompileCancelledError();
       }
       throw err;
     } finally {

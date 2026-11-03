@@ -764,14 +764,14 @@ describe("answerExpectBlobRequest (A2)", () => {
     const seam: ExpectBlobSeam = async () => true;
     const res = await answerExpectBlobRequest(req("expect_blob", { projectId: "p1", hash: HASH, size: 100 }), seam);
     expect(res.ok).toBe(true);
-    if (res.ok) expect(res.result).toEqual({ reserved: true });
+    if (res.ok) expect(res.result).toEqual({ reserved: true, protocol: "galley-blob-v1" });
   });
 
   it("returns {reserved:false} when the channel declines (no oracle, ok:true)", async () => {
     const seam: ExpectBlobSeam = async () => false;
     const res = await answerExpectBlobRequest(req("expect_blob", { projectId: "p1", hash: HASH, size: 100 }), seam);
     expect(res.ok).toBe(true);
-    if (res.ok) expect(res.result).toEqual({ reserved: false });
+    if (res.ok) expect(res.result).toEqual({ reserved: false, protocol: "galley-blob-v1" });
   });
 
   it("refuses an unknown project (seam null)", async () => {

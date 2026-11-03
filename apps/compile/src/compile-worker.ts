@@ -29,8 +29,14 @@
  * is pinned separately in isolated-default-entry.test.ts; that pin is what stops
  * this entry from silently becoming unreachable again.
  */
-import { parentPort } from "node:worker_threads";
-import type { TypstEngine } from "@galley/compiler";
+import { parentPort, workerData } from "node:worker_threads";
+import type { CompileBackend } from "./index.js";
+import {
+  MutablePackageResolver,
+  createPackageAwareBackend,
+  prewarmFromRegistry,
+  type WorkerRegistryConfig,
+} from "./package-compile.js";
 import { createNodeEngine } from "./engine.js";
 import type { IsolatedJob, IsolatedReply } from "./isolated-backend.js";
 
@@ -40,11 +46,22 @@ if (!parentPort) {
 const port = parentPort;
 
 // One engine per thread (WASM init is expensive; the thread is per-compile, so
-// this runs once before the single job it will serve). Packages stay fail-closed
-// here — registry-aware isolation is a later composition (see package-compile.ts).
-let enginePromise: Promise<TypstEngine> | null = null;
-function engine(): Promise<TypstEngine> {
-  enginePromise ??= createNodeEngine();
+// this runs once before the single job it will serve). A trusted registry config
+// comes only from the parent; absent config keeps packages fail-closed.
+async function createWorkerEngine(): Promise<CompileBackend> {
+  const registry = workerData?.registry as WorkerRegistryConfig | undefined;
+  if (!registry) return createNodeEngine();
+  const holder = new MutablePackageResolver();
+  const engine = await createNodeEngine(holder);
+  return createPackageAwareBackend({
+    engine,
+    holder,
+    prewarm: prewarmFromRegistry(registry),
+  });
+}
+let enginePromise: Promise<CompileBackend> | null = null;
+function engine(): Promise<CompileBackend> {
+  enginePromise ??= createWorkerEngine();
   return enginePromise;
 }
 

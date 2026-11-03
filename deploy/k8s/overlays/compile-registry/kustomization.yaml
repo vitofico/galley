@@ -11,9 +11,7 @@
 #   3. Expose compile through your ingress and set GALLEY_COMPILE_URL to that
 #      external URL (components/compile, exposure requirement).
 #
-# NOTE: this overlay sets isolation to `inline` — worker isolation (the default)
-# is incompatible with the registry today. See the compile-registry component
-# header for the rationale.
+# Registry packages retain terminable worker isolation and the hard timeout.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
