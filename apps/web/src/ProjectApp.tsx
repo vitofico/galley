@@ -5424,6 +5424,7 @@ export function ProjectApp({
       };
     }
     if (!ready) return { refused: "the document is not ready to compile yet" };
+    if (packagesUnavailable) return { refused: packagesUnavailableReason ?? "Package compilation is unavailable for this document." };
     if (!diagnosticsFresh) return { refused: "the current document compile is still pending; retry when the preview settles" };
     return {
       ok: errors.length === 0,
@@ -5442,7 +5443,9 @@ export function ProjectApp({
       ? snapshot.duplicatePaths.length > 0
         ? `duplicate path: ${snapshot.duplicatePaths.join(", ")}`
         : "no main file"
-      : !diagnosticsFresh
+      : packagesUnavailable
+        ? "Compile unavailable"
+        : !diagnosticsFresh
         ? "Compiling…"
         : errors.length > 0
         ? `${errors.length} error(s)`

@@ -367,13 +367,9 @@ export function useCompiler(
       setPackagesUnavailableReason(route.reason);
       setPackagesOnServer(false);
       setPackagesOnServerReason(null);
-      setDiagnostics([
-        {
-          severity: "error",
-          message: route.reason ?? "Package compilation is unavailable.",
-        },
-      ]);
-      setSettledKey(`${mode}\0${inputKey}`);
+      // No compiler ran: the dedicated unavailable state owns the explanation.
+      setDiagnostics([]);
+      setPageCount(null);
       return;
     }
     setPackagesUnavailable(false);
