@@ -1,3 +1,4 @@
+import { modelDisplayName } from "./model-display-name.js";
 /**
  * `ProjectApp` — the minimal multi-file project shell (roadmap #2, slice 6),
  * rendered INSTEAD of `App` when `?project=1` is set (see `main.tsx`). The
@@ -6506,7 +6507,7 @@ export function ProjectApp({
     >
       <div className="model-bar">
         <span data-testid="model-indicator">
-          Model: <strong>{provider ? provider.label : "Demo (offline)"}</strong>
+          Model: <strong>{provider ? modelDisplayName(selectedModel ?? provider.model) : "Demo (offline)"}</strong>
         </span>
         <button
           className="pane-collapse"

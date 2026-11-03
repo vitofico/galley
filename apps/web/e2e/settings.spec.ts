@@ -185,14 +185,14 @@ test("a provider saved on /settings reaches the editor's agent panel (the headli
   await page.getByTestId("provider-save").click();
   await expect(page.getByTestId("settings-provider-saved")).toBeVisible();
   await expect(page.getByTestId("settings-provider-current")).toContainText(
-    "openai-compatible",
+    "test-model",
   );
 
   // The default boot's agent panel now runs on the configured provider — no
   // ?single=1 detour required anymore.
   await page.getByTestId("settings-back").click();
   await expectProjectShell(page);
-  await expect(page.getByTestId("model-indicator")).toContainText("openai-compatible");
+  await expect(page.getByTestId("model-indicator")).toContainText("test-model");
   await expect(page.getByTestId("agent-provider-hint")).toHaveCount(0);
 
   // "Use Demo" clears it again, shared the same way.
@@ -339,4 +339,166 @@ test("settings is off the editor chrome: no rail gear/prefs dock; ⌘, opens it;
   await expect(page.getByTestId("settings-page")).toBeVisible();
   expect(new URL(page.url()).hash).toBe("#compile");
   await expect(page.getByTestId("settings-section-compile")).toBeVisible();
+});
+
+test("provider presets remember custom fields and keep credentials with their provider", async ({
+  page,
+}) => {
+  await page.goto("/settings");
+  await expect(page.getByTestId("provider-baseurl")).toHaveValue(
+    "https://api.openai.com/v1",
+  );
+  await expect(page.getByTestId("provider-model")).toHaveValue("gpt-4o");
+  await page.getByTestId("provider-baseurl").fill("https://custom.example/v1");
+  await page.getByTestId("provider-model").fill("custom-model");
+  await page.getByTestId("provider-apikey").fill("test-openai-key");
+
+  await page.getByTestId("provider-kind").selectOption("anthropic");
+  await expect(page.getByTestId("provider-baseurl")).toHaveValue(
+    "https://api.anthropic.com/v1",
+  );
+  await expect(page.getByTestId("provider-model")).toHaveValue(
+    "claude-haiku-5-5",
+  );
+  await expect(page.getByTestId("provider-apikey")).toHaveValue("");
+  await expect(
+    page
+      .getByTestId("provider-model-options")
+      .locator('option[value="claude-sonnet-5-5"]'),
+  ).toHaveCount(1);
+  await page.getByTestId("provider-model").fill("custom-claude");
+
+  await page.getByTestId("provider-kind").selectOption("openai-compatible");
+  await expect(page.getByTestId("provider-baseurl")).toHaveValue(
+    "https://custom.example/v1",
+  );
+  await expect(page.getByTestId("provider-model")).toHaveValue("custom-model");
+  await expect(page.getByTestId("provider-apikey")).toHaveValue(
+    "test-openai-key",
+  );
+  await page.getByTestId("provider-kind").selectOption("anthropic");
+  await expect(page.getByTestId("provider-model")).toHaveValue("custom-claude");
+  await page.getByTestId("provider-model").fill("   ");
+  await expect(page.getByTestId("provider-save")).toBeDisabled();
+});
+
+test("switching a saved cluster provider keeps the proxy and selects the new upstream", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "galley.provider",
+      JSON.stringify({
+        kind: "ollama",
+        label: "ollama",
+        baseUrl: "http://ollama.cluster/v1",
+        model: "my-installed-model",
+        isLocal: true,
+        transport: {
+          mode: "proxy",
+          proxyUrl: "https://galley.example/llm-token",
+          upstreamId: "ollama",
+        },
+      }),
+    ),
+  );
+  await page.goto("/settings");
+  await page.getByTestId("provider-kind").selectOption("anthropic");
+  await expect(page.getByTestId("provider-mode")).toHaveValue("proxy");
+  await expect(page.getByTestId("provider-proxyurl")).toHaveValue(
+    "https://galley.example/llm-token",
+  );
+  await expect(page.getByTestId("provider-upstream")).toHaveValue("anthropic");
+  await expect(page.getByTestId("provider-load-models")).toHaveCount(0);
+  await page.getByTestId("provider-save").click();
+  expect(
+    await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("galley.provider")!),
+    ),
+  ).toEqual({
+    kind: "anthropic",
+    label: "anthropic",
+    baseUrl: "https://api.anthropic.com/v1",
+    model: "claude-haiku-5-5",
+    isLocal: false,
+    transport: {
+      mode: "proxy",
+      proxyUrl: "https://galley.example/llm-token",
+      upstreamId: "anthropic",
+    },
+  });
+});
+
+test("available models come from the chosen endpoint and discovery failures allow manual entry", async ({
+  page,
+}) => {
+  await page.route("https://models.example/v1/models", (route) =>
+    route.fulfill({ json: { data: [{ id: "private-model" }] } }),
+  );
+  await page.goto("/settings");
+  await page.getByTestId("provider-baseurl").fill("https://models.example/v1");
+  await page.getByTestId("provider-load-models").click();
+  await expect(page.getByTestId("provider-model-status")).toContainText(
+    "Available models loaded",
+  );
+  await expect(
+    page
+      .getByTestId("provider-model-options")
+      .locator('option[value="private-model"]'),
+  ).toHaveCount(1);
+  await page.getByTestId("provider-model").fill("private-model");
+  await expect(
+    page
+      .getByTestId("provider-model-options")
+      .locator('option[value="private-model"]'),
+  ).toHaveCount(1);
+  await page.route("https://models.example/v1/models", (route) =>
+    route.fulfill({ status: 401, body: "" }),
+  );
+  await page.getByTestId("provider-load-models").click();
+  await expect(page.getByTestId("provider-model-status")).toContainText(
+    "Could not load models",
+  );
+  await expect(page.getByTestId("provider-model")).toHaveValue("private-model");
+  await page.getByTestId("provider-kind").selectOption("anthropic");
+  await expect(page.getByTestId("provider-model-status")).toHaveCount(0);
+  await expect(
+    page
+      .getByTestId("provider-model-options")
+      .locator('option[value="private-model"]'),
+  ).toHaveCount(0);
+});
+
+test("a model-list response from a previous provider is discarded", async ({ page }) => {
+  let release!: () => void;
+  const responseReady = new Promise<void>(resolve => { release = resolve; });
+  let requested = false;
+  await page.route("https://slow.example/v1/models", async route => {
+    requested = true;
+    await responseReady;
+    await route.fulfill({ json: { data: [{ id: "stale-model" }] } });
+  });
+  await page.goto("/settings");
+  await page.getByTestId("provider-baseurl").fill("https://slow.example/v1");
+  await page.getByTestId("provider-load-models").click();
+  await expect.poll(() => requested).toBe(true);
+  await page.getByTestId("provider-kind").selectOption("anthropic");
+  const response = page.waitForResponse("https://slow.example/v1/models");
+  release();
+  await response;
+  await expect(page.getByTestId("provider-model")).toHaveValue("claude-haiku-5-5");
+  await expect(page.getByTestId("provider-model-status")).toHaveCount(0);
+  await expect(page.getByTestId("provider-model-options").locator('option[value="stale-model"]')).toHaveCount(0);
+});
+
+
+test("the model indicator uses the actual model even when a saved provider label is stale", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("galley.provider", JSON.stringify({
+    kind: "anthropic", label: "ollama", baseUrl: "https://api.anthropic.com/v1", model: "claude-haiku-5-5", isLocal: false,
+    transport: { mode: "proxy", proxyUrl: "https://galley.example/llm-token", upstreamId: "anthropic" },
+  })));
+  await page.goto("/p/model-label");
+  await expect(page.getByTestId("model-indicator")).toHaveText("Model: Claude Haiku 5.5");
+  await page.goto("/settings");
+  await expect(page.getByTestId("settings-provider-current")).toHaveText("Claude Haiku 5.5");
 });
