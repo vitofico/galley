@@ -26,8 +26,8 @@ GET  /healthz   → { ok: true }
 | --- | --- | --- |
 | `PORT` | no (default `3001`) | Listen port. |
 | `ALLOWED_ORIGINS` | no | Comma-separated CORS allowlist (the web app origin). Empty = same-origin only. |
-| `GALLEY_COMPILE_ISOLATION` | no (default `worker`) | `worker` (the default, incl. when unset) runs each compile in a terminable `worker_thread` with a hard timeout — a runaway compile → 503, service stays up. `inline` runs WASM on the event loop and is **required with `REGISTRY_BASE_URL`** (a registry-aware worker isn't supported yet — the server **throws at startup** if a registry is set and isolation is `worker`). Any other value **fails loud** at startup. `GALLEY_COMPILE_TIMEOUT_MS` (default 20000) tunes the timeout. |
-| `REGISTRY_BASE_URL` | no | Opt in to Universe package resolution. **Unset → packages fail closed** (the default; `@preview` imports error, no network). Must be `https://` (or `http://` loopback for tests). Requires `GALLEY_COMPILE_ISOLATION=inline`. |
+| `GALLEY_COMPILE_ISOLATION` | no (default `worker`) | `worker` (the default, incl. when unset) runs each compile in a terminable `worker_thread` with a hard timeout — a runaway compile → 503, service stays up. `inline` runs WASM on the event loop as an explicit opt-out. Registry packages also work inside terminable workers. Any other value **fails loud** at startup. `GALLEY_COMPILE_TIMEOUT_MS` (default 20000) tunes the timeout. |
+| `REGISTRY_BASE_URL` | no | Opt in to Universe package resolution. **Unset → packages fail closed** (the default; `@preview` imports error, no network). Must be `https://` (or `http://` loopback for tests). Registry configuration is copied only from the trusted parent into each worker. |
 | `REGISTRY_INTEGRITY_FILE` | **yes, if `REGISTRY_BASE_URL` is set** | Path to the integrity manifest. **No hash → no fetch** (ADR-0016). |
 
 ### Integrity manifest
@@ -108,12 +108,17 @@ deployment layer:
 
 ```bash
 pnpm --filter @galley/compile start          # packages fail closed (no registry); worker isolation (default)
-# With Universe resolution — GALLEY_COMPILE_ISOLATION=inline is REQUIRED (worker
-# isolation is incompatible with a registry; the server throws at startup if both
-# GALLEY_COMPILE_ISOLATION=worker (the default) and REGISTRY_BASE_URL are set):
+# With Universe resolution — fetch and compile share the terminable worker's timeout:
 PORT=3001 ALLOWED_ORIGINS=http://localhost:5173 \
-  GALLEY_COMPILE_ISOLATION=inline \
+  GALLEY_COMPILE_ISOLATION=worker \
   REGISTRY_BASE_URL=https://packages.typst.org \
   REGISTRY_INTEGRITY_FILE=./packages.lock.json \
   pnpm --filter @galley/compile start
 ```
+
+
+The checked-in `deploy/k8s/catalogs/vivid-cv.json` pins vivid-cv 0.1.1 and
+fontawesome 0.6.1. Its companion integrity map was generated through the same
+bounded fetch/archive/source validation as runtime. Mount that map using the
+registry component's documented ConfigMap workflow when enabling this catalog;
+missing versions continue to fail closed.

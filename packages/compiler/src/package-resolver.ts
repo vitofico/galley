@@ -17,7 +17,10 @@
  *     VFS root, rejecting traversal/absolute/odd paths and enforcing size caps.
  *   - `PackageResolver` interface + an offline, in-memory `FakeRegistry`.
  */
-import type { ProjectFile } from "@galley/shared";
+import type { ProjectFile, ProjectBinaryFile } from "@galley/shared";
+
+/** Validated package sources and passive image assets; no plugins/WASM. */
+export type PackageFile = ProjectFile | ProjectBinaryFile;
 
 /** A validated Typst package coordinate (`@namespace/name:version`). */
 export interface PackageSpec {
@@ -29,7 +32,8 @@ export interface PackageSpec {
 // Strict ASCII grammars. Namespace/name: lowercase alnum + hyphen, ≤63 chars.
 // Version: strict 3-part SemVer with an optional prerelease (no build metadata).
 const COMPONENT_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
-const VERSION_RE = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/;
+const VERSION_RE =
+  /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/;
 
 /** The canonical `@ns/name:version` string for a spec. */
 export function packageSpecString(spec: PackageSpec): string {
@@ -43,14 +47,19 @@ export function packageSpecString(spec: PackageSpec): string {
  * or spoof another package.
  */
 export function parsePackageSpec(raw: string): PackageSpec | null {
-  if (typeof raw !== "string" || raw.length > 256 || raw[0] !== "@") return null;
+  if (typeof raw !== "string" || raw.length > 256 || raw[0] !== "@")
+    return null;
   const slash = raw.indexOf("/");
   const colon = raw.indexOf(":");
   if (slash < 2 || colon < slash + 2 || colon === raw.length - 1) return null;
   const namespace = raw.slice(1, slash);
   const name = raw.slice(slash + 1, colon);
   const version = raw.slice(colon + 1);
-  if (!COMPONENT_RE.test(namespace) || !COMPONENT_RE.test(name) || !VERSION_RE.test(version)) {
+  if (
+    !COMPONENT_RE.test(namespace) ||
+    !COMPONENT_RE.test(name) ||
+    !VERSION_RE.test(version)
+  ) {
     return null;
   }
   return { namespace, name, version };
@@ -69,7 +78,8 @@ const MAX_SPECS = 256;
  * future resolver). Bounded + ReDoS-safe; deduplicated, order-preserving.
  */
 export function parsePackageImports(source: string): PackageSpec[] {
-  const text = source.length > MAX_SCAN_BYTES ? source.slice(0, MAX_SCAN_BYTES) : source;
+  const text =
+    source.length > MAX_SCAN_BYTES ? source.slice(0, MAX_SCAN_BYTES) : source;
   const out: PackageSpec[] = [];
   const seen = new Set<string>();
   for (const m of text.matchAll(IMPORT_SCAN_RE)) {
@@ -104,8 +114,8 @@ export class PackageValidationError extends Error {
 }
 
 // Only the Typst manifest + source/markup files are allowed into the VFS for the
-// offline seam — never plugin/WASM binaries or arbitrary assets (a separate,
-// explicitly-gated capability if ever needed).
+// seam; a bounded image-byte extension supports template defaults. Plugins/WASM
+// and other binary types remain rejected (ADR-0016 addendum).
 const ALLOWED_EXT = /\.(typ|toml)$/;
 const utf8 = new TextEncoder();
 
@@ -119,9 +129,9 @@ const utf8 = new TextEncoder();
  */
 export function resolvePackagePaths(
   spec: PackageSpec,
-  files: ReadonlyArray<{ path: string; text: string }>,
+  files: ReadonlyArray<PackageFile>,
   limits: PackageLimits = DEFAULT_PACKAGE_LIMITS,
-): ProjectFile[] {
+): PackageFile[] {
   if (files.length > limits.maxFiles) {
     throw new PackageValidationError(
       `package ${packageSpecString(spec)} has ${files.length} files (max ${limits.maxFiles})`,
@@ -130,25 +140,46 @@ export function resolvePackagePaths(
   const root = `/packages/${spec.namespace}/${spec.name}/${spec.version}`;
   const seen = new Set<string>();
   let total = 0;
-  const out: ProjectFile[] = [];
+  const out: PackageFile[] = [];
   for (const f of files) {
     const rel = f.path;
     if (typeof rel !== "string" || rel.length === 0) {
-      throw new PackageValidationError("package file path must be a non-empty string");
+      throw new PackageValidationError(
+        "package file path must be a non-empty string",
+      );
     }
-    if (rel.startsWith("/") || rel.includes("\\") || /[\0-\x1f]/.test(rel) || rel.includes(":")) {
-      throw new PackageValidationError(`illegal package file path: ${JSON.stringify(rel)}`);
+    if (
+      rel.startsWith("/") ||
+      rel.includes("\\") ||
+      /[\0-\x1f]/.test(rel) ||
+      rel.includes(":")
+    ) {
+      throw new PackageValidationError(
+        `illegal package file path: ${JSON.stringify(rel)}`,
+      );
     }
     const segments = rel.split("/");
     if (segments.some((s) => s === "" || s === "." || s === "..")) {
-      throw new PackageValidationError(`path traversal/empty segment in: ${JSON.stringify(rel)}`);
+      throw new PackageValidationError(
+        `path traversal/empty segment in: ${JSON.stringify(rel)}`,
+      );
     }
-    if (!ALLOWED_EXT.test(rel)) {
-      throw new PackageValidationError(`disallowed package file type: ${JSON.stringify(rel)}`);
+    const binary = "bytes" in f;
+    if (
+      binary
+        ? !/\.(?:png|jpe?g|gif|svg)$/i.test(rel) ||
+          !(f.bytes instanceof Uint8Array)
+        : !ALLOWED_EXT.test(rel) || typeof f.text !== "string"
+    ) {
+      throw new PackageValidationError(
+        `disallowed package file type: ${JSON.stringify(rel)}`,
+      );
     }
-    const bytes = utf8.encode(f.text).length;
+    const bytes = binary ? f.bytes.byteLength : utf8.encode(f.text).length;
     if (bytes > limits.maxFileBytes) {
-      throw new PackageValidationError(`package file ${rel} is ${bytes}B (max ${limits.maxFileBytes})`);
+      throw new PackageValidationError(
+        `package file ${rel} is ${bytes}B (max ${limits.maxFileBytes})`,
+      );
     }
     total += bytes;
     if (total > limits.maxTotalBytes) {
@@ -161,7 +192,9 @@ export function resolvePackagePaths(
       throw new PackageValidationError(`duplicate package file: ${abs}`);
     }
     seen.add(abs);
-    out.push({ path: abs, text: f.text });
+    out.push(
+      binary ? { path: abs, bytes: f.bytes } : { path: abs, text: f.text },
+    );
   }
   return out;
 }
@@ -173,7 +206,7 @@ export function resolvePackagePaths(
  * deferred, sandboxed server-side fetch path, behind this same shape.
  */
 export interface PackageResolver {
-  resolve(spec: PackageSpec): ProjectFile[] | null;
+  resolve(spec: PackageSpec): PackageFile[] | null;
 }
 
 /**
@@ -183,20 +216,26 @@ export interface PackageResolver {
  * scoped files. Used by tests + demos now, and the shape a server resolver reuses.
  */
 export class FakeRegistry implements PackageResolver {
-  private readonly packages = new Map<string, ProjectFile[]>();
+  private readonly packages = new Map<string, PackageFile[]>();
 
   constructor(
-    entries: Record<string, ReadonlyArray<{ path: string; text: string }>> = {},
+    entries: Record<string, ReadonlyArray<PackageFile>> = {},
     limits: PackageLimits = DEFAULT_PACKAGE_LIMITS,
   ) {
     for (const [key, files] of Object.entries(entries)) {
       const spec = parsePackageSpec(key);
-      if (!spec) throw new PackageValidationError(`invalid package spec key: ${JSON.stringify(key)}`);
-      this.packages.set(packageSpecString(spec), resolvePackagePaths(spec, files, limits));
+      if (!spec)
+        throw new PackageValidationError(
+          `invalid package spec key: ${JSON.stringify(key)}`,
+        );
+      this.packages.set(
+        packageSpecString(spec),
+        resolvePackagePaths(spec, files, limits),
+      );
     }
   }
 
-  resolve(spec: PackageSpec): ProjectFile[] | null {
+  resolve(spec: PackageSpec): PackageFile[] | null {
     return this.packages.get(packageSpecString(spec)) ?? null;
   }
 }

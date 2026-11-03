@@ -116,13 +116,11 @@ On each `POST /compile` request the flow is:
    the single engine serializes compiles, so the holder is never accessed
    concurrently.
 
-Server start example (registry mode requires `GALLEY_COMPILE_ISOLATION=inline` —
-worker isolation is the default and is incompatible with a registry, so the
-server throws at startup if you omit it):
+Server start example (registry packages retain terminable worker isolation):
 
 ```bash
 PORT=3001 ALLOWED_ORIGINS=http://localhost:5173 \
-  GALLEY_COMPILE_ISOLATION=inline \
+  GALLEY_COMPILE_ISOLATION=worker \
   REGISTRY_BASE_URL=https://packages.typst.org \
   REGISTRY_INTEGRITY_FILE=./packages.lock.json \
   pnpm --filter @galley/compile start
@@ -145,16 +143,20 @@ arbitrary fetch or an unverified artifact. Network-level egress allow-listing to
 the registry host is the recommended backstop (see the
 [deployment sandboxing checklist](server-side-compile.md#deployment-sandboxing-checklist)).
 
-## Known limitation: worker isolation
+## Registry workers and dependencies
 
-Terminable per-compile `worker_thread` isolation is the **default** since the
-2026-07 flip (`GALLEY_COMPILE_ISOLATION` unset = `worker`), but it is
-**incompatible with registry packages today** — the per-request worker thread has
-no resolver holder, so the service throws on start if a registry is set while
-isolation resolves to `worker` (including when the var is left unset). Registry
-deployments MUST therefore set `GALLEY_COMPILE_ISOLATION=inline` explicitly
-(`server.ts`). Choose one: registry packages on the inline engine, or worker
-isolation without registry packages.
+Each terminable worker receives the operator's configured registry base URL and
+reviewed integrity manifest from its parent. Fetch plus compile share the hard
+wall-clock timeout. The default remains `worker`; registry support requires no
+isolation downgrade. Transitive imports are deduplicated and count-bounded, and
+every dependency needs its own pinned hash before a fetch is allowed.
+
+Real archives can include README/license files and example images. Every regular
+entry remains path/type/checksum/count/size checked. Documentation is omitted;
+Typst sources, manifests and bounded PNG/JPEG/GIF/SVG bytes enter the VFS. Keeping
+images is necessary because some template defaults load them eagerly even when
+the document supplies another image. Plugins/WASM and unsupported binary types
+remain rejected. See ADR-0016's addendum.
 
 ## Where the code lives
 

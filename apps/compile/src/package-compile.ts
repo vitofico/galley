@@ -20,6 +20,11 @@ import { isProjectInput, type CompileInput } from "@galley/shared";
 import type { CompileBackend } from "./index.js";
 import { prewarmRegistry, type PrewarmOptions } from "./registry-resolver.js";
 
+export interface WorkerRegistryConfig {
+  baseUrl: string;
+  integrity: import("./registry-resolver.js").IntegrityManifest;
+}
+
 /**
  * A `PackageResolver` whose target is swapped per request. The engine is wired to
  * this once; the request sets `current` just before compiling and clears it after.
@@ -33,7 +38,9 @@ export class MutablePackageResolver implements PackageResolver {
 
 /** Distinct `@preview/…` specs imported anywhere in a compile input (deduped). */
 export function scanCompileInputImports(input: CompileInput): PackageSpec[] {
-  const sources = isProjectInput(input) ? input.files.map((f) => f.text) : [input];
+  const sources = isProjectInput(input)
+    ? input.files.map((f) => f.text)
+    : [input];
   const seen = new Set<string>();
   const out: PackageSpec[] = [];
   for (const src of sources) {
@@ -61,10 +68,15 @@ export interface PackageAwareBackendOptions {
  * `CompileBackend` (so the Hono app is unchanged). The holder is always cleared
  * after a compile, even on throw — no resolver leaks into the next request.
  */
-export function createPackageAwareBackend(options: PackageAwareBackendOptions): CompileBackend {
+export function createPackageAwareBackend(
+  options: PackageAwareBackendOptions,
+): CompileBackend {
   const { engine, holder, prewarm } = options;
 
-  async function withPackages<T>(input: CompileInput, run: () => Promise<T>): Promise<T> {
+  async function withPackages<T>(
+    input: CompileInput,
+    run: () => Promise<T>,
+  ): Promise<T> {
     const specs = scanCompileInputImports(input);
     holder.current = specs.length > 0 ? await prewarm(specs) : null;
     try {

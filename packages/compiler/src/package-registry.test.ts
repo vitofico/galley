@@ -102,3 +102,41 @@ describe("package-registry bridge (roadmap #3)", () => {
     expect(second.ok).toBe(true);
   });
 });
+
+it("resolves a package dependency from inside another package", async () => {
+  const resolver = new FakeRegistry({
+    "@preview/probe:0.1.0": [
+      PROBE[0]!,
+      { path: "lib.typ", text: '#import "sibling.typ": hi\n#let answer = 42' },
+      { path: "sibling.typ", text: "#let hi() = [nested sibling]" },
+    ],
+    "@preview/outer:1.0.0": [
+      {
+        path: "typst.toml",
+        text: '[package]\nname="outer"\nversion="1.0.0"\nentrypoint="outer.typ"\n[template]\npath="example"\nentrypoint="main.typ"',
+      },
+      {
+        path: "example/main.typ",
+        text: '#import "@preview/outer:1.0.0": outer',
+      },
+      {
+        path: "outer.typ",
+        text: '#import "@preview/probe:0.1.0": hi\n#let outer(photo: image("example/photo.svg")) = [#photo #hi()]',
+      },
+      {
+        path: "example/photo.svg",
+        bytes: new TextEncoder().encode(
+          '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><rect width="1" height="1"/></svg>',
+        ),
+      },
+    ],
+  });
+  const engine = await TypstEngine.create({
+    compilerModule,
+    packageResolver: resolver,
+  });
+  const result = await engine.check(
+    '#import "@preview/outer:1.0.0": outer\n#outer()',
+  );
+  expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true);
+});

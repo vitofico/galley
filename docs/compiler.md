@@ -118,3 +118,22 @@ additive (the original message is preserved) and lives in `diagnostics.ts`
   the span/offset mapping (the parts most likely to be subtly wrong), plus a
   smoke test that a known-bad document yields the expected error and a known-good
   one yields a page count.
+
+
+## Binary inputs over HTTP and project fonts
+
+HTTP compile requests encode each binary as `{ path, base64 }`; the server
+validates paths, duplicates, file counts and decoded byte sizes before allocating
+bytes. Text-only requests retain their original shape. Numeric-key objects from
+`JSON.stringify(Uint8Array)` are rejected. The existing 8 MiB raw request and
+aggregate limits remain; per-file limits also cover decoded binaries.
+
+Project `.otf`, `.ttf` and `.ttc` assets are registered as fonts as well as mapped
+into the VFS. The compiler is rebuilt when that font set changes, retaining
+bundled defaults and removing fonts from the previous project. Referencing an
+unbundled system font can still produce a fallback warning.
+
+Preview diagnostics are tagged with the current input/mode key. MCP browser
+compile refuses while those diagnostics are stale. Transport failures become
+visible diagnostics; an old SVG or a selected server route does not imply a
+successful current compile.

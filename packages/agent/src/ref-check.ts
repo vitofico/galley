@@ -18,11 +18,7 @@
  * `Diagnostic` TYPE from `@galley/shared`.
  */
 import type { Diagnostic, SourceSpan, SourcePosition } from "@galley/shared";
-import {
-  buildLabelIndex,
-  findBrokenRefs,
-  findUnusedLabels,
-} from "./labels.js";
+import { buildLabelIndex, findBrokenRefs, findUnusedLabels } from "./labels.js";
 import { stripTypstComments } from "./typst-comments.js";
 
 /**
@@ -73,7 +69,7 @@ export function refDiagnostics(
   // Index the COMMENT-STRIPPED text (#20.2): `@…` inside a comment or raw
   // block is text, not a reference. The strip preserves length and newlines,
   // so the index's offsets are valid in the original `source` for `spanAt`.
-  const index = buildLabelIndex(stripTypstComments(source));
+  const index = buildLabelIndex(stripTypstComments(source, true));
   const diagnostics: Diagnostic[] = [];
 
   for (const ref of findBrokenRefs(index)) {
@@ -100,7 +96,7 @@ export function unusedLabelDiagnostics(source: string): Diagnostic[] {
   // Same comment/raw strip as `refDiagnostics` (#20.2): a `<label>` inside a
   // comment is not a definition, so it must be neither "unused" nor able to
   // satisfy a real `@ref`. Offsets are preserved, so spans stay exact.
-  const index = buildLabelIndex(stripTypstComments(source));
+  const index = buildLabelIndex(stripTypstComments(source, true));
   return findUnusedLabels(index).map((def) => ({
     severity: "warning",
     message: `unused label <${def.name}>`,

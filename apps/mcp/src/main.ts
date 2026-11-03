@@ -17,8 +17,8 @@ import { registerControlTools } from "./control-tools.js";
  *      re-handshake), else run the handshake, then PERSIST.
  *   2. LEGACY ARGS (`authSource:"args"`, only when NO --pairing-code was given):
  *      room+key straight from argv/env, MEMORY-ONLY, never persisted.
- *   3. else: an honest error (the config layer already guaranteed one of the above
- *      is present, so this only fires on a handshake/store failure).
+ *   3. `"durable"`: only --sync was supplied; use a MAC-verified saved pairing
+ *      or fail with an explicit pairing instruction before joining any room.
  *
  * The PARSER (not this function) enforces precedence; `authSource` already
  * encodes the winner, so the code branches below stay as-is.

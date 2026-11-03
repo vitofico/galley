@@ -34,7 +34,10 @@ import {
 } from "./isolated-backend.js";
 
 // Unique per process so a concurrent run can't race on the same path.
-const bootUrl = new URL(`./__real-worker-boot.${process.pid}.mjs`, import.meta.url);
+const bootUrl = new URL(
+  `./__real-worker-boot.${process.pid}.mjs`,
+  import.meta.url,
+);
 
 beforeAll(() => {
   // Lives beside the source on purpose: `tsx/esm/api` and `./compile-worker.ts`
@@ -63,7 +66,9 @@ describe("isolated backend — REAL worker_thread + REAL WASM engine", () => {
     });
     const res = (await backend.check("= Hello\nBody.")) as CheckResult;
     expect(res.ok).toBe(true);
-    expect(res.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(res.diagnostics.filter((d) => d.severity === "error")).toHaveLength(
+      0,
+    );
     expect(res.pageCount).toBe(1);
   }, 60_000);
 
@@ -73,7 +78,8 @@ describe("isolated backend — REAL worker_thread + REAL WASM engine", () => {
     // the one thing a JS timer cannot preempt, which is why terminate() exists.
     // Sized deliberately: much larger wedges the wasm32 heap into a panic (a
     // FAULT, not a timeout), which would test the wrong path.
-    const runaway = "#for i in range(20000) [ #str(i) #lorem(40) #pagebreak() ]";
+    const runaway =
+      "#for i in range(20000) [ #str(i) #lorem(40) #pagebreak() ]";
     const backend = createIsolatedBackend({
       createWorker: realWorkerFactory(bootUrl),
       timeoutMs: 1_000,
@@ -89,6 +95,46 @@ describe("isolated backend — REAL worker_thread + REAL WASM engine", () => {
     // unreachable-entry bug. The 1s budget is what gives this teeth: it is long
     // enough that a broken entry faults FIRST (~84ms) and fails this assertion,
     // and ~7x short of the real compile, so a fast host cannot race it green.
-    expect((err as CompileUnavailableError).message).toContain("worker terminated");
+    expect((err as CompileUnavailableError).message).toContain(
+      "worker terminated",
+    );
   }, 60_000);
 });
+
+it("resolves pinned packages inside a real terminable worker and fails closed for an unpinned import", async () => {
+  const { createServer } = await import("node:http");
+  const { readFileSync } = await import("node:fs");
+  const fixture = new URL("../../web/e2e/fixtures/registry/", import.meta.url);
+  const bytes = readFileSync(
+    new URL("preview/galleytest-0.1.0.tar.gz", fixture),
+  );
+  const integrity = JSON.parse(
+    readFileSync(new URL("integrity.json", fixture), "utf8"),
+  );
+  let requests = 0;
+  const server = createServer((_req, res) => {
+    requests++;
+    res.end(bytes);
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address() as { port: number };
+    const registry = { baseUrl: `http://127.0.0.1:${address.port}`, integrity };
+    const backend = createIsolatedBackend({
+      createWorker: realWorkerFactory(undefined, registry),
+      timeoutMs: 60_000,
+    });
+    const good = await backend.check(
+      '#import "@preview/galleytest:0.1.0": greet\n#greet("Worker")',
+    );
+    expect(good.ok, JSON.stringify(good.diagnostics)).toBe(true);
+    expect(requests).toBe(1);
+    const bad = await backend.check('#import "@preview/not-pinned:0.1.0": *');
+    expect(bad.ok).toBe(false);
+    expect(requests).toBe(1);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((e) => (e ? reject(e) : resolve())),
+    );
+  }
+}, 120_000);

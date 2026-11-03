@@ -70,7 +70,9 @@ export function allProjectLabelNames(
   for (const file of files) {
     // Strip comments/raw first (#20.2): a `<label>` inside a comment is text,
     // not a definition, and must not enter the project-wide union.
-    for (const name of labelNames(buildLabelIndex(stripTypstComments(file.text)))) {
+    for (const name of labelNames(
+      buildLabelIndex(stripTypstComments(file.text, true)),
+    )) {
       names.add(name);
     }
   }
@@ -105,7 +107,7 @@ export function crossFileRefDiagnostics(
     // text, not a reference (the demo's main.typ mentions `@preview` in its
     // header comment). The strip preserves length and newlines, so offsets
     // index into the ORIGINAL `file.text` unchanged for `spanAt`.
-    const index = buildLabelIndex(stripTypstComments(file.text));
+    const index = buildLabelIndex(stripTypstComments(file.text, true));
     // Start from the file-local broken refs, then resolve each against the
     // cross-file union and the cite keys (the local index already excluded refs
     // that match a same-file label, so we only need the extra resolution here).

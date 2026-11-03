@@ -11,10 +11,8 @@
  * threads; the one-time module compile (~106 ms) is paid once per process, not
  * per request. See `isolated-backend.ts`.
  *
- * Registry packages are the one path that still needs `inline`: the per-request
- * worker thread has no package-resolver holder, so a registry-aware worker is not
- * supported yet. Combining `REGISTRY_BASE_URL` with worker isolation fails loud at
- * startup (below) rather than silently degrading.
+ * Registry configuration is also supported by terminable workers: only the
+ * operator-supplied base URL and pinned manifest cross the worker boundary.
  */
 
 export type CompileIsolation = "worker" | "inline";
@@ -35,7 +33,9 @@ export type CompileIsolation = "worker" | "inline";
  * / `GALLEY_COMPILE_TIMEOUT_MS` parsers reject. Surrounding whitespace is trimmed
  * (matching those parsers) so a quoting artifact isn't mistaken for a typo.
  */
-export function resolveCompileIsolation(raw: string | undefined): CompileIsolation {
+export function resolveCompileIsolation(
+  raw: string | undefined,
+): CompileIsolation {
   if (raw === undefined || raw.trim() === "") return "worker";
   const value = raw.trim();
   if (value === "worker") return "worker";
@@ -44,29 +44,4 @@ export function resolveCompileIsolation(raw: string | undefined): CompileIsolati
     `GALLEY_COMPILE_ISOLATION must be "worker" or "inline" (or unset for the "worker" ` +
       `default); got "${raw}"`,
   );
-}
-
-/**
- * The exact startup error when a registry is combined with worker isolation.
- * Operators grep on this text, and `server-config.test.ts` pins it verbatim —
- * do not reword without updating the pin.
- */
-export const REGISTRY_WORKER_INCOMPATIBLE_MESSAGE =
-  "REGISTRY_BASE_URL requires GALLEY_COMPILE_ISOLATION=inline; unset defaults to worker, " +
-  "and registry-aware workers are not supported yet";
-
-/**
- * Fail loud when `REGISTRY_BASE_URL` is configured AND the resolved isolation is
- * `worker`: the per-request worker thread has no package-resolver holder, so a
- * registry-aware worker cannot work today. A blank/whitespace base URL counts as
- * "no registry" (mirrors `server.ts`, which trims before selecting a backend).
- */
-export function assertRegistryIsolationCompatible(
-  isolation: CompileIsolation,
-  registryBaseUrl: string | undefined,
-): void {
-  const baseUrl = registryBaseUrl?.trim();
-  if (baseUrl && isolation === "worker") {
-    throw new Error(REGISTRY_WORKER_INCOMPATIBLE_MESSAGE);
-  }
 }

@@ -207,3 +207,33 @@ describe("integrity", () => {
     expect(() => verifyIntegrity(bytes, { sha256: sha256Hex(bytes), size: 999 })).toThrow(/size mismatch/);
   });
 });
+
+it("retains passive images and omits metadata without bypassing validation or caps", () => {
+  const archive = makeTar([
+    ...PROBE,
+    { path: "LICENSE", text: "license" },
+    { path: "README.md", text: "docs" },
+    { path: "example/photo.jpg", text: "image" },
+  ]);
+  expect(untarStrict(archive, DEFAULT_ARCHIVE_LIMITS, true)).toEqual([
+    ...untarStrict(makeTar(PROBE)),
+    { path: "example/photo.jpg", bytes: enc.encode("image") },
+  ]);
+  for (const path of [
+    "../LICENSE",
+    "/README.md",
+    "plugin.wasm",
+    "a/../photo.jpg",
+  ]) {
+    expect(() =>
+      untarStrict(makeTar([{ path, text: "x" }]), DEFAULT_ARCHIVE_LIMITS, true),
+    ).toThrow(ArchiveError);
+  }
+  expect(() =>
+    untarStrict(
+      archive,
+      { ...DEFAULT_ARCHIVE_LIMITS, maxFiles: PROBE.length + 1 },
+      true,
+    ),
+  ).toThrow(/count/);
+});

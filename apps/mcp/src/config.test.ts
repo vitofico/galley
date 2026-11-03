@@ -165,6 +165,16 @@ describe("kernel config — fail-loud CLI/env parsing", () => {
 
   // --- Control mode (#16.3a, ADR-0021) ----------------------------------------
 
+  it("selects durable control mode with only a relay, without inventing authority", () => {
+    expect(parseKernelConfig(["--sync", "wss://example.test/sync/"])).toEqual({
+      mode: "control",
+      syncUrl: "wss://example.test/sync",
+      authSource: "durable",
+    });
+    expect(asControl(parseKernelConfig([], { GALLEY_MCP_SYNC: "ws://localhost:1234" })).authSource)
+      .toBe("durable");
+  });
+
   it("parses control mode: --sync + --control-room + --response-key (+ optional --compile-url)", () => {
     const parsed = asControl(
       parseKernelConfig([
@@ -365,11 +375,6 @@ describe("kernel config — fail-loud CLI/env parsing", () => {
         GALLEY_MCP_ROOM: "env-room",
       }),
     ).toThrow(/mutually exclusive/);
-  });
-
-  it("fails loud when NEITHER mode is selected, naming both options", () => {
-    expect(() => parseKernelConfig(["--sync", "ws://h:1"])).toThrow(/--room \+ --file/);
-    expect(() => parseKernelConfig(["--sync", "ws://h:1"])).toThrow(/--control-room/);
   });
 
   it("control mode still requires and validates --sync", () => {

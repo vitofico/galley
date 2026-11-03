@@ -146,6 +146,24 @@ falls through to the scope gate → `REFUSAL_WRONG_PROJECT` or the full foregrou
 modal (fail closed). The attaching host advertises `kind:'agent-worker'` presence
 (§1.1) so it does not falsely watch the room.
 
+#### 3.2 One approval for project access choices (3 November 2026)
+
+The project-access dialog offers file access, Ask/Auto mode, and optional
+background access together. Ask remains the default and background access is
+off until explicitly selected. Approval records the selected mode and optional
+`persistentAccess` in the same scoped, MAC-covered grant. A denied, timed-out,
+or withdrawn request records none of these choices.
+
+Reconnect waits for the saved grant's MAC check before deciding to prompt.
+The kernel treats opening its already-attached project as a successful no-op
+(`status: "opened", reused: true`) and includes current liveness. It cannot
+switch to another project in that run. Scope drift and revocation still require
+new consent; the foreground-project gate and headless-access TTL are unchanged.
+
+`create_project` now gives an explicit project path and navigation instruction.
+A verified foreground/no-editor refusal becomes a kernel-local `open_required`
+status with that requested path; arbitrary responder error text stays private.
+
 ### 4. Global, always-visible review surface
 
 Pending-proposal review moves out of the collapsible/`inert` agent sidebar into a

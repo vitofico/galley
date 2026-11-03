@@ -239,6 +239,12 @@ describe("fuzz: size/count caps fire and abort cleanly", () => {
     // so the compressed zip is tiny but decompresses past the 32 MiB per-entry cap.
     const bomb = new Uint8Array(MAX_ENTRY_BYTES + 64 * 1024); // all zeros
     const zip = await buildZip([{ name: "bomb.tex", data: bomb, method: 8 }]);
+    // A lying header must not bypass the streaming cap, even though honest
+    // oversized declarations can now be rejected before inflation starts.
+    const view = new DataView(zip.buffer);
+    const cdOffset = view.getUint32(zip.length - 22 + 16, true);
+    view.setUint32(cdOffset + 24, 0, true);
+    view.setUint32(22, 0, true);
     expect(zip.length).toBeLessThan(MAX_ZIP_BYTES); // the zip itself is small
     await expectReject("entry-bomb", zip, "entry-too-large");
   });

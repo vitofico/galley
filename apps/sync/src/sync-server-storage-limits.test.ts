@@ -538,22 +538,33 @@ describe("sync server — storage caps (B2)", () => {
     };
     // Small floor so a modest incremental history trips the high-water; generous
     // content cap + no log ceiling so ONLY the compaction path is exercised.
-    const quota = makeQuota({ maxContentBytes: 10_000_000, compactionFloorBytes: 256 });
+    // Leave enough pre-fold history that the conservative fresh-snapshot + tail
+    // counter must shrink even while the rest of this small burst arrives.
+    const quota = makeQuota({ maxContentBytes: 10_000_000, compactionFloorBytes: 1024 });
     const server = await startSyncServer(0, { crdtStore: store, storageQuota: quota });
     try {
       const doc = new CollabDocument();
       const a = client(server, "proj-compact", doc);
       a.connect();
       await vi.waitFor(() => expect(server.roomCount()).toBe(1), settle);
+      await vi.waitFor(() => expect(a.synced).toBe(true), settle);
 
-      // A burst of many tiny appends: the append log outgrows 2× the compacted size
-      // and crosses the floor, so compaction is scheduled — exactly once.
-      for (let i = 0; i < 80; i++) doc.transact((t) => t.insert(t.length, "z"), HUMAN);
+      // Churn grows the append history without growing the live text, so the log
+      // deterministically exceeds both the floor and 2× the compacted size.
+      for (let i = 0; i < 80; i++) {
+        doc.transact((t) => {
+          t.insert(t.length, "z");
+          t.delete(t.length - 1, 1);
+        }, HUMAN);
+      }
 
       await vi.waitFor(() => expect(compacts).toBe(1), settle);
       // Still in-flight (gated): more appends must NOT schedule a second compaction.
       for (let i = 0; i < 40; i++) doc.transact((t) => t.insert(t.length, "q"), HUMAN);
-      await new Promise((r) => setTimeout(r, 120));
+      await vi.waitFor(() => {
+        expect(server.roomExactContentBytes("proj-compact"))
+          .toBe(Y.encodeStateAsUpdate(doc.doc).byteLength);
+      }, settle);
       expect(compacts).toBe(1); // in-flight flag held
 
       const peakLog = server.roomLogBytes("proj-compact"); // the un-folded accumulation
@@ -585,6 +596,8 @@ describe("sync server — storage caps (B2)", () => {
         await server2.close();
       }
     } finally {
+      releaseCompact();
+      await server.close().catch(() => {});
       await rm(dir, { recursive: true, force: true });
     }
   });

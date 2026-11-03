@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { readFile } from "node:fs/promises";
 import { test, expect, type Page } from "@playwright/test";
 import { gotoEditor } from "./app-helpers.js";
 import {
@@ -24,7 +25,7 @@ import {
   type WebSocketLike,
   type ControlResponse,
 } from "@galley/collab";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 /**
  * #16.3 open_project bridge — the per-request consent flow, end-to-end over the
@@ -78,7 +79,7 @@ function joinControlRoomAsPeer(syncUrl: string, controlRoom: string) {
  * read the pairing command, then go Back to the editor (SPA) so the ProjectApp
  * consent handler is mounted. Returns the relay + control room.
  */
-async function enableAgentAccess(page: Page): Promise<{ syncUrl: string; controlRoom: string }> {
+async function enableAgentAccess(page: Page): Promise<{ syncUrl: string; controlRoom: string; responseKey: Uint8Array }> {
   await gotoEditor(page);
   await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, { timeout: 60_000 });
   // Open settings via the in-app shortcut (SPA navigation — no reload).
@@ -100,6 +101,7 @@ async function enableAgentAccess(page: Page): Promise<{ syncUrl: string; control
   const { pairingRoom, macKey, codeSecret } = await deriveBootstrap(codeMatch![1]!);
   const pairPeer = joinControlRoomAsPeer(syncUrl, pairingRoom);
   let controlRoom: string;
+  let responseKey: Uint8Array;
   try {
     const kernelEph = await generateEphemeralKeyPair();
     const ephPub = await exportEphemeralPublic(kernelEph);
@@ -135,7 +137,7 @@ async function enableAgentAccess(page: Page): Promise<{ syncUrl: string; control
     expect(opened).not.toBeNull();
     controlRoom = opened!.controlRoom;
     expect(controlRoom).toMatch(/^share-/);
-    void base64UrlToBytes(opened!.responseKey); // sanity: decodes
+    responseKey = base64UrlToBytes(opened!.responseKey)!;
   } finally {
     pairPeer.destroy();
   }
@@ -143,7 +145,7 @@ async function enableAgentAccess(page: Page): Promise<{ syncUrl: string; control
   // can render. The singleton stays enabled across this in-app navigation.
   await page.getByTestId("settings-back").click();
   await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, { timeout: 60_000 });
-  return { syncUrl, controlRoom };
+  return { syncUrl, controlRoom, responseKey };
 }
 
 /** Ask the responder for the open project's id via list_projects. */
@@ -185,6 +187,8 @@ test("agent open_project: the consent modal gates the share — Deny refuses, Ap
     // (a) The blocking consent modal appears, naming the project.
     const modal = page.getByTestId("agent-open-consent");
     await expect(modal).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("agent-open-consent-ask")).toBeChecked();
+    await expect(page.getByTestId("agent-open-consent-background")).not.toBeChecked();
     await expect(page.getByTestId("agent-open-consent-project")).toBeVisible();
     await expect(page.getByTestId("agent-open-consent-deny")).toBeVisible();
     await expect(page.getByTestId("agent-open-consent-approve")).toBeVisible();
@@ -235,5 +239,113 @@ test("agent open_project: the consent modal gates the share — Deny refuses, Ap
     await expect(page.getByTestId("share-button")).toHaveText(/shared/i);
   } finally {
     peer.destroy();
+  }
+});
+
+test("real stdio kernel reuses one approval and uploads a mixed binary project", async ({ page }) => {
+  test.setTimeout(180_000);
+  const { syncUrl, controlRoom, responseKey } = await enableAgentAccess(page);
+  const { Client } = await import(pathToFileURL(requireFromMcp.resolve("@modelcontextprotocol/sdk/client/index.js")).href);
+  const { StdioClientTransport } = await import(pathToFileURL(requireFromMcp.resolve("@modelcontextprotocol/sdk/client/stdio.js")).href);
+  let client = new Client({ name: "galley-binary-import-e2e", version: "1.0.0" });
+  const makeTransport = () => new StdioClientTransport({
+    command: process.execPath,
+    args: [fileURLToPath(new URL("../../mcp/bin/galley-mcp.mjs", import.meta.url)), "--sync", syncUrl],
+    env: {
+      GALLEY_MCP_CONTROL_ROOM: controlRoom,
+      GALLEY_MCP_RESPONSE_KEY: bytesToBase64Url(responseKey),
+    },
+    stderr: "ignore",
+  });
+  const call = async (name: string, args: Record<string, unknown> = {}) => {
+    const result = await client.callTool({ name, arguments: args }, undefined, { timeout: 90_000 });
+    expect(result.isError, `MCP ${name} succeeded`).not.toBe(true);
+    return JSON.parse(result.content[0].text);
+  };
+  try {
+    await client.connect(makeTransport());
+    await client.listTools();
+    const { projects } = await call("list_projects");
+    const projectId = projects[0].projectId;
+    const opening = call("open_project", { projectId });
+    await expect(page.getByTestId("agent-open-consent")).toBeVisible();
+    await page.getByTestId("agent-open-consent-auto").check();
+    await page.getByTestId("agent-open-consent-background").check();
+    await page.getByTestId("agent-open-consent-approve").click();
+    expect((await opening).status).toBe("opened");
+    await client.listTools();
+    expect(await call("open_project", { projectId })).toMatchObject({ status: "opened", reused: true });
+    await expect(page.getByTestId("agent-open-consent")).toBeHidden();
+
+    const original = await call("read_document");
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+    const pdf = Buffer.from("%PDF-1.4\n%%EOF\n");
+    const font = await readFile(fileURLToPath(new URL("../public/fonts/NewCMMath-Book.otf", import.meta.url)));
+    const assets = [
+      { path: "/photo.png", bytes: png },
+      { path: "/fonts/math.otf", bytes: font },
+      { path: "/CV.pdf", bytes: pdf },
+    ];
+    const proposal = await call("propose_files", {
+      request: "Import a Typst document with its photo, font and PDF in one approval",
+      ops: [
+        { kind: "edit", path: "/main.typ", edits: [{ search: original.text, replace: '= CV import\n#image("photo.png")\n' }] },
+        ...assets.map(({ path, bytes }) => ({ kind: "create-binary", path, bytes: bytes.toString("base64") })),
+      ],
+    });
+    expect(["applied", "pending_review"]).toContain(proposal.status);
+    for (const asset of assets) {
+      const hash = createHash("sha256").update(asset.bytes).digest("hex");
+      await expect.poll(async () => {
+        const result = await client.callTool({ name: "read_file", arguments: { path: asset.path } });
+        if (result.isError) return null;
+        return JSON.parse(result.content[0].text).hash;
+      }).toBe(hash);
+    }
+    await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, { timeout: 60_000 });
+    await page.reload();
+    await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, { timeout: 60_000 });
+    await client.close();
+    client = new Client({ name: "galley-reconnect-e2e", version: "1.0.0" });
+    await client.connect(makeTransport());
+    await client.listTools();
+    expect((await call("open_project", { projectId })).status).toBe("opened");
+    await client.listTools();
+    await expect(page.getByTestId("agent-open-consent")).toBeHidden();
+    expect((await call("read_document")).text).toContain("= CV import");
+    await call("propose_files", {
+      request: "Reuse the approved project after reconnect",
+      ops: [
+        {
+          kind: "rename",
+          path: "/fonts/math.otf",
+          newPath: "/fonts/renamed.otf",
+        },
+        {
+          kind: "edit",
+          path: "/main.typ",
+          edits: [{ search: "CV import", replace: "CV reconnected" }],
+        },
+      ],
+    });
+    await expect
+      .poll(async () => (await call("read_document")).text)
+      .toContain("CV reconnected");
+    expect((await call("read_file", { path: "/fonts/renamed.otf" })).hash).toBe(
+      createHash("sha256").update(font).digest("hex"),
+    );
+    await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, {
+      timeout: 60_000,
+    });
+    expect(await call("compile")).toMatchObject({
+      ok: true,
+      source: "browser",
+    });
+
+    await expect(page.getByTestId("agent-mode-auto")).toBeChecked();
+    await page.keyboard.press("ControlOrMeta+,");
+    await expect(page.getByTestId("agent-background-active")).toBeVisible();
+  } finally {
+    await client.close();
   }
 });

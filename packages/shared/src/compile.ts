@@ -238,10 +238,17 @@ export interface ExportResult {
  */
 export type CompileOp = "check" | "render" | "export";
 
-/** POST body for the compile service: one operation over one `CompileInput`. */
+/** JSON-safe compile input. Binary bytes use base64, never numeric-key objects. */
+export type CompileInputWire =
+  | string
+  | (Omit<ProjectInput, "binaryFiles"> & {
+      binaryFiles?: { path: string; base64: string }[];
+    });
+
+/** POST body for the compile service: one operation over one JSON-safe input. */
 export interface CompileServiceRequest {
   op: CompileOp;
-  input: CompileInput;
+  input: CompileInputWire;
 }
 
 /**

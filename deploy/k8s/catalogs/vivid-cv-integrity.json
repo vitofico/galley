@@ -1,0 +1,10 @@
+{
+  "@preview/vivid-cv:0.1.1": {
+    "sha256": "ea5421544138945237c03ed55012d13422e013dbb323266a5e15ad34178cf2de",
+    "size": 42040
+  },
+  "@preview/fontawesome:0.6.1": {
+    "sha256": "5614ba5eb91c849c16436d04fb8426d1d74dd82c2b7d1248e7d9a9692cac6e31",
+    "size": 86400
+  }
+}

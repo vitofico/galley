@@ -24,8 +24,8 @@
  *   - `"…"` is tracked as a string (with `\` escapes) so a URL like
  *     `"https://…"` never starts a line comment. String state resets at a
  *     newline, so an unmatched markup quote can at worst mask one line.
- *   - String CONTENT is left untouched (refs inside strings were visible to
- *     the scan before; this module only fixes the comment/raw false positives).
+ *   - String content is optionally blanked for reference/label scanning; the
+ *     default preserves it for callers that only need comment stripping.
  *
  * No React, no DOM, no I/O — a deterministic function over a string.
  */
@@ -34,7 +34,10 @@
  * Blank Typst comments and raw-block content with spaces, preserving the
  * source length and every newline (see the offset contract above).
  */
-export function stripTypstComments(source: string): string {
+export function stripTypstComments(
+  source: string,
+  stripStrings = false,
+): string {
   const n = source.length;
   const out = source.split("");
   /** Blank one char unless it is a newline (newlines keep lines aligned). */
@@ -89,7 +92,9 @@ export function stripTypstComments(source: string): string {
     }
 
     if (inString) {
+      if (stripStrings) blank(i);
       if (ch === "\\") {
+        if (stripStrings) blank(i + 1);
         i += 2; // escaped char (incl. \") stays in the string
         continue;
       }
@@ -99,6 +104,7 @@ export function stripTypstComments(source: string): string {
     }
 
     if (ch === '"') {
+      if (stripStrings) blank(i);
       inString = true;
       i++;
       continue;

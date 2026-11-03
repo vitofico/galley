@@ -69,7 +69,7 @@ kubectl kustomize deploy/k8s                          # or: kustomize build …
 | Overlay                          | Adds                                                                                                         | Apply                                                        |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
 | `overlays/compile`               | server-side compile, **sandbox-only** (packages fail closed, worker isolation — the default, set explicitly) | `kubectl apply -k deploy/k8s/overlays/compile`               |
-| `overlays/compile-registry`      | compile **+ Universe packages** (egress policy + integrity ConfigMap; isolation set to `inline`)             | `kubectl apply -k deploy/k8s/overlays/compile-registry`      |
+| `overlays/compile-registry`      | compile **+ Universe packages** (egress policy + integrity ConfigMap; terminable worker isolation)             | `kubectl apply -k deploy/k8s/overlays/compile-registry`      |
 | `overlays/auth`                  | OIDC login + closed sync rooms (shared session PVC + example Secret)                                         | `kubectl apply -k deploy/k8s/overlays/auth`                  |
 | `overlays/auth-compile`          | both of the above (sandbox compile)                                                                          | `kubectl apply -k deploy/k8s/overlays/auth-compile`          |
 | `overlays/auth-compile-registry` | auth + compile with Universe packages                                                                        | `kubectl apply -k deploy/k8s/overlays/auth-compile-registry` |
@@ -94,15 +94,9 @@ egress beyond DNS.
 
 Enables registry resolution. Two honest constraints, handled in the overlay:
 
-- **Isolation is set to `inline`.** The compile server **throws at startup** if
-  `GALLEY_COMPILE_ISOLATION` resolves to `worker` (the default since 2026-07,
-  including when the var is unset) and `REGISTRY_BASE_URL` is set (the per-request
-  worker*thread has no package resolver). So this overlay sets
-  `GALLEY_COMPILE_ISOLATION=inline` **explicitly** (never relying on the default)
-  and leans on the **container resource limits + a kubelet `podPidsLimit`** for
-  runaway protection. You cannot have terminable isolation \_and* Universe packages
-  today — use the sandbox-only `compile` overlay (or an internal mirror) if you
-  need isolation.
+- **Worker isolation stays enabled.** Registry fetch and compilation run within
+  each terminable worker's hard timeout; pinned registry configuration comes from
+  the parent process. Inline isolation is no longer required for packages.
 - **The integrity ConfigMap ships with PLACEHOLDER hashes** — every package fails
   closed until you replace it. Generate a real, reviewed manifest with
   `pnpm --filter @galley/compile build:manifest` (see
@@ -212,7 +206,7 @@ name would leak via Certificate-Transparency logs.
 ## Compile sandboxing
 
 The compile overlays ship tight CPU/mem/ephemeral limits. Sandbox-only compile
-also uses a terminable worker; registry compile runs inline, so container/node
+also uses a terminable worker; registry compile retains that hard timeout; container/node
 limits are its runaway-process boundary (ADR-0015). Also set a kubelet
 `podPidsLimit` on its nodes. If you enable Universe fetch (`compile-registry`), restrict egress to the registry host
 as described above, and remember it is mutually exclusive with worker isolation.

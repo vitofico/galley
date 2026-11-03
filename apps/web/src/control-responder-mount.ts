@@ -691,6 +691,8 @@ export interface ControlResponderManager {
   grantContentForActiveGrant(): void;
   /** The active in-memory grant (re-parsed on resume), or null when none/invalid. */
   getActiveGrant(): ProposalGrant | null;
+  /** Wait for the saved grant's MAC check before deciding fresh consent is needed. */
+  whenGrantReady(): Promise<void>;
   /**
    * The active grant ONLY when its full scope matches the caller's project
    * (H1 — broken authority scoping): returns the grant iff
@@ -794,6 +796,7 @@ class ControlResponderMountManager implements ControlResponderManager {
    * {@link recordGrant}, cleared on disable()/clearSession(). Null when none.
    */
   private grant: ProposalGrant | null = null;
+  private grantLoad: Promise<void> = Promise.resolve();
   /**
    * Monotonic epoch for grant PERSISTENCE (review High-3). `persistGrant` is async
    * (it MACs before writing); without this a slow earlier write (e.g. an arm) could
@@ -1107,6 +1110,8 @@ class ControlResponderMountManager implements ControlResponderManager {
     projectId: string,
     isRequestLive: () => boolean,
   ): Promise<OpenedProject | OpenProjectRefusal | null> {
+    await this.whenGrantReady();
+    if (!isRequestLive()) return { refused: "the agent withdrew this request before the project was shared — nothing was shared" };
     // F13 (headless attach): a request for a project that is NOT the foregrounded
     // editor document re-attaches its already-consented share WITHOUT a modal when a
     // standing, MAC-verified, exact-scope, non-idle `persistentAccess` grant matches
@@ -1293,7 +1298,7 @@ class ControlResponderMountManager implements ControlResponderManager {
     // (WebCrypto), best-effort: a load failure just leaves no active grant.
     this.grant = null;
     this.verifyKeys = null;
-    void this.loadPersistedGrant(responseKey);
+    this.grantLoad = this.loadPersistedGrant(responseKey).catch(() => {});
 
     // PERSIST the capability (room + key) so a reload/restart RESUMES it (operator
     // decision; reverses the original H3 non-persistence). Revoke clears it, a
@@ -2055,6 +2060,10 @@ class ControlResponderMountManager implements ControlResponderManager {
 
   getActiveGrant(): ProposalGrant | null {
     return this.grant;
+  }
+
+  async whenGrantReady(): Promise<void> {
+    await this.grantLoad;
   }
 
   grantContentForActiveGrant(): void {

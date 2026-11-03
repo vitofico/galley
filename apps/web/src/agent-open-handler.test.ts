@@ -10,6 +10,7 @@ import {
   REFUSAL_SHARE_UNAVAILABLE,
   type AgentOpenHandlerSeams,
   type ConsentOutcome,
+  type AgentAccessOptions,
 } from "./agent-open-handler.js";
 import type { OpenedProject, OpenProjectRefusal } from "./control-responder.js";
 
@@ -96,6 +97,36 @@ function refusalOf(result: OpenedProject | OpenProjectRefusal): string {
   expect("refused" in result).toBe(true);
   return (result as OpenProjectRefusal).refused;
 }
+
+describe("batched project access choices", () => {
+  it("passes the approved review and background choices to the share operation together", async () => {
+    const options: AgentAccessOptions = { mode: "auto", backgroundAccess: true };
+    let received: AgentAccessOptions | undefined;
+    const { seams, log } = makeSeams({
+      outcome: { approved: true, options },
+      getEnsureShared: () => async (approvedOptions) => {
+        received = approvedOptions;
+        return HANDOFF;
+      },
+    });
+    expect(await createAgentOpenHandler(seams)("proj-current")).toEqual(HANDOFF);
+    expect(received).toEqual(options);
+    expect(log.consentRequests).toBe(1);
+  });
+
+  it("a withdrawn approval cannot enable Auto or background access", async () => {
+    let live = true;
+    const { seams, log } = makeSeams({
+      requestConsent: async () => {
+        live = false;
+        return { approved: true, options: { mode: "auto", backgroundAccess: true } };
+      },
+    });
+    expect(refusalOf(await createAgentOpenHandler(seams)("proj-current", () => live)))
+      .toBe(REFUSAL_WITHDRAWN);
+    expect(log.ensureCalls).toBe(0);
+  });
+});
 
 describe("agent-open-handler — SEC-16.3b: joined/CONNECTED sessions are refused outright", () => {
   it("refuses with the joined-session reason and runs NO consent and NO share", async () => {

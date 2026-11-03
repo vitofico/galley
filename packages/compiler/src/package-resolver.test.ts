@@ -135,3 +135,21 @@ describe("FakeRegistry — offline, in-memory, pre-validated", () => {
     ).toThrow(PackageValidationError);
   });
 });
+
+it("validates package image bytes under the same namespace and decoded size budgets", () => {
+  const spec = { namespace: "preview", name: "images", version: "1.0.0" };
+  const bytes = new Uint8Array([1, 2, 3]);
+  expect(resolvePackagePaths(spec, [{ path: "example/a.png", bytes }])).toEqual(
+    [{ path: "/packages/preview/images/1.0.0/example/a.png", bytes }],
+  );
+  expect(() =>
+    resolvePackagePaths(spec, [{ path: "plugin.wasm", bytes }]),
+  ).toThrow(/disallowed/);
+  expect(() =>
+    resolvePackagePaths(spec, [{ path: "a.png", bytes }], {
+      maxFiles: 1,
+      maxFileBytes: 2,
+      maxTotalBytes: 2,
+    }),
+  ).toThrow(/max/);
+});

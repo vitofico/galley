@@ -30,7 +30,11 @@ import type {
   RenderResult,
   RenderedPage,
 } from "@galley/shared";
-import { isProjectInput, computeCompileArtifact, TYPST_VECTOR_MIME } from "@galley/shared";
+import {
+  isProjectInput,
+  computeCompileArtifact,
+  TYPST_VECTOR_MIME,
+} from "@galley/shared";
 import {
   normalizeDiagnostics,
   normalizeProjectDiagnostics,
@@ -113,9 +117,11 @@ interface RendererLike {
 
 export class TypstEngine {
   private renderer: RendererLike | null = null;
+  private projectFontKey = "";
 
   private constructor(
-    private readonly compiler: ReturnType<typeof createTypstCompiler>,
+    private compiler: ReturnType<typeof createTypstCompiler>,
+    private readonly options: TypstEngineOptions,
     private readonly rendererModule: ModuleSource | undefined,
   ) {}
 
@@ -161,7 +167,33 @@ export class TypstEngine {
     } else {
       await compiler.init({ getModule: asProvider(options.compilerModule) });
     }
-    return new TypstEngine(compiler, options.rendererModule);
+    return new TypstEngine(compiler, options, options.rendererModule);
+  }
+
+  private async prepareProjectFonts(input: CompileInput): Promise<void> {
+    const fonts = isProjectInput(input)
+      ? (input.binaryFiles ?? []).filter((f) =>
+          /\.(?:otf|ttf|ttc)$/i.test(f.path),
+        )
+      : [];
+    const keys = await Promise.all(
+      fonts.map(
+        async (f) =>
+          `${f.path}:${(await computeCompileArtifact(f.bytes)).hash}`,
+      ),
+    );
+    const key = keys.join("\n");
+    if (key === this.projectFontKey) return;
+    // Rebuild instead of accumulating fonts across projects (or retaining a removed font).
+    const fresh = await TypstEngine.create({
+      ...this.options,
+      fontBlobs: [
+        ...(this.options.fontBlobs ?? []),
+        ...fonts.map((f) => f.bytes),
+      ],
+    });
+    this.compiler = fresh.compiler;
+    this.projectFontKey = key;
   }
 
   private async ensureRenderer(): Promise<RendererLike> {
@@ -198,6 +230,7 @@ export class TypstEngine {
   private async compileVector(
     input: CompileInput,
   ): Promise<{ result?: Uint8Array; diagnostics?: unknown }> {
+    await this.prepareProjectFonts(input);
     if (isProjectInput(input)) {
       const mainFilePath = this.loadProject(input);
       return this.compiler.compile({
@@ -415,6 +448,7 @@ export class TypstEngine {
 
   /** PDF bytes for download. */
   async export(input: CompileInput): Promise<ExportResult> {
+    await this.prepareProjectFonts(input);
     let mainFilePath: string;
     let compileOpts: {
       mainFilePath: string;

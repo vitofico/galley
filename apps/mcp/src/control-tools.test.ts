@@ -212,7 +212,9 @@ describe("create_project control tool (F1)", () => {
     const result = (await t.create({ name: "My Doc" })) as CreateResultLike;
     expect(calls).toEqual([{ op: "create_project", params: { name: "My Doc" } }]);
     expect(result.isError).toBeUndefined();
-    expect(JSON.parse(result.content[0]!.text)).toEqual({ projectId: "proj-x", name: "My Doc" });
+    expect(JSON.parse(result.content[0]!.text)).toMatchObject({
+      projectId: "proj-x", name: "My Doc", projectPath: "/p/proj-x", nextAction: "open_in_browser",
+    });
   });
 
   it("escapes control characters in the returned name (no faked output lines)", async () => {
@@ -651,8 +653,10 @@ describe("control-mode content tools — registration + dispatch (#1 slice 1)", 
   });
 
   it("a successful open_project RETIRES the content tools before registering the per-project set", async () => {
+    let openCalls = 0;
     const rpc = async (op: string): Promise<ControlRpcOutcome> => {
       if (op === "open_project") {
+        openCalls += 1;
         return {
           ok: true,
           result: {
@@ -703,6 +707,14 @@ describe("control-mode content tools — registration + dispatch (#1 slice 1)", 
     expect(t.names()).not.toContain("list_version_files");
     expect(t.names()).not.toContain("read_version_file");
     expect(t.names()).not.toContain("request_restore_version");
+    const reused = await t.call("open_project", { projectId: "proj-1" });
+    expect(JSON.parse(reused.content[0]!.text)).toMatchObject({
+      status: "opened", projectId: "proj-1", mainFile: "/main.typ", reused: true,
+    });
+    expect(openCalls).toBe(1);
+    const other = await t.call("open_project", { projectId: "proj-other" });
+    expect(JSON.parse(other.content[0]!.text).status).toBe("already_open");
+    expect(openCalls).toBe(1);
   });
 
   it("open_project binds the responder's grantId onto the joined session (ADR-0023 §1)", async () => {

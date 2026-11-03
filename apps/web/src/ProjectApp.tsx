@@ -278,6 +278,7 @@ import {
 import {
   createAgentOpenHandler,
   type ConsentOutcome,
+  type AgentAccessOptions,
 } from "./agent-open-handler.js";
 import {
   grantMatchesReuseScope,
@@ -1359,7 +1360,7 @@ export function ProjectApp({
   // the declaration-order cycle. The consent lock is a ref so it reads correctly
   // synchronously across the async handler's awaits (state would be stale).
   const ensureSharedRef = useRef<
-    (() => Promise<OpenedProject | OpenProjectRefusal>) | null
+    ((recordMcpGrant?: boolean, options?: AgentAccessOptions) => Promise<OpenedProject | OpenProjectRefusal>) | null
   >(null);
   // ADR-0024 §3 reuse fast-path: the latest closure that re-attaches an already-
   // consented, MAC-verified, exactly-scope-matched grant WITHOUT re-consent (or
@@ -2239,6 +2240,7 @@ export function ProjectApp({
    */
   const ensureSharedForAgent = async (
     recordMcpGrant = true,
+    options?: AgentAccessOptions,
   ): Promise<OpenedProject | OpenProjectRefusal> => {
     await session.whenReady;
     const syncUrl = resolveSyncUrl(
@@ -2316,9 +2318,14 @@ export function ProjectApp({
         syncUrl,
         mainFile: mainPath,
         grantId,
-        mode: mintMode,
+        mode: options?.mode ?? mintMode,
+        ...(options?.backgroundAccess ? { persistentAccess: true } : {}),
         grantedAt: Date.now(),
       });
+      if (options) {
+        setProjectAcceptanceMode(projectId, options.mode);
+        setInAppMode(options.mode);
+      }
       // F13 (consent collapse): the open_project consent that just recorded this
       // grant ALSO grants read access for the project, so the human is not asked
       // to click "Allow file access" separately. isContentGranted stays the sole
@@ -2587,6 +2594,7 @@ export function ProjectApp({
     // so the scope match reflects the post-await truth, not a stale pre-await one.
     await session.whenReady;
 
+    await mgr.whenGrantReady();
     const grant = mgr.getActiveGrant();
     if (grant === null) return null;
     const controlRoom = mgr.getState().controlRoom;
@@ -2713,13 +2721,19 @@ export function ProjectApp({
           const timer = setTimeout(() => finish("timeout"), 90_000);
           setAgentConsent({
             projectName: projectName ?? "this project",
+            initialMode: getProjectAcceptanceMode(projectId),
             // The modal resolves true (Share) / false (Deny / escape / backdrop).
-            resolve: (approved: boolean) =>
-              finish(approved ? "approve" : "deny"),
+            resolve: (approved, options) =>
+              finish(approved ? { approved: true, options: options ?? {
+                mode: getProjectAcceptanceMode(projectId), backgroundAccess: false,
+              } } : "deny"),
           });
         }),
       // The (idempotent) share-upgrade, read at CALL time via the ref.
-      getEnsureShared: () => ensureSharedRef.current,
+      getEnsureShared: () => {
+        const share = ensureSharedRef.current;
+        return share === null ? null : (options) => share(true, options);
+      },
       // ADR-0024 §3 reuse fast-path, read at CALL time via the ref — fires AFTER
       // the joined-session + scope gates and BEFORE the consent modal; null on
       // any miss → full consent (fail closed). `isRequestLive` is threaded through
@@ -3405,7 +3419,7 @@ export function ProjectApp({
     const input = uploadInputRef.current;
     if (!input) return;
     uploadModeRef.current = mode;
-    input.accept = mode === "insert" ? "image/*" : "image/*,.pdf";
+    input.accept = mode === "insert" ? "image/*" : "";
     input.click();
   };
   const onUploadInputChange = async (e: ReactChangeEvent<HTMLInputElement>) => {
@@ -5227,6 +5241,7 @@ export function ProjectApp({
     diagnostics,
     pageCount,
     renderFresh,
+    diagnosticsFresh,
     sourceMap,
     exportPdf,
     exportPdfBytes,
@@ -5409,6 +5424,8 @@ export function ProjectApp({
       };
     }
     if (!ready) return { refused: "the document is not ready to compile yet" };
+    if (packagesUnavailable) return { refused: packagesUnavailableReason ?? "Package compilation is unavailable for this document." };
+    if (!diagnosticsFresh) return { refused: "the current document compile is still pending; retry when the preview settles" };
     return {
       ok: errors.length === 0,
       pageCount,
@@ -5426,7 +5443,11 @@ export function ProjectApp({
       ? snapshot.duplicatePaths.length > 0
         ? `duplicate path: ${snapshot.duplicatePaths.join(", ")}`
         : "no main file"
-      : errors.length > 0
+      : packagesUnavailable
+        ? "Compile unavailable"
+        : !diagnosticsFresh
+        ? "Compiling…"
+        : errors.length > 0
         ? `${errors.length} error(s)`
         : pageCount != null
           ? `${pageCount} page(s)`
@@ -7289,7 +7310,7 @@ export function ProjectApp({
                 role="status"
                 title={`${packagesOnServerReason ?? "Uses @preview packages — compiling on the server."} The document is sent to the configured compile service.`}
               >
-                ↗ Compiled on the server — this document is sent to the
+                ↗ Compiling on the server — this document is sent to the
                 configured compile service.
               </span>
             )}

@@ -45,7 +45,7 @@ import { TOOL_REGISTRY, escapeControlChars } from "@galley/agent";
 import { sha256Hex, type ReceivedBlob } from "@galley/collab";
 import type { CompileService } from "./compile-client.js";
 import { isLoopbackHost } from "./config.js";
-import type { ControlRpcOutcome } from "./control.js";
+import { OPEN_PROJECT_REQUIRED_REFUSAL, type ControlRpcOutcome } from "./control.js";
 import { joinRoom, type KernelSession } from "./session.js";
 import type { KernelBlobSession } from "./blob-session.js";
 import { registerProjectTools, jsonResult, errorResult, textResult, type KernelTools } from "./server.js";
@@ -440,7 +440,10 @@ export interface BinaryUploaderDeps {
 }
 
 /** The expect_blob RPC result shape the browser returns (A2): whether it reserved capacity. */
-const expectBlobResultSchema = z.object({ reserved: z.boolean() });
+const expectBlobResultSchema = z.object({
+  reserved: z.boolean(),
+  protocol: z.literal("galley-blob-v1").optional(),
+});
 
 /**
  * Build the binary-upload seam (A2) the per-project `propose_files` tool calls per
@@ -479,11 +482,13 @@ export function buildBinaryUploader(deps: BinaryUploaderDeps): NonNullable<Kerne
     // rejected. A non-ok/`reserved:false` means the browser declined (no channel,
     // unauthenticated, or buffer full) → fail closed, push nothing.
     let reserved = false;
+    let compatible = false;
     try {
       const outcome = await deps.rpc("expect_blob", { projectId: deps.projectId, hash, size });
       if (outcome.ok) {
         const parsed = expectBlobResultSchema.safeParse(outcome.result);
         reserved = parsed.success && parsed.data.reserved;
+        compatible = parsed.success && parsed.data.protocol === "galley-blob-v1";
       }
     } catch {
       reserved = false;
@@ -495,15 +500,30 @@ export function buildBinaryUploader(deps: BinaryUploaderDeps): NonNullable<Kerne
         message: "the browser could not reserve capacity for the upload (channel unavailable or buffer full)",
       };
     }
+    const release = async () => {
+      try {
+        await deps.rpc("release_blob", { projectId: deps.projectId, hashes: [{ hash, size }] });
+      } catch { /* best-effort cleanup; report the original transfer failure */ }
+    };
+    if (!compatible) {
+      await release();
+      return {
+        ok: false,
+        reason: "binary_protocol_unsupported",
+        message: "the Galley web app must be updated and reloaded before this kernel can upload binary files",
+      };
+    }
     // PUSH the bytes; `putBlob` resolves ONLY on the browser's verified COMPLETE.
     try {
       const result = await deps.blob.putBlob(bytes, mime);
       return { ok: true, hash: result.hash, size: result.size, mime };
     } catch {
-      // The push failed/aborted/timed out. Best-effort release of the browser's
-      // reservation is not exposed here (the transport aborts its own in-flight
-      // transfer); the reservation expires browser-side. Publish nothing.
-      return { ok: false, reason: "push_failed", message: "the upload could not be delivered to the browser" };
+      await release();
+      return {
+        ok: false,
+        reason: "push_failed",
+        message: "the blob transfer did not receive authenticated completion from the browser; check the sync relay's galley-blob-v1 routing and reload Galley",
+      };
     }
   };
 }
@@ -819,7 +839,7 @@ export function registerControlTools(server: McpServer, deps: ControlToolDeps): 
   const joinProject = deps.joinProject ?? joinRoom;
 
   /** The one project this session is bound to, once open_project succeeded. */
-  let bound: { projectId: string; room: string } | undefined;
+  let bound: { projectId: string; room: string; mainFile: string; session: KernelSession } | undefined;
   /** Guards CONCURRENT open_project calls — only one join may be in flight. */
   let opening = false;
 
@@ -1203,6 +1223,9 @@ export function registerControlTools(server: McpServer, deps: ControlToolDeps): 
       return jsonResult({
         projectId: parsed.data.projectId,
         name: escapeControlChars(parsed.data.name),
+        projectPath: `/p/${encodeURIComponent(parsed.data.projectId)}`,
+        nextAction: "open_in_browser",
+        message: "Open this project in the existing Galley tab, then call open_project. Project creation does not navigate the browser.",
       });
     },
   );
@@ -1259,7 +1282,7 @@ export function registerControlTools(server: McpServer, deps: ControlToolDeps): 
         "share room for it, and this kernel joins that room — after which the per-project " +
         "tools (read_document, list_files, read_file, project_context, propose_edit, propose_files, compile) " +
         "become available, scoped to the project's main file. ONE project per kernel session: " +
-        "once bound, further open_project calls fail until the kernel is restarted.",
+        "reopening the same project reuses its approved access; restart the kernel to switch projects.",
       inputSchema: {
         projectId: z
           .string()
@@ -1270,6 +1293,16 @@ export function registerControlTools(server: McpServer, deps: ControlToolDeps): 
     },
     async ({ projectId }) => {
       if (bound !== undefined) {
+        if (bound.projectId === projectId) {
+          return jsonResult({
+            status: "opened",
+            projectId,
+            mainFile: bound.mainFile,
+            reused: true,
+            liveness: bound.session.liveness?.(),
+            message: "this session is already attached to the approved project",
+          });
+        }
         return jsonResult({
           status: "already_open",
           projectId: bound.projectId,
@@ -1293,7 +1326,17 @@ export function registerControlTools(server: McpServer, deps: ControlToolDeps): 
           { projectId },
           deps.openProjectRpcTimeoutMs ?? OPEN_PROJECT_RPC_TIMEOUT_MS,
         );
-        if (!outcome.ok) return errorResult(`open_project: ${outcome.error}`);
+        if (!outcome.ok) {
+          if (outcome.error === OPEN_PROJECT_REQUIRED_REFUSAL) {
+            return jsonResult({
+              status: "open_required",
+              projectId,
+              projectPath: `/p/${encodeURIComponent(projectId)}`,
+              message: "Open this project in the existing Galley tab, then retry. Its first access approval includes review and background-access choices.",
+            });
+          }
+          return errorResult(`open_project: ${outcome.error}`);
+        }
         const parsed = openProjectSchema.safeParse(outcome.result);
         if (!parsed.success) {
           return errorResult(
@@ -1403,7 +1446,7 @@ export function registerControlTools(server: McpServer, deps: ControlToolDeps): 
           // the same blob channel) to the kernel host's local disk.
           registerSaveArtifactTool(server, { blob: session.blob });
         }
-        bound = { projectId, room: handoff.room };
+        bound = { projectId, room: handoff.room, mainFile, session };
         return jsonResult({
           status: "opened",
           projectId,

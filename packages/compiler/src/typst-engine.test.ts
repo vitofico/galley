@@ -440,3 +440,43 @@ describe("TypstEngine project compile", () => {
     expect(res.ok).toBe(false);
   });
 });
+
+it.runIf(stagedFonts.length > 0)(
+  "registers project fonts and removes them between projects",
+  async () => {
+    const dir = join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../apps/web/public/fonts",
+    );
+    const mono = new Uint8Array(readFileSync(join(dir, "DejaVuSansMono.ttf")));
+    const serif = new Uint8Array(
+      readFileSync(join(dir, "LibertinusSerif-Regular.otf")),
+    );
+    const local = await TypstEngine.create({
+      compilerModule: wasmFor(
+        "@myriaddreamin/typst-ts-web-compiler",
+        "typst_ts_web_compiler_bg.wasm",
+      ),
+      rendererModule: wasmFor(
+        "@myriaddreamin/typst-ts-renderer",
+        "typst_ts_renderer_bg.wasm",
+      ),
+      fontBlobs: [mono],
+    });
+    const source =
+      '#set page(width: auto, height: auto, margin: 0pt)\n#set text(font: "Libertinus Serif")\nFont registration';
+    const before = await local.render(source);
+    expect(before.ok).toBe(true);
+    const result = await local.render({
+      kind: "project",
+      main: "/main.typ",
+      files: [{ path: "/main.typ", text: source }],
+      binaryFiles: [{ path: "/fonts/serif.otf", bytes: serif }],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.pages[0]!.widthPt).not.toBe(before.pages[0]!.widthPt);
+    const after = await local.render(source);
+    expect(after.pages[0]!.widthPt).toBe(before.pages[0]!.widthPt);
+  },
+  60_000,
+);

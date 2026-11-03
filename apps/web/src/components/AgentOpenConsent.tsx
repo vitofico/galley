@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { AgentAccessOptions } from "../agent-open-handler.js";
 import { useFocusTrap } from "./use-focus-trap.js";
 import "./agent-open-consent.css";
 
@@ -20,20 +21,27 @@ import "./agent-open-consent.css";
 export interface AgentOpenConsentPending {
   /** The display name of the currently-open project the agent asked to open. */
   projectName: string;
+  initialMode?: "ask" | "auto";
   /** Resolve the awaiting handler: true = approve (share), false = deny. */
-  resolve: (approved: boolean) => void;
+  resolve: (approved: boolean, options?: AgentAccessOptions) => void;
 }
 
 export function AgentOpenConsent({ pending }: { pending: AgentOpenConsentPending | null }) {
   const denyRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const [mode, setMode] = useState<"ask" | "auto">("ask");
+  const [backgroundAccess, setBackgroundAccess] = useState(false);
 
   // A11y (#23.5): trap Tab + restore focus on close (autofocus/Escape below).
   useFocusTrap(dialogRef, pending !== null);
 
   // Focus the safe default (Deny) when the modal opens.
   useEffect(() => {
-    if (pending) denyRef.current?.focus();
+    if (pending) {
+      setMode(pending.initialMode ?? "ask");
+      setBackgroundAccess(false);
+      denyRef.current?.focus();
+    }
   }, [pending]);
 
   // Escape denies while the modal is open.
@@ -81,9 +89,32 @@ export function AgentOpenConsent({ pending }: { pending: AgentOpenConsentPending
           .
         </p>
         <p className="agent-consent-warn">
-          Approving starts live collaboration and shares this document&rsquo;s{" "}
-          <strong>full content</strong> with the agent until you revoke access. Only approve
-          requests you initiated.
+          Approving shares <strong>all files in this project</strong> with the paired
+          agent. Reconnecting to this approved project will not ask again. You can
+          revoke access in Settings → Agent Access.
+        </p>
+        <fieldset className="agent-consent-options">
+          <legend>Changes to this project</legend>
+          <label>
+            <input type="radio" name="agent-consent-mode" checked={mode === "ask"}
+              onChange={() => setMode("ask")} data-testid="agent-open-consent-ask" />
+            Review changes before applying
+          </label>
+          <label>
+            <input type="radio" name="agent-consent-mode" checked={mode === "auto"}
+              onChange={() => setMode("auto")} data-testid="agent-open-consent-auto" />
+            Apply changes automatically, with undo checkpoints
+          </label>
+        </fieldset>
+        <label className="agent-consent-background">
+          <input type="checkbox" checked={backgroundAccess}
+            onChange={(e) => setBackgroundAccess(e.currentTarget.checked)}
+            data-testid="agent-open-consent-background" />
+          Keep access when I switch projects
+        </label>
+        <p className="agent-consent-body">
+          Background access stays limited to this project while a Galley tab is
+          open, and expires after seven days of inactivity.
         </p>
         <div className="agent-consent-actions">
           <button
@@ -99,7 +130,7 @@ export function AgentOpenConsent({ pending }: { pending: AgentOpenConsentPending
             type="button"
             className="agent-consent-approve"
             data-testid="agent-open-consent-approve"
-            onClick={() => pending.resolve(true)}
+            onClick={() => pending.resolve(true, { mode, backgroundAccess })}
           >
             Share project
           </button>

@@ -121,7 +121,7 @@ export interface KernelTools {
     mime: string,
   ) => Promise<
     | { ok: true; hash: string; size: number; mime: string }
-    | { ok: false; reason: "blob_too_large" | "blob_quota_exceeded" | "push_failed"; message: string }
+    | { ok: false; reason: "blob_too_large" | "blob_quota_exceeded" | "push_failed" | "binary_protocol_unsupported"; message: string }
   >;
   /**
    * Best-effort blob RELEASE seam (A2 / C1). When an upload fails partway through a

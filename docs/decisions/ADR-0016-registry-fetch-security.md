@@ -77,3 +77,24 @@ hash is absent; unverified network fetch is dev/unsafe-flagged only.
   opt-in, integrity-gated, and off by default.
 - 5a is fully offline-unit-tested (in-memory tar/gzip bytes + the full rejection
   matrix); 5b is tested against a local HTTP fixture, never live Universe.
+
+
+## Addendum — real archive contents and isolated registry compilation
+
+Universe archives may contain license/README text and passive example assets.
+The source-only archive mode validates every regular entry's path, checksum,
+type, uniqueness and byte/count budget, then omits documentation (`LICENSE`,
+`LICENCE`, `COPYING`, `NOTICE`, Markdown/plain text) and PDF examples. Supported passive images retain their exact bytes.
+Only `.typ`/`.toml` sources and bounded PNG/JPEG/GIF/SVG bytes enter the package VFS. Images are necessary for eagerly evaluated template defaults even when the document overrides them. They cross the resolver as bytes and never as executable code. Unknown file types, plugins/WASM,
+links, traversal and malformed source UTF-8 remain rejected. The generic strict
+archive reader retains its default behavior.
+
+Prewarming follows imports in validated package sources under the same bounded,
+deduplicated package queue. Every dependency still needs its own operator-pinned
+integrity entry; missing entries are never fetched.
+
+Registry compilation now also runs in terminable workers. The trusted parent
+passes only the configured base URL and reviewed integrity map in worker data;
+HTTP requests cannot supply them. A fresh resolver belongs to each worker and
+fetch plus compile share its hard timeout. Worker isolation remains the default.
+The vivid-cv catalog and reviewed snapshots are in `deploy/k8s/catalogs/`.

@@ -829,7 +829,7 @@ export async function answerExpectBlobRequest(
     if (reserved === null) return refuse(id, "unknown project");
     // The reservation outcome rides on an ok:true response so the kernel can tell
     // "reserved" from "could not reserve" (vs a flattened generic refusal).
-    return { id, ok: true, result: { reserved } };
+    return { id, ok: true, result: { reserved, protocol: "galley-blob-v1" } };
   } catch {
     return refuse(id, "the responder could not complete this request");
   }
