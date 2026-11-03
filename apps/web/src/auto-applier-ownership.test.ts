@@ -1,7 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect } from "vitest";
+import { Doc } from "yjs";
+import { Awareness } from "y-protocols/awareness";
 import {
   AUTO_APPLIER_FIELD,
   claimAutoApplier,
+  maintainAutoApplierClaim,
   isAutoApplierOwner,
   releaseAutoApplier,
   withAutoApplierLock,
@@ -38,7 +41,87 @@ function fakeAwareness(
 
 const GRANT = "grant-1";
 
+describe("live ownership claim", () => {
+  const cleanup: Array<() => void> = [];
+  afterEach(() => {
+    while (cleanup.length) cleanup.pop()!();
+  });
+  function setup() {
+    const doc = new Doc();
+    const aw = new Awareness(doc);
+    aw.setLocalState({ author: { kind: "human", name: "Vito" } });
+    cleanup.push(() => {
+      aw.destroy();
+      doc.destroy();
+    });
+    let grant: string | null = GRANT;
+    let notify = () => {};
+    const stop = maintainAutoApplierClaim(
+      aw,
+      () => grant,
+      (listener) => {
+        notify = listener;
+        return () => {
+          notify = () => {};
+        };
+      },
+    );
+    cleanup.push(stop);
+    return {
+      aw,
+      stop,
+      setGrant: (next: string | null) => {
+        grant = next;
+        notify();
+      },
+    };
+  }
+
+  it("survives presence replacement and a reconnect reannouncement", () => {
+    const { aw } = setup();
+    expect(isAutoApplierOwner(aw, GRANT)).toBe(true);
+    // CollabConnection replaces the whole state for a name/focus change or reconnect.
+    aw.setLocalState({
+      author: { kind: "human", name: "Renamed" },
+      user: { color: "green" },
+    });
+    expect(isAutoApplierOwner(aw, GRANT)).toBe(true);
+    expect(aw.getLocalState()?.author.name).toBe("Renamed");
+    aw.setLocalState(null);
+    expect(aw.getLocalState()).toBeNull();
+    aw.setLocalState({ author: { kind: "human", name: "Renamed" } });
+    expect(isAutoApplierOwner(aw, GRANT)).toBe(true);
+  });
+
+  it("tracks grant rotation and immediately retracts on Ask or revocation", () => {
+    const { aw, setGrant } = setup();
+    setGrant("grant-2");
+    expect(isAutoApplierOwner(aw, GRANT)).toBe(false);
+    expect(isAutoApplierOwner(aw, "grant-2")).toBe(true);
+    setGrant(null);
+    expect(isAutoApplierOwner(aw, "grant-2")).toBe(false);
+    aw.setLocalState({ author: { kind: "human", name: "Vito" } });
+    expect(aw.getLocalState()?.[AUTO_APPLIER_FIELD]).toBeUndefined();
+  });
+
+  it("stops restoring the hint after unmount", () => {
+    const { aw, stop } = setup();
+    stop();
+    aw.setLocalState({ author: { kind: "human", name: "Vito" } });
+    expect(isAutoApplierOwner(aw, GRANT)).toBe(false);
+  });
+});
+
 describe("isAutoApplierOwner — single-applier election (fail closed)", () => {
+  it("retracts a claim through the minimal awareness adapter", () => {
+    const aw = fakeAwareness(42, new Map());
+    delete aw.getLocalState;
+    claimAutoApplier(aw, GRANT);
+    expect(isAutoApplierOwner(aw, GRANT)).toBe(true);
+    releaseAutoApplier(aw);
+    expect(isAutoApplierOwner(aw, GRANT)).toBe(false);
+  });
+
   it("the lowest-clientId claimant for the grant is the owner", () => {
     const states = new Map<number, Record<string, unknown>>();
     const low = fakeAwareness(5, states);

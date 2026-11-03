@@ -58,6 +58,12 @@ The mode is **re-read at the final pre-apply check** (after TOCTOU): a flip to A
 **Single-auto-applier ownership** is required per grant (lease over awareness);
 ambiguous ownership **fails closed to Ask**.
 
+The tab maintains its ownership hint across presence replacement and reconnect
+reannouncements, and refreshes it when the verified grant changes. It never
+recreates disconnected (null) presence. Ask, revocation and unmount retract the
+hint immediately. This maintenance does not authorize application: the live
+grant, role, pending-state, election, Web Lock and replay gates still run.
+
 **Explicit-arm carve-out (F7).** The future-records-only rule suppresses the
 **passive** backlog: a grant that *drifts* to Auto, or a programmatic/inherited
 mode change (e.g. `inheritedGrantMode` on a re-share), must never retroactively

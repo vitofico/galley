@@ -249,8 +249,7 @@ import {
   type AutoAcceptCtx,
 } from "./auto-accept.js";
 import {
-  claimAutoApplier,
-  releaseAutoApplier,
+  maintainAutoApplierClaim,
   isAutoApplierOwner,
   withAutoApplierLock,
 } from "./auto-applier-ownership.js";
@@ -2197,27 +2196,21 @@ export function ProjectApp({
   // swap) so a stale claim never blocks another tab from owning. The election
   // itself is fail-closed in `isAutoApplierOwner`; this only publishes the input.
   useEffect(() => {
-    const grant = getControlResponderManager().getActiveGrant();
-    const eligibleToApply =
-      canMutate &&
-      config.syncUrl === undefined &&
-      agentGrantActive &&
-      autoAccept &&
-      grant !== null &&
-      grant.projectId === projectId;
-    if (eligibleToApply) {
-      claimAutoApplier(activeAwareness, grant.grantId);
-      return () => releaseAutoApplier(activeAwareness);
-    }
-    // Not eligible: ensure no stale claim from this tab lingers in this awareness.
-    releaseAutoApplier(activeAwareness);
-    return undefined;
+    const manager = getControlResponderManager();
+    return maintainAutoApplierClaim(
+      activeAwareness,
+      () => {
+        const grant = manager.getActiveGrantForProject(projectId);
+        return canMutate && config.syncUrl === undefined && grant?.mode === "auto"
+          ? grant.grantId
+          : null;
+      },
+      (refresh) => manager.subscribe(refresh),
+    );
   }, [
     activeAwareness,
     canMutate,
     config.syncUrl,
-    agentGrantActive,
-    autoAccept,
     projectId,
   ]);
 

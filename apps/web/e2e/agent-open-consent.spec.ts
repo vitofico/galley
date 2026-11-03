@@ -277,6 +277,12 @@ test("real stdio kernel reuses one approval and uploads a mixed binary project",
     expect(await call("open_project", { projectId })).toMatchObject({ status: "opened", reused: true });
     await expect(page.getByTestId("agent-open-consent")).toBeHidden();
 
+    // A name refresh replaces awareness presence; it must retain Auto ownership.
+    await page.getByTestId("share-button").click();
+    await page.getByTestId("share-display-name").fill("CV import host");
+    await page.getByTestId("share-display-name-save").click();
+    await page.getByTestId("share-button").click();
+
     const original = await call("read_document");
     const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
     const pdf = Buffer.from("%PDF-1.4\n%%EOF\n");
@@ -313,6 +319,10 @@ test("real stdio kernel reuses one approval and uploads a mixed binary project",
     await client.listTools();
     await expect(page.getByTestId("agent-open-consent")).toBeHidden();
     expect((await call("read_document")).text).toContain("= CV import");
+    await page.getByTestId("share-button").click();
+    await page.getByTestId("share-display-name").fill("CV reconnected host");
+    await page.getByTestId("share-display-name-save").click();
+    await page.getByTestId("share-button").click();
     await call("propose_files", {
       request: "Reuse the approved project after reconnect",
       ops: [
