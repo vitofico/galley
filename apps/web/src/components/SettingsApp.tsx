@@ -1,3 +1,4 @@
+import { modelDisplayName } from "../model-display-name.js";
 /**
  * `SettingsApp` — the unified `/settings` surface (#19.7, Rail & Islands).
  *
@@ -433,7 +434,7 @@ export function SettingsApp() {
                 The model behind the agent panel — it drafts, edits, and
                 explains right in your document. Right now it uses{" "}
                 <strong data-testid="settings-provider-current">
-                  {provider ? provider.label : "Demo (offline)"}
+                  {provider ? modelDisplayName(provider.model) : "Demo (offline)"}
                 </strong>
                 . A direct-mode API key is stored in this browser only.
               </p>
@@ -443,7 +444,7 @@ export function SettingsApp() {
                   saveStoredProvider(config);
                   setProvider(config);
                   setProviderNote(
-                    `Saved — the agent panel now uses ${config.label}.`,
+                    `Saved — the agent panel now uses ${modelDisplayName(config.model)}.`,
                   );
                 }}
                 onUseDemo={() => {

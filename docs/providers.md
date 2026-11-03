@@ -39,6 +39,34 @@ model choice as **config, not code**. Adding a provider should mean filling in a
 isLocal, transport }`. The API key is not top-level — it lives in the `direct`
 branch of `transport` (see the transports section below).
 
+## Settings defaults and model selection
+
+Selecting a provider fills its base URL, suggested model (OpenAI: `gpt-4o`,
+Anthropic: `claude-haiku-5-5`), and proxy upstream ID (`openai`, `anthropic`, or
+`ollama`). Ollama starts with an empty model: load the installed models or enter
+one that supports tool calls. Every field remains editable.
+
+While the form is open, each provider remembers its own custom URL, model,
+upstream ID, label and direct API key. Switching providers preserves the chosen
+transport and shared proxy URL, but never copies a key to a different provider.
+Only **Use this provider** persists the selected configuration; other drafts
+are discarded when the form closes. Existing saved configurations are loaded
+unchanged. Proxy URLs are deployment-specific and must be entered once; the
+app does not guess private cluster routes.
+
+The editor’s Model indicator and settings summary display the actual selected
+model rather than the provider label; standard Claude IDs have readable names
+(for example, `claude-haiku-5-5` → “Claude Haiku 5.5”). Session model changes also
+update the indicator.
+
+The Model field offers suggestions and accepts arbitrary model IDs. In direct
+mode, **Load available models** asks only the configured endpoint for its model
+list (no document content or generation request), with a ten-second timeout.
+Discovery failures leave manual entry available. Proxy mode uses editable
+suggestions because the current proxy does not expose model discovery. Changing
+connection settings clears old discovery and connection-test results; late
+responses cannot overwrite the current provider's results.
+
 ## Capability gating (don't assume — probe)
 
 BYO-model is **capability-gated, not just config-gated.** Endpoints differ in:
