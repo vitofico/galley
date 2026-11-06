@@ -14,9 +14,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@galley/shared": "workspace:*",
     "@ai-sdk/anthropic": "^3.0.0",
+    "@ai-sdk/openai": "^3.0.0",
     "@ai-sdk/openai-compatible": "^2.0.0",
+    "@galley/shared": "workspace:*",
     "ai": "^6.0.0"
   }
 }

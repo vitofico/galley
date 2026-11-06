@@ -13,8 +13,13 @@
 import { generateText, jsonSchema, streamText, tool } from "ai";
 import type { ModelMessage as AiSdkMessage, Tool } from "ai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
-import type { AgentToolName, ProviderCapabilities, ProviderConfig } from "@galley/shared";
+import type {
+  AgentToolName,
+  ProviderCapabilities,
+  ProviderConfig,
+} from "@galley/shared";
 import type {
   ContentPart,
   LanguageModelClient,
@@ -54,7 +59,8 @@ function toAiMessages(messages: ModelMessage[]): AiSdkMessage[] {
     if (m.role === "user") {
       // String stays a bare string (byte-for-byte as before); parts map to the
       // AI SDK's multimodal content-part array.
-      if (typeof m.content === "string") return { role: "user", content: m.content };
+      if (typeof m.content === "string")
+        return { role: "user", content: m.content };
       return { role: "user", content: toAiUserContent(m.content) as never };
     }
     // Assistant text and tool-result values are plain text on the wire; derive a
@@ -66,7 +72,12 @@ function toAiMessages(messages: ModelMessage[]): AiSdkMessage[] {
         const parts: unknown[] = [];
         if (text) parts.push({ type: "text", text });
         for (const tc of m.toolCalls) {
-          parts.push({ type: "tool-call", toolCallId: tc.id, toolName: tc.name, input: tc.args });
+          parts.push({
+            type: "tool-call",
+            toolCallId: tc.id,
+            toolName: tc.name,
+            input: tc.args,
+          });
         }
         return { role: "assistant", content: parts as never };
       }
@@ -90,7 +101,10 @@ function toAiMessages(messages: ModelMessage[]): AiSdkMessage[] {
 function toAiTools(specs: ToolSpec[]): Record<string, Tool> {
   const out: Record<string, Tool> = {};
   for (const spec of specs) {
-    out[spec.name] = tool({ description: spec.description, inputSchema: jsonSchema(spec.parameters) });
+    out[spec.name] = tool({
+      description: spec.description,
+      inputSchema: jsonSchema(spec.parameters),
+    });
   }
   return out;
 }
@@ -101,9 +115,16 @@ class AiSdkClient implements LanguageModelClient {
     private readonly model: LanguageModelV2,
   ) {}
 
+  private get providerOptions() {
+    return usesOpenAIResponses(this.config)
+      ? { openai: { store: false, reasoningEffort: "low" } }
+      : {};
+  }
+
   async step(input: ModelTurnInput): Promise<ModelStep> {
     const result = await generateText({
       model: this.model,
+      providerOptions: this.providerOptions,
       system: input.system,
       messages: toAiMessages(input.messages),
       tools: toAiTools(input.tools),
@@ -126,9 +147,12 @@ class AiSdkClient implements LanguageModelClient {
    * orchestration and outcome classification are byte-for-byte identical whether
    * a turn streamed or not.
    */
-  async *stepStream(input: ModelTurnInput): AsyncGenerator<ModelTextDelta, ModelStep, void> {
+  async *stepStream(
+    input: ModelTurnInput,
+  ): AsyncGenerator<ModelTextDelta, ModelStep, void> {
     const result = streamText({
       model: this.model,
+      providerOptions: this.providerOptions,
       system: input.system,
       messages: toAiMessages(input.messages),
       tools: toAiTools(input.tools),
@@ -137,7 +161,10 @@ class AiSdkClient implements LanguageModelClient {
     for await (const delta of result.textStream) {
       if (delta) yield { type: "text-delta", text: delta };
     }
-    const [text, toolCalls] = await Promise.all([result.text, result.toolCalls]);
+    const [text, toolCalls] = await Promise.all([
+      result.text,
+      result.toolCalls,
+    ]);
     return {
       text: text ?? "",
       toolCalls: (toolCalls ?? []).map((tc) => ({
@@ -152,6 +179,7 @@ class AiSdkClient implements LanguageModelClient {
     try {
       await generateText({
         model: this.model,
+        providerOptions: this.providerOptions,
         messages: [{ role: "user", content: "ping" }],
         tools: toAiTools(AGENT_TOOLS),
         maxOutputTokens: 16,
@@ -179,8 +207,13 @@ export function classifyProbeError(err: unknown): ProviderCapabilities {
   const lower = message.toLowerCase();
   let hint = message;
   if (lower.includes("cors") || lower.includes("failed to fetch")) {
-    hint = "Network/CORS error — the endpoint may not allow browser calls. Try proxy mode.";
-  } else if (lower.includes("401") || lower.includes("unauthorized") || lower.includes("api key")) {
+    hint =
+      "Network/CORS error — the endpoint may not allow browser calls. Try proxy mode.";
+  } else if (
+    lower.includes("401") ||
+    lower.includes("unauthorized") ||
+    lower.includes("api key")
+  ) {
     hint = "Unauthorized — check the API key.";
   } else if (lower.includes("404") || lower.includes("not found")) {
     hint = "Not found — check the base URL and model id.";
@@ -202,8 +235,21 @@ export function classifyProbeError(err: unknown): ProviderCapabilities {
 export function createModelClient(config: ProviderConfig): LanguageModelClient {
   const { baseUrl, headers } = resolveTransport(config);
 
+  if (usesOpenAIResponses(config)) {
+    const openai = createOpenAI({
+      baseURL: baseUrl,
+      apiKey:
+        config.transport.mode === "direct"
+          ? (config.transport.apiKey ?? "")
+          : "proxy-injected",
+      headers,
+    });
+    return new AiSdkClient(config, openai.responses(config.model));
+  }
+
   if (config.kind === "anthropic") {
-    const directKey = config.transport.mode === "direct" ? config.transport.apiKey : undefined;
+    const directKey =
+      config.transport.mode === "direct" ? config.transport.apiKey : undefined;
     const anthropic = createAnthropic({
       baseURL: baseUrl,
       // proxy injects the key server-side; the placeholder is stripped by the proxy.
@@ -223,4 +269,20 @@ export function createModelClient(config: ProviderConfig): LanguageModelClient {
     headers,
   });
   return new AiSdkClient(config, provider(config.model));
+}
+
+/** GPT-6 tool calls use Responses; compatible servers retain their own protocol. */
+export function usesOpenAIResponses(config: ProviderConfig): boolean {
+  if (
+    config.kind !== "openai-compatible" ||
+    !/^gpt-6(?:[.-]|$)/.test(config.model)
+  )
+    return false;
+  if (config.transport.mode === "proxy")
+    return config.transport.upstreamId === "openai";
+  try {
+    return new URL(config.baseUrl).hostname === "api.openai.com";
+  } catch {
+    return false;
+  }
 }
