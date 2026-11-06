@@ -15,9 +15,9 @@ import type {
 const PRESETS = {
   "openai-compatible": {
     baseUrl: "https://api.openai.com/v1",
-    model: "gpt-4o",
+    model: "gpt-6.1-terra",
     upstreamId: "openai",
-    models: ["gpt-4o", "gpt-4o-mini"],
+    models: ["gpt-6.1-terra", "gpt-4o", "gpt-4o-mini"],
   },
   anthropic: {
     baseUrl: "https://api.anthropic.com/v1",

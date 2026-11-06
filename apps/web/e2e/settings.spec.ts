@@ -348,7 +348,7 @@ test("provider presets remember custom fields and keep credentials with their pr
   await expect(page.getByTestId("provider-baseurl")).toHaveValue(
     "https://api.openai.com/v1",
   );
-  await expect(page.getByTestId("provider-model")).toHaveValue("gpt-4o");
+  await expect(page.getByTestId("provider-model")).toHaveValue("gpt-6.1-terra");
   await page.getByTestId("provider-baseurl").fill("https://custom.example/v1");
   await page.getByTestId("provider-model").fill("custom-model");
   await page.getByTestId("provider-apikey").fill("test-openai-key");
