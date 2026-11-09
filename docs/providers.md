@@ -191,6 +191,9 @@ browser**. Proxy-side rules (ADR-0004, [`@galley/proxy`](../apps/proxy)):
   (`x-galley-upstream` header), never a client-supplied URL → no SSRF/open-relay.
 - **Never log bodies or keys.** Request/response bodies carry document context;
   the auth header carries the key. Neither is logged or echoed back.
+- **Cross-origin Responses requests.** The proxy allows the SDK's
+  `Authorization` header for configured origins. It removes the incoming
+  header before inserting the server-side provider credential.
 - **Stateless.** No DB, no disk, no sessions.
 - **Stream through unbuffered**, so the agent loop's streaming is preserved.
 
