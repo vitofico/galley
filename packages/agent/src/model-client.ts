@@ -273,6 +273,11 @@ export function createModelClient(config: ProviderConfig): LanguageModelClient {
 
 /** GPT-6 tool calls use Responses; compatible servers retain their own protocol. */
 export function usesOpenAIResponses(config: ProviderConfig): boolean {
+  if (config.kind === "openai-compatible" &&
+      config.transport.mode === "proxy" &&
+      config.transport.upstreamId === "svincolo-responses") {
+    return true;
+  }
   if (
     config.kind !== "openai-compatible" ||
     !/^gpt-6(?:[.-]|$)/.test(config.model)
