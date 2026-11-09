@@ -275,7 +275,7 @@ export function createModelClient(config: ProviderConfig): LanguageModelClient {
 export function usesOpenAIResponses(config: ProviderConfig): boolean {
   if (config.kind === "openai-compatible" &&
       config.transport.mode === "proxy" &&
-      config.transport.upstreamId === "svincolo-responses") {
+      config.transport.upstreamId === "svincolo_responses") {
     return true;
   }
   if (

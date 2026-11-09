@@ -18,7 +18,7 @@ describe("GPT-6 Responses transport", () => {
     const transport = {
       mode: "proxy" as const,
       proxyUrl: "https://proxy.example.test",
-      upstreamId: "svincolo-responses",
+      upstreamId: "svincolo_responses",
     };
     expect(usesOpenAIResponses({ ...config, model: "high", transport })).toBe(true);
     expect(usesOpenAIResponses({ ...config, model: "high",
