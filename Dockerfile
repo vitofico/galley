@@ -46,6 +46,7 @@ COPY packages/compiler/package.json packages/compiler/package.json
 COPY packages/agent/package.json packages/agent/package.json
 COPY packages/collab/package.json packages/collab/package.json
 COPY packages/agent-client/package.json packages/agent-client/package.json
+COPY packages/agent-apply/package.json packages/agent-apply/package.json
 COPY packages/persistence/package.json packages/persistence/package.json
 COPY packages/auth/package.json packages/auth/package.json
 COPY apps/proxy/package.json apps/proxy/package.json
@@ -90,6 +91,7 @@ COPY packages/compiler/package.json packages/compiler/package.json
 COPY packages/agent/package.json packages/agent/package.json
 COPY packages/collab/package.json packages/collab/package.json
 COPY packages/agent-client/package.json packages/agent-client/package.json
+COPY packages/agent-apply/package.json packages/agent-apply/package.json
 COPY packages/persistence/package.json packages/persistence/package.json
 COPY packages/auth/package.json packages/auth/package.json
 COPY apps/proxy/package.json apps/proxy/package.json
