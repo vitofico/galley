@@ -39,7 +39,7 @@ These are built and tested; they activate with configuration:
   gets a re-audit when first activated in production.
 - **Networked MCP.** Remote agent access composes on top of auth activation;
   the local consent-gated MCP surface ships today. The design is
-  [ADR-0033](decisions/ADR-0033-hosted-connector.md) (hosted connector, proposed).
+  [ADR-0033](decisions/ADR-0033-hosted-connector.md) (hosted connector, accepted, being built).
 - **Vision-capable providers.** Layout judgment, figure-from-sketch, and AI
   alt-text have wired cores and capability-gated UI; they light up when a
   vision-capable model is configured.

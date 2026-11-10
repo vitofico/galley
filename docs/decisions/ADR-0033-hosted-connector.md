@@ -1,6 +1,6 @@
 # ADR-0033 — Hosted connector: a server-side agent peer that may apply
 
-- **Status:** Proposed. **Supersedes three clauses**, and only those:
+- **Status:** Accepted. **Supersedes three clauses**, and only those:
   [ADR-0020](./ADR-0020-mcp-local-kernel.md) "any server-side Accept (never)"
   and "the kernel never applies anywhere else";
   [ADR-0026](./ADR-0026-mcp-durable-pairing.md) §6 "no kernel/server-side apply
