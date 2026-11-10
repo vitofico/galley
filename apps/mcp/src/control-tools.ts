@@ -45,7 +45,11 @@ import { TOOL_REGISTRY, escapeControlChars } from "@galley/agent";
 import { sha256Hex, type ReceivedBlob, type ProposalSigner } from "@galley/collab";
 import type { CompileService } from "./compile-client.js";
 import { isLoopbackHost } from "./config.js";
-import { OPEN_PROJECT_REQUIRED_REFUSAL, type ControlRpcOutcome } from "./control.js";
+import {
+  COMPILE_PENDING_REFUSAL,
+  OPEN_PROJECT_REQUIRED_REFUSAL,
+  type ControlRpcOutcome,
+} from "./control.js";
 import { joinRoom, type KernelSession } from "./session.js";
 import type { KernelBlobSession } from "./blob-session.js";
 import { registerProjectTools, jsonResult, errorResult, textResult, type KernelTools } from "./server.js";
@@ -596,12 +600,30 @@ const compileBrowserResultSchema = z
  * The kernel's `compile` handler maps `{error}` → an isError result and a parsed
  * `{ok,pageCount,diagnostics}` → its `source:"browser"` payload.
  */
+/** How often, and how far apart, a "still compiling" answer is re-asked (~6s in all). */
+const COMPILE_PENDING_ATTEMPTS = 8;
+const COMPILE_PENDING_RETRY_MS = 750;
+
 export function buildBrowserCompiler(deps: {
   rpc(op: string, params: Record<string, unknown>, timeoutMs?: number): Promise<ControlRpcOutcome>;
   projectId: string;
+  /** Pause between "still compiling" retries; a test seam. */
+  pendingRetryMs?: number;
 }): NonNullable<KernelTools["compileBrowser"]> {
   return async () => {
-    const outcome = await deps.rpc("compile", { projectId: deps.projectId });
+    // The browser reports the build its preview ALREADY made and triggers none, so
+    // right after an accepted change it answers "still compiling". Wait that out
+    // here rather than hand every agent a retry loop; a preview that never
+    // settles still surfaces the honest compile-pending line.
+    let outcome = await deps.rpc("compile", { projectId: deps.projectId });
+    for (
+      let attempt = 1;
+      !outcome.ok && outcome.error === COMPILE_PENDING_REFUSAL && attempt < COMPILE_PENDING_ATTEMPTS;
+      attempt++
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, deps.pendingRetryMs ?? COMPILE_PENDING_RETRY_MS));
+      outcome = await deps.rpc("compile", { projectId: deps.projectId });
+    }
     if (!outcome.ok) return { error: outcome.error };
     const parsed = compileBrowserResultSchema.safeParse(outcome.result);
     if (!parsed.success) return { error: "the browser returned an invalid compile result" };
@@ -1227,8 +1249,8 @@ export function registerControlTools(server: McpServer, deps: ControlToolDeps): 
         projectId: parsed.data.projectId,
         name: escapeControlChars(parsed.data.name),
         projectPath: `/p/${encodeURIComponent(parsed.data.projectId)}`,
-        nextAction: "open_in_browser",
-        message: "Open this project in the existing Galley tab, then call open_project. Project creation does not navigate the browser.",
+        nextAction: "open_project",
+        message: "Call open_project next: Galley asks the person to approve, then switches its tab to this project.",
       });
     },
   );
@@ -1281,8 +1303,9 @@ export function registerControlTools(server: McpServer, deps: ControlToolDeps): 
     {
       title: "Open a project (the browser shares it; this session joins it)",
       description:
-        "Asks the browser to OPEN a project: the browser opens it visibly, mints a fresh " +
-        "share room for it, and this kernel joins that room — after which the per-project " +
+        "Asks the browser to OPEN a project. The paired Galley tab shows the person one approval " +
+        "dialog; if the project is not the one on screen, approving also switches the tab to it. " +
+        "The browser then mints a fresh share room and this kernel joins it — after which the per-project " +
         "tools (read_document, list_files, read_file, project_context, propose_edit, propose_files, compile) " +
         "become available, scoped to the project's main file. ONE project per kernel session: " +
         "reopening the same project reuses its approved access; restart the kernel to switch projects.",
@@ -1335,7 +1358,7 @@ export function registerControlTools(server: McpServer, deps: ControlToolDeps): 
               status: "open_required",
               projectId,
               projectPath: `/p/${encodeURIComponent(projectId)}`,
-              message: "Open this project in the existing Galley tab, then retry. Its first access approval includes review and background-access choices.",
+              message: "Galley could not switch to this project by itself. Open it in the paired Galley tab (the one with Agent Access enabled, not a new tab), then retry.",
             });
           }
           return errorResult(`open_project: ${outcome.error}`);

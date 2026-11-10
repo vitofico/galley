@@ -22,6 +22,11 @@ export interface AgentOpenConsentPending {
   /** The display name of the currently-open project the agent asked to open. */
   projectName: string;
   initialMode?: "ask" | "auto";
+  /**
+   * TRUE when the request is for a project this tab does not have open
+   * (ADR-0032): approving also switches the tab to it, and the copy says so.
+   */
+  switchesProject?: boolean;
   /** Resolve the awaiting handler: true = approve (share), false = deny. */
   resolve: (approved: boolean, options?: AgentAccessOptions) => void;
 }
@@ -88,6 +93,11 @@ export function AgentOpenConsent({ pending }: { pending: AgentOpenConsentPending
           </span>
           .
         </p>
+        {pending.switchesProject === true && (
+          <p className="agent-consent-body" data-testid="agent-open-consent-switch">
+            That project is not the one on screen. Approving switches this tab to it.
+          </p>
+        )}
         <p className="agent-consent-warn">
           Approving shares <strong>all files in this project</strong> with the paired
           agent. Reconnecting to this approved project will not ask again. You can
@@ -132,7 +142,7 @@ export function AgentOpenConsent({ pending }: { pending: AgentOpenConsentPending
             data-testid="agent-open-consent-approve"
             onClick={() => pending.resolve(true, { mode, backgroundAccess })}
           >
-            Share project
+            {pending.switchesProject === true ? "Open and share" : "Share project"}
           </button>
         </div>
       </div>

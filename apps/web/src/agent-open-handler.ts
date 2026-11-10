@@ -46,6 +46,12 @@
  *      guardrail #5 only suppressed the RESPONSE). Re-check liveness BEFORE the
  *      share-upgrade runs.
  *   6. The (idempotent) share-upgrade.
+ *
+ * PRE-APPROVED entry (ADR-0032): when the mount hands in `preApproved`, the human
+ * ALREADY answered this same dialog one level up — it was shown over whatever the
+ * tab had open, and approving it is what navigated here. Steps 2-4 (lock + modal)
+ * are skipped so they are not asked twice; EVERY other gate still runs in order
+ * (joined-session refusal, scope, reuse, the liveness re-check, the share-upgrade).
  */
 import type { OpenedProject, OpenProjectRefusal } from "./control-responder.js";
 
@@ -59,6 +65,15 @@ export type ConsentOutcome = "approve" | "deny" | "timeout" | {
   approved: true;
   options: AgentAccessOptions;
 };
+
+/**
+ * Consent the human already gave on the app-level dialog (ADR-0032), handed to the
+ * project's own handler after the tab navigated to it. `options` are the choices
+ * made there; absent means the project's defaults.
+ */
+export interface PreApprovedOpen {
+  options?: AgentAccessOptions;
+}
 
 /** SEC-16.3b: a joined/CONNECTED session never shares the project it is visiting. */
 export const REFUSAL_JOINED_SESSION =
@@ -169,8 +184,9 @@ export function createAgentOpenHandler(
 ): (
   requestedProjectId: string,
   isRequestLive?: () => boolean,
+  preApproved?: PreApprovedOpen,
 ) => Promise<OpenedProject | OpenProjectRefusal> {
-  return async (requestedProjectId, isRequestLive = () => true) => {
+  return async (requestedProjectId, isRequestLive = () => true, preApproved) => {
     // 0. SEC-16.3b: refuse joined/CONNECTED sessions before anything else — a
     //    joiner doesn't own the project, and its projectId IS the room id.
     if (seams.joinedSession) {
@@ -236,27 +252,35 @@ export function createAgentOpenHandler(
       }
       if (reused !== null) return reused;
     }
-    // 2. Single-consent lock: never stack modals.
-    if (seams.isConsentPending()) {
-      return { refused: REFUSAL_CONSENT_BUSY };
-    }
-    // 3. SEC-16.3a pre-check: an already-withdrawn request never prompts.
-    if (!isRequestLive()) {
-      return { refused: REFUSAL_WITHDRAWN };
-    }
-    seams.setConsentPending(true);
     let outcome: ConsentOutcome;
-    try {
-      // 4. The blocking modal (the seam owns its 90s auto-deny).
-      outcome = await seams.requestConsent();
-    } finally {
-      seams.setConsentPending(false);
-    }
-    if (outcome === "timeout") {
-      return { refused: REFUSAL_TIMEOUT };
-    }
-    if (outcome === "deny") {
-      return { refused: REFUSAL_DENIED };
+    if (preApproved !== undefined) {
+      // ADR-0032: consent was given on the dialog that navigated here.
+      outcome =
+        preApproved.options !== undefined
+          ? { approved: true, options: preApproved.options }
+          : "approve";
+    } else {
+      // 2. Single-consent lock: never stack modals.
+      if (seams.isConsentPending()) {
+        return { refused: REFUSAL_CONSENT_BUSY };
+      }
+      // 3. SEC-16.3a pre-check: an already-withdrawn request never prompts.
+      if (!isRequestLive()) {
+        return { refused: REFUSAL_WITHDRAWN };
+      }
+      seams.setConsentPending(true);
+      try {
+        // 4. The blocking modal (the seam owns its 90s auto-deny).
+        outcome = await seams.requestConsent();
+      } finally {
+        seams.setConsentPending(false);
+      }
+      if (outcome === "timeout") {
+        return { refused: REFUSAL_TIMEOUT };
+      }
+      if (outcome === "deny") {
+        return { refused: REFUSAL_DENIED };
+      }
     }
     // 5. SEC-16.3a: consent took human time — if the kernel withdrew the
     //    request meanwhile, approving must NOT mint/connect a live share room

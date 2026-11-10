@@ -277,20 +277,54 @@ export const CONSENT_REQUIRED_REFUSAL =
 export const GENERIC_REFUSAL = "the responder refused this request";
 export const OPEN_PROJECT_REQUIRED_REFUSAL =
   "open-project-required: open the requested project in this Galley tab, then retry open_project";
+/** The human answered the access dialog with Deny. */
+export const OPEN_DENIED_REFUSAL = "open-denied: the request was declined in Galley";
+/** The access dialog was left unanswered until it closed itself. */
+export const OPEN_TIMEOUT_REFUSAL =
+  "open-timeout: nobody answered the access dialog in Galley in time — retry and approve it there";
+/** Another access dialog is already on screen in that tab. */
+export const OPEN_BUSY_REFUSAL =
+  "open-busy: another agent request is waiting for a decision in Galley — answer it, then retry";
+/** The paired tab is a guest in someone else's shared project. */
+export const OPEN_JOINED_SESSION_REFUSAL =
+  "open-joined-session: the paired Galley tab is viewing a project shared by someone else — " +
+  "pair from a tab that owns its projects";
+/** The browser's live preview has no settled build to report yet. */
+export const COMPILE_PENDING_REFUSAL =
+  "compile-pending: the Galley preview is still compiling — retry shortly";
+
+/**
+ * VERIFIED responder refusals the kernel recognises, keyed by the EXACT text the
+ * browser sends (apps/web agent-open-handler.ts, control-responder-mount.ts,
+ * ProjectApp.tsx). Each maps to a line authored HERE, so a recognised refusal
+ * tells the agent what happened without one wire byte reaching the MCP client.
+ */
+const KNOWN_REFUSALS: ReadonlyMap<string, string> = new Map([
+  ["only the currently-open project can be shared with the agent right now", OPEN_PROJECT_REQUIRED_REFUSAL],
+  ["no project is open to share with the agent", OPEN_PROJECT_REQUIRED_REFUSAL],
+  ["the request to share this project was declined", OPEN_DENIED_REFUSAL],
+  ["the request to share this project was not approved in time", OPEN_TIMEOUT_REFUSAL],
+  ["another agent request is awaiting your decision", OPEN_BUSY_REFUSAL],
+  [
+    "this session joined someone else's shared project — only a project this browser owns can be shared with the agent",
+    OPEN_JOINED_SESSION_REFUSAL,
+  ],
+  ["the document is not ready to compile yet", COMPILE_PENDING_REFUSAL],
+  [
+    "the current document compile is still pending; retry when the preview settles",
+    COMPILE_PENDING_REFUSAL,
+  ],
+]);
 
 /**
  * Classify a VERIFIED responder failure into a LOCAL error string (MEDIUM-3 —
  * peer-text reflection): even though the refusal is HMAC-authenticated browser
  * text, NO wire bytes ride into the MCP client. Only the locally generated
- * lines below (and the kernel's own timeout/config messages) ever surface.
+ * lines above (and the kernel's own timeout/config messages) ever surface.
  */
 function classifyRefusal(wireError: string): string {
   if (wireError.startsWith("consent-required")) return CONSENT_REQUIRED_REFUSAL;
-  if (wireError === "only the currently-open project can be shared with the agent right now" ||
-      wireError === "no project is open to share with the agent") {
-    return OPEN_PROJECT_REQUIRED_REFUSAL;
-  }
-  return GENERIC_REFUSAL;
+  return KNOWN_REFUSALS.get(wireError) ?? GENERIC_REFUSAL;
 }
 
 /**

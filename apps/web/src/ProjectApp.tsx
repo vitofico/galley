@@ -2735,7 +2735,7 @@ export function ProjectApp({
         tryReuseGrantRef.current?.(requestedProjectId, isRequestLive) ??
         Promise.resolve(null),
     });
-    const unregister = manager.registerOpenProjectHandler(handler);
+    const unregister = manager.registerOpenProjectHandler(handler, projectId);
     // A1 export channel: a STABLE export handler that (1) refuses a request for any
     // project other than THIS scoped one (scope safety, mirroring the open gate),
     // and (2) reads the latest compile+push closure via the ref at CALL time. A

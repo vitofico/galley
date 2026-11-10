@@ -241,6 +241,34 @@ describe("mcp kernel control mode ⇄ real relay ⇄ fake browser responder", ()
     }
   });
 
+  it.each([
+    ["the request to share this project was declined", /^open_project: open-denied:/],
+    ["the request to share this project was not approved in time", /^open_project: open-timeout:/],
+    ["another agent request is awaiting your decision", /^open_project: open-busy:/],
+    [
+      "this session joined someone else's shared project — only a project this browser owns can be shared with the agent",
+      /^open_project: open-joined-session:/,
+    ],
+    ["some refusal the kernel has never heard of", /^open_project: the responder refused this request$/],
+  ])("names a recognised open refusal in the kernel's own words: %s", async (error, expected) => {
+    const room = `ctl-open-refusal-${Math.random().toString(16).slice(2)}`;
+    const responder = startFakeControlResponder({
+      syncUrl, controlRoom: room, projects: PROJECTS, responseKey: RESPONSE_KEY,
+      answer: (request) => request.op === "open_project" ? { id: request.id, ok: false, error } : null,
+    });
+    const k = await controlClient(room);
+    try {
+      const result = await k.client.callTool({ name: "open_project", arguments: { projectId: "proj-aaaa" } });
+      expect(result.isError).toBe(true);
+      expect(firstText(result)).toMatch(expected);
+      // The browser's own wording never reaches the MCP client.
+      expect(firstText(result)).not.toContain(error);
+    } finally {
+      k.destroy();
+      responder.stop();
+    }
+  });
+
   it("PRODUCTION RELAY (C2): a CONSENT refusal still flattens to the clean grant-it error (stays a refusal)", async () => {
     // Consent is the ONE outcome kept as a refusal (no existence oracle). Over the
     // real relay the verified consent-required refusal must still map to the clean

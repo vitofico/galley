@@ -18,7 +18,7 @@
     "@galley/collab": "workspace:*",
     "@galley/shared": "workspace:*",
     "buffer": "^6.0.3",
-    "isomorphic-git": "1.38.4",
+    "isomorphic-git": "1.38.6",
     "pako": "^1.0.11",
     "pg": "^8.13.1"
   },

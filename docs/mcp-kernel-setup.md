@@ -88,6 +88,15 @@ port `1234`: `ws://localhost:1234` in local dev, or
 build sets a custom relay via `VITE_GALLEY_SYNC_URL`, or the share link carries
 an explicit `?sync=…` override, use that exact value instead.)
 
+**Or let the kernel find it.** Pass `--url <the address you open Galley at>` in
+place of `--sync`, in any mode (env fallback `GALLEY_MCP_URL`). The kernel fetches
+that site's `/config.js`, the runtime config the browser itself reads, and uses
+the `syncUrl` it declares; a site that declares none gets the same-host port
+`1234` default. Only the relay address is taken from the site. The compile URL
+is not: `--compile-url` stays loopback-only and explicit. An `https://` site may
+not point the kernel at a cleartext `ws://` relay, and `--url` and `--sync` are
+mutually exclusive.
+
 The **file path** is the project-relative path of the file you want the agent
 scoped to, with a leading slash — e.g. `/main.typ`. (If you omit the leading
 slash the kernel adds one for you.)
@@ -284,22 +293,27 @@ Connect exactly as in per-project step 4, but with `--control-room` instead of
 | Tool | What it does |
 | --- | --- |
 | `list_projects` | The browser returns its projects' metadata (id, name, lastModified). |
-| `create_project` | Creates an empty library project and returns its `projectPath` plus `nextAction: "open_in_browser"`. It does not navigate or share files. |
+| `create_project` | Creates an empty library project and returns its `projectPath` plus `nextAction: "open_project"`. It does not navigate or share files. |
 | `list_versions` | One project's named-version metadata (no file contents). |
-| `open_project` | Asks the browser to open a project; it mints a share room (plus a per-grant `grantId` for proposal provenance) and the kernel joins it. |
+| `open_project` | Asks the browser to open a project. The person approves in one dialog; if the project is not on screen, approving also switches the tab to it. The browser then mints a share room (plus a per-grant `grantId` for proposal provenance) and the kernel joins it. |
 | `search_project` | Searches a **file-access-granted** project's files for literal text (see step 4). |
 | `list_files` | Lists a **granted** project's file paths. |
 | `read_file` | Reads one file of a **granted** project by path (read-only, line-numbered). |
 | `list_bibliography` | Lists a **granted** project's bibliography — every `.bib` file, de-duplicated, as compact one-line entries (read-only). Prefer it over `read_file` for a bibliography, which is often too large to read whole. Only BibTeX `.bib`, **not** Hayagriva `.yml`. |
 
-**Approve project access once.** Open the requested project in the existing
-Galley tab first. The first `open_project` for a new access scope shows one dialog
+**Approve project access once.** The first `open_project` for a new access scope shows one dialog
 that combines access to all project files, Ask/Auto mode, and optional background
 access. Ask is the default and background access starts off. A matching approved
 grant is reused across reconnects and reloads; its saved MAC is checked before
 deciding whether another prompt is needed. Revoke, a new project, or a changed
-scope requires a fresh approval. If the wrong project is open, the tool returns
-`status: "open_required"` with the `projectPath` to open.
+scope requires a fresh approval.
+
+**The tab follows the request.** The dialog appears in the paired tab whatever
+that tab is showing: another project, the Projects page or Settings. It names the
+requested project and says the tab will switch; approving switches it, denying
+leaves it where it was ([ADR-0032](./decisions/ADR-0032-mcp-open-switches-project.md)).
+`status: "open_required"` with a `projectPath` remains only as the fallback for
+when Galley could not make the switch itself.
 
 It's limited to one project per kernel run: after a successful
 `open_project`, the per-project tools (`read_document`, `list_files`,
