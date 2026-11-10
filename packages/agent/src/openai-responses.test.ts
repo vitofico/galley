@@ -14,15 +14,29 @@ const config: ProviderConfig = {
 };
 
 describe("GPT-6 Responses transport", () => {
-  it("uses Responses for a Svincolo alias on the dedicated proxy upstream", () => {
-    const transport = {
-      mode: "proxy" as const,
-      proxyUrl: "https://proxy.example.test",
-      upstreamId: "svincolo_responses",
+  it("uses Responses for any compatible provider that opts in", () => {
+    const router: ProviderConfig = {
+      ...config,
+      model: "high",
+      transport: {
+        mode: "proxy",
+        proxyUrl: "https://proxy.example.test",
+        upstreamId: "router",
+      },
     };
-    expect(usesOpenAIResponses({ ...config, model: "high", transport })).toBe(true);
-    expect(usesOpenAIResponses({ ...config, model: "high",
-      transport: { ...transport, upstreamId: "openai" } })).toBe(false);
+    expect(usesOpenAIResponses(router)).toBe(false);
+    expect(usesOpenAIResponses({ ...router, responsesApi: true })).toBe(true);
+    expect(
+      usesOpenAIResponses({
+        ...router,
+        responsesApi: true,
+        baseUrl: "https://router.example.test/v1",
+        transport: { mode: "direct" },
+      }),
+    ).toBe(true);
+    expect(
+      usesOpenAIResponses({ ...router, responsesApi: true, kind: "anthropic" }),
+    ).toBe(false);
   });
 
   it("keeps other endpoints and models on their configured protocol", () => {

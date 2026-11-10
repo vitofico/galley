@@ -46,6 +46,12 @@ Anthropic: `claude-haiku-5-5`), and proxy upstream ID (`openai`, `anthropic`, or
 `ollama`). Ollama starts with an empty model: load the installed models or enter
 one that supports tool calls. Every field remains editable.
 
+An OpenAI-compatible provider speaks Chat Completions, except OpenAI's own GPT-6
+models, which use the Responses API automatically. For a compatible server or
+proxy upstream that expects Responses (a model router, for example), tick
+**Responses API**: it sets `responsesApi: true` on the `ProviderConfig`, in
+direct and proxy mode alike. No upstream name is special-cased.
+
 While the form is open, each provider remembers its own custom URL, model,
 upstream ID, label and direct API key. Switching providers preserves the chosen
 transport and shared proxy URL, but never copies a key to a different provider.
