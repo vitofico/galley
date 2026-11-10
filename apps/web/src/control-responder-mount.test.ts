@@ -326,6 +326,164 @@ describe("control-responder-mount — drain loop answers via the core", () => {
   });
 });
 
+describe("control-responder-mount — open_project for a project that is not on screen (ADR-0032)", () => {
+  const HANDOFF = {
+    room: "share-elsewhere0000000000000",
+    syncUrl: "ws://127.0.0.1:1234",
+    mainFile: "main.typ",
+    grantId: A_GRANT,
+  };
+  const refusal = (resp: ControlResponse | undefined): string =>
+    (resp as Extract<ControlResponse, { ok: false }>).error;
+  const ask = (state: { kernelHost: Parameters<typeof publishControlRequest>[0] }, projectId: string) =>
+    publishControlRequest(state.kernelHost, { op: "open_project", params: { projectId } }, REQUESTER);
+
+  it("asks first, then switches the tab and hands the approval to that project's own handler", async () => {
+    const { joinControlRoom, state } = makeFakeLinkFactory();
+    const mgr = getControlResponderManager(baseDeps({ joinControlRoom }));
+    mgr.enable();
+    const events: string[] = [];
+    // The tab has proj-1 open; the agent asks for proj-2.
+    mgr.registerOpenProjectHandler(async () => {
+      events.push("proj-1 handler");
+      return { refused: "wrong project" };
+    }, "proj-1");
+    mgr.registerOpenElsewhereHost({
+      requestConsent: async (project) => {
+        events.push(`consent:${project.name}`);
+        return { approved: true, options: { mode: "auto", backgroundAccess: true } };
+      },
+      navigate: (projectId) => {
+        events.push(`navigate:${projectId}`);
+        // The router remounts the project page, which registers its handler.
+        mgr.registerOpenProjectHandler(async (requested, _live, preApproved) => {
+          events.push(`proj-2 handler:${JSON.stringify(preApproved)}`);
+          return requested === "proj-2" ? HANDOFF : { refused: "wrong project" };
+        }, "proj-2");
+      },
+    });
+    const id = ask(state, "proj-2");
+    await flush();
+    const resp = getControlResponse(state.kernelHost, id);
+    expect(resp?.ok).toBe(true);
+    expect((resp as Extract<ControlResponse, { ok: true }>).result).toMatchObject({
+      projectId: "proj-2",
+      room: HANDOFF.room,
+    });
+    expect(events).toEqual([
+      "consent:Beta",
+      "navigate:proj-2",
+      'proj-2 handler:{"options":{"mode":"auto","backgroundAccess":true}}',
+    ]);
+  });
+
+  it("works from a page with no project open at all", async () => {
+    const { joinControlRoom, state } = makeFakeLinkFactory();
+    const mgr = getControlResponderManager(baseDeps({ joinControlRoom }));
+    mgr.enable();
+    mgr.registerOpenElsewhereHost({
+      requestConsent: async () => "approve",
+      navigate: (projectId) => {
+        mgr.registerOpenProjectHandler(async () => HANDOFF, projectId);
+      },
+    });
+    const id = ask(state, "proj-1");
+    await flush();
+    expect(getControlResponse(state.kernelHost, id)?.ok).toBe(true);
+    expect(openProjectCalls).toBe(0);
+  });
+
+  it.each([
+    ["deny", "the request to share this project was declined"],
+    ["timeout", "the request to share this project was not approved in time"],
+  ] as const)("a %s leaves the tab where it is and shares nothing", async (outcome, expected) => {
+    const { joinControlRoom, state } = makeFakeLinkFactory();
+    const mgr = getControlResponderManager(baseDeps({ joinControlRoom }));
+    mgr.enable();
+    let navigated = 0;
+    mgr.registerOpenElsewhereHost({
+      requestConsent: async () => outcome,
+      navigate: () => {
+        navigated += 1;
+      },
+    });
+    const id = ask(state, "proj-2");
+    await flush();
+    const resp = getControlResponse(state.kernelHost, id);
+    expect(resp?.ok).toBe(false);
+    expect(refusal(resp)).toBe(expected);
+    expect(navigated).toBe(0);
+  });
+
+  it("does not ask or switch for a project this library does not hold", async () => {
+    const { joinControlRoom, state } = makeFakeLinkFactory();
+    const mgr = getControlResponderManager(
+      baseDeps({
+        joinControlRoom,
+        openProjectForControl: async () => ({ refused: NO_OPEN_HANDLER_REFUSAL }),
+      }),
+    );
+    mgr.enable();
+    let asked = 0;
+    mgr.registerOpenElsewhereHost({
+      requestConsent: async () => {
+        asked += 1;
+        return "approve";
+      },
+      navigate: () => {},
+    });
+    const id = ask(state, "proj-not-mine");
+    await flush();
+    expect(refusal(getControlResponse(state.kernelHost, id))).toBe(NO_OPEN_HANDLER_REFUSAL);
+    expect(asked).toBe(0);
+  });
+
+  it("leaves a request for the project already on screen to that project's own dialog", async () => {
+    const { joinControlRoom, state } = makeFakeLinkFactory();
+    const mgr = getControlResponderManager(baseDeps({ joinControlRoom }));
+    mgr.enable();
+    let asked = 0;
+    let preApprovedSeen: unknown = "unset";
+    mgr.registerOpenProjectHandler(async (_id, _live, preApproved) => {
+      preApprovedSeen = preApproved;
+      return HANDOFF;
+    }, "proj-1");
+    mgr.registerOpenElsewhereHost({
+      requestConsent: async () => {
+        asked += 1;
+        return "approve";
+      },
+      navigate: () => {},
+    });
+    const id = ask(state, "proj-1");
+    await flush();
+    expect(getControlResponse(state.kernelHost, id)?.ok).toBe(true);
+    expect(asked).toBe(0);
+    expect(preApprovedSeen).toBeUndefined();
+  });
+
+  it("refuses a second request while the first dialog is still up", async () => {
+    const { joinControlRoom, state } = makeFakeLinkFactory();
+    const mgr = getControlResponderManager(baseDeps({ joinControlRoom }));
+    mgr.enable();
+    let decide: (outcome: "deny") => void = () => {};
+    mgr.registerOpenElsewhereHost({
+      requestConsent: () => new Promise((resolve) => (decide = resolve)),
+      navigate: () => {},
+    });
+    const first = ask(state, "proj-1");
+    await flush();
+    const second = ask(state, "proj-2");
+    await flush();
+    expect(refusal(getControlResponse(state.kernelHost, second))).toBe(
+      "another agent request is awaiting your decision",
+    );
+    decide("deny");
+    await flush();
+    expect(getControlResponse(state.kernelHost, first)?.ok).toBe(false);
+  });
+});
+
 describe("control-responder-mount — open_project flows through the open seam (#16.3)", () => {
   it("with NO handler registered AND the no-handler deps fallback, refuses with the static no-handler message", async () => {
     const { joinControlRoom, state } = makeFakeLinkFactory();

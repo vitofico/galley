@@ -243,6 +243,70 @@ test("agent open_project: the consent modal gates the share — Deny refuses, Ap
   }
 });
 
+test("agent open_project for a project that is not on screen: asks first, then switches the tab (ADR-0032)", async ({
+  page,
+}) => {
+  const { syncUrl, controlRoom } = await enableAgentAccess(page);
+  const peer = joinControlRoomAsPeer(syncUrl, controlRoom);
+  try {
+    // The agent creates a second project; the tab stays on the first one.
+    const createId = publishControlRequest(
+      peer.host,
+      { op: "create_project", params: { name: "Second project" } },
+      KERNEL_AUTHOR,
+    );
+    await expect
+      .poll(() => getControlResponse(peer.host, createId)?.ok, { timeout: 30_000 })
+      .toBe(true);
+    const created = (
+      getControlResponse(peer.host, createId) as Extract<ControlResponse, { ok: true }>
+    ).result as { projectId: string };
+    const startUrl = page.url();
+    expect(startUrl).not.toContain(created.projectId);
+
+    const modal = page.getByTestId("agent-open-consent");
+
+    // ---- DENY: the dialog names the other project; the tab does not move. ----
+    const denyId = publishControlRequest(
+      peer.host,
+      { op: "open_project", params: { projectId: created.projectId } },
+      KERNEL_AUTHOR,
+    );
+    await expect(modal).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("agent-open-consent-project")).toHaveText("Second project");
+    await expect(page.getByTestId("agent-open-consent-switch")).toBeVisible();
+    await page.getByTestId("agent-open-consent-deny").click();
+    await expect(modal).toBeHidden({ timeout: 10_000 });
+    await expect
+      .poll(() => getControlResponse(peer.host, denyId)?.ok, { timeout: 30_000 })
+      .toBe(false);
+    expect(page.url()).toBe(startUrl);
+
+    // ---- APPROVE: the tab switches and that project is shared, in one click. ----
+    const okId = publishControlRequest(
+      peer.host,
+      { op: "open_project", params: { projectId: created.projectId } },
+      KERNEL_AUTHOR,
+    );
+    await expect(modal).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId("agent-open-consent-approve").click();
+    await expect(modal).toBeHidden({ timeout: 10_000 });
+    await expect(page).toHaveURL(new RegExp(`/p/${created.projectId}$`), { timeout: 30_000 });
+    await expect
+      .poll(() => getControlResponse(peer.host, okId)?.ok, { timeout: 30_000 })
+      .toBe(true);
+    const result = (getControlResponse(peer.host, okId) as Extract<ControlResponse, { ok: true }>)
+      .result as { projectId: string; room: string };
+    expect(result.projectId).toBe(created.projectId);
+    expect(result.room).toMatch(/^share-/);
+    // No second dialog on the destination page: consent was given once.
+    await expect(modal).toBeHidden();
+    await expect(page.getByTestId("share-button")).toHaveText(/shared/i);
+  } finally {
+    peer.destroy();
+  }
+});
+
 test("real stdio kernel reuses one approval and uploads a mixed binary project", async ({ page }) => {
   test.setTimeout(180_000);
   const { syncUrl, controlRoom, responseKey } = await enableAgentAccess(page);

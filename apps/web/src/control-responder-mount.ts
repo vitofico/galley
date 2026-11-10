@@ -96,6 +96,15 @@ import {
   type ReleaseBlobSeam,
 } from "./control-responder.js";
 import type { FileProposalOp } from "@galley/collab";
+import {
+  REFUSAL_CONSENT_BUSY,
+  REFUSAL_DENIED,
+  REFUSAL_SHARE_UNAVAILABLE,
+  REFUSAL_TIMEOUT,
+  REFUSAL_WITHDRAWN,
+  type ConsentOutcome,
+  type PreApprovedOpen,
+} from "./agent-open-handler.js";
 import { answerReadonlyToolRequest, readonlyToolOps } from "./control-tool-adapter.js";
 import {
   grantContentAccess,
@@ -303,7 +312,25 @@ export interface ProjectToolFiles {
 export type OpenProjectHandler = (
   projectId: string,
   isRequestLive: () => boolean,
+  /** Consent already given on the app-level dialog (ADR-0032); skips only the modal. */
+  preApproved?: PreApprovedOpen,
 ) => Promise<OpenedProject | OpenProjectRefusal | null>;
+
+/**
+ * The app-level surface that lets an `open_project` for a project the tab does
+ * NOT have open succeed (ADR-0032). It lives above the router, so it exists on
+ * every page: it shows the same consent dialog over whatever is open, and on
+ * approval switches the tab to the requested project.
+ */
+export interface OpenElsewhereHost {
+  /** Show the blocking consent dialog naming `project`; resolves the decision. */
+  requestConsent(project: ProjectMeta): Promise<ConsentOutcome>;
+  /** Switch this tab to the project (in-app navigation, no reload). */
+  navigate(projectId: string): void;
+}
+
+/** How long a just-navigated project page gets to mount and register its handler. */
+export const OPEN_ELSEWHERE_MOUNT_TIMEOUT_MS = 10_000;
 
 /**
  * The live `export_compiled` handler ProjectApp registers (A1). It compiles the
@@ -635,7 +662,13 @@ export interface ControlResponderManager {
    * THIS registration is still the current one (token match) — so a stale unmount
    * (StrictMode double-invoke, a slow teardown) can never clobber a newer handler.
    */
-  registerOpenProjectHandler(handler: OpenProjectHandler): () => void;
+  registerOpenProjectHandler(handler: OpenProjectHandler, projectId?: string): () => void;
+  /**
+   * Register the app-level {@link OpenElsewhereHost} (ADR-0032). One slot,
+   * latest-wins, token-guarded unregister. Without a host, a request for a
+   * project the tab does not have open keeps its refusal.
+   */
+  registerOpenElsewhereHost(host: OpenElsewhereHost): () => void;
   /**
    * Register the live `export_compiled` handler (A1) — ProjectApp owns it (it
    * compiles + pushes the PDF over the project blob channel). At most ONE handler
@@ -828,6 +861,13 @@ class ControlResponderMountManager implements ControlResponderManager {
    */
   private openHandler: OpenProjectHandler | null = null;
   private openHandlerToken = 0;
+  /** The project the live open handler belongs to; undefined when it did not say. */
+  private openHandlerProjectId: string | undefined;
+  /** ADR-0032: the app-level host, its token, its single-dialog lock, and who waits for a page. */
+  private openElsewhereHost: OpenElsewhereHost | null = null;
+  private openElsewhereHostToken = 0;
+  private openElsewherePending = false;
+  private openHandlerWaiters = new Set<() => void>();
   /**
    * The CURRENT live `export_compiled` handler + its monotonic token (A1). One
    * slot, latest-wins, token-guarded unregister — same StrictMode-safe discipline
@@ -971,17 +1011,92 @@ class ControlResponderMountManager implements ControlResponderManager {
     for (const l of this.listeners) l();
   }
 
-  registerOpenProjectHandler(handler: OpenProjectHandler): () => void {
+  registerOpenProjectHandler(handler: OpenProjectHandler, projectId?: string): () => void {
     const token = ++this.openHandlerToken;
     this.openHandler = handler;
+    this.openHandlerProjectId = projectId;
+    for (const wake of [...this.openHandlerWaiters]) wake();
     return () => {
       // Token-guarded: only retract if THIS registration is still the live one.
       // A stale unmount (its token superseded by a newer register) is a no-op,
       // so it can't clear a handler a fresher mount installed.
       if (this.openHandlerToken === token) {
         this.openHandler = null;
+        this.openHandlerProjectId = undefined;
       }
     };
+  }
+
+  registerOpenElsewhereHost(host: OpenElsewhereHost): () => void {
+    const token = ++this.openElsewhereHostToken;
+    this.openElsewhereHost = host;
+    return () => {
+      if (this.openElsewhereHostToken === token) this.openElsewhereHost = null;
+    };
+  }
+
+  /** Resolve the open handler of `projectId` once its page has mounted, or null on timeout. */
+  private whenOpenHandlerFor(projectId: string, timeoutMs: number): Promise<OpenProjectHandler | null> {
+    const current = (): OpenProjectHandler | null =>
+      this.openHandler !== null && this.openHandlerProjectId === projectId ? this.openHandler : null;
+    return new Promise((resolve) => {
+      const settle = (handler: OpenProjectHandler | null): void => {
+        clearTimeout(timer);
+        this.openHandlerWaiters.delete(wake);
+        resolve(handler);
+      };
+      const wake = (): void => {
+        const handler = current();
+        if (handler !== null) settle(handler);
+      };
+      const timer = setTimeout(() => settle(null), timeoutMs);
+      this.openHandlerWaiters.add(wake);
+      wake();
+    });
+  }
+
+  /**
+   * ADR-0032: answer an `open_project` for a project this tab does NOT have open.
+   * The human is asked FIRST, over whatever is on screen, by the same dialog the
+   * project page uses; only an approval switches the tab, and the project's own
+   * handler then runs every remaining gate with that approval in hand. Returns
+   * null when this path does not apply (no host, or a project this library does
+   * not hold), so the caller keeps its existing refusal.
+   */
+  private async openElsewhere(
+    projectId: string,
+    isRequestLive: () => boolean,
+  ): Promise<OpenedProject | OpenProjectRefusal | null> {
+    const host = this.openElsewhereHost;
+    if (host === null) return null;
+    let project: ProjectMeta | undefined;
+    try {
+      project = (await this.deps.listProjects()).find((p) => p.projectId === projectId);
+    } catch {
+      return null;
+    }
+    if (project === undefined) return null;
+    if (this.openElsewherePending) return { refused: REFUSAL_CONSENT_BUSY };
+    if (!isRequestLive()) return { refused: REFUSAL_WITHDRAWN };
+    this.openElsewherePending = true;
+    let outcome: ConsentOutcome;
+    try {
+      outcome = await host.requestConsent(project);
+    } finally {
+      this.openElsewherePending = false;
+    }
+    if (outcome === "timeout") return { refused: REFUSAL_TIMEOUT };
+    if (outcome === "deny") return { refused: REFUSAL_DENIED };
+    // The human took time: a request the kernel withdrew meanwhile must not move the tab.
+    if (!isRequestLive()) return { refused: REFUSAL_WITHDRAWN };
+    host.navigate(projectId);
+    const handler = await this.whenOpenHandlerFor(projectId, OPEN_ELSEWHERE_MOUNT_TIMEOUT_MS);
+    if (handler === null) return { refused: REFUSAL_SHARE_UNAVAILABLE };
+    return handler(
+      projectId,
+      isRequestLive,
+      typeof outcome === "object" ? { options: outcome.options } : {},
+    );
   }
 
   registerExportCompiledHandler(handler: ExportCompiledHandler): () => void {
@@ -1111,7 +1226,7 @@ class ControlResponderMountManager implements ControlResponderManager {
     isRequestLive: () => boolean,
   ): Promise<OpenedProject | OpenProjectRefusal | null> {
     await this.whenGrantReady();
-    if (!isRequestLive()) return { refused: "the agent withdrew this request before the project was shared — nothing was shared" };
+    if (!isRequestLive()) return { refused: REFUSAL_WITHDRAWN };
     // F13 (headless attach): a request for a project that is NOT the foregrounded
     // editor document re-attaches its already-consented share WITHOUT a modal when a
     // standing, MAC-verified, exact-scope, non-idle `persistentAccess` grant matches
@@ -1129,6 +1244,14 @@ class ControlResponderMountManager implements ControlResponderManager {
     // may instead inject the handler through `deps.openProjectForControl`; honor
     // that as the fallback. Only when NEITHER exists is nothing open to share.
     const handler = this.openHandler;
+    // ADR-0032: a project this tab does not have open is asked for and switched to
+    // rather than refused. A handler that never named its project is treated as
+    // the foreground one, so existing wirings keep their exact behaviour.
+    const foreground = handler !== null && (this.openHandlerProjectId ?? projectId) === projectId;
+    if (!foreground) {
+      const elsewhere = await this.openElsewhere(projectId, isRequestLive);
+      if (elsewhere !== null) return elsewhere;
+    }
     if (handler !== null) return handler(projectId, isRequestLive);
     return this.deps.openProjectForControl(projectId);
   }

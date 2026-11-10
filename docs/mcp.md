@@ -109,7 +109,13 @@ https://<your-galley-host>/join/share-1b2c3d4e-...
 The **room id** is the segment after `/join/`. Copy it.
 
 The **sync URL** is the relay your browser already uses: `ws://localhost:1234` in
-local dev, or `wss://<your-host>:1234` on a deployed instance.
+local dev. On a deployed instance it is whatever the operator configured, which
+is often a path such as `wss://<your-host>/sync` rather than a port.
+
+You do not have to work it out. Every command below accepts `--url` in place of
+`--sync`: pass the address you open Galley at, for example
+`--url https://galley.example.com`, and the kernel reads the relay from that
+site's own `/config.js`, the same file your browser reads.
 
 > Room ids are capabilities, not names. Anyone holding one can reach that
 > project. Treat them like passwords, and keep them out of shared logs and chat.
@@ -197,10 +203,13 @@ Three things stay under your control:
   reused on reconnect and reload. Revoke or changed access requires approval again.
   One project per kernel run; reopening that same project succeeds without a prompt.
 
-`create_project` returns `projectPath` and `nextAction: "open_in_browser"`.
-Open that path in the existing Galley tab before calling `open_project`; the
-kernel does not navigate the browser. If the requested project is not open,
-`open_project` returns `status: "open_required"` and the path to open.
+`create_project` returns `projectPath` and `nextAction: "open_project"`. You do
+not have to open the project yourself: when `open_project` names a project that
+is not the one on screen, the paired tab shows the approval dialog over whatever
+it has open and, on approval, switches to that project
+([ADR-0032](decisions/ADR-0032-mcp-open-switches-project.md)). Denying leaves the
+tab where it was. `status: "open_required"` now only appears when Galley could
+not make the switch itself.
 
 Binary uploads require a compatible web app and sync relay. The kernel checks
 the browser's `galley-blob-v1` capability before sending bytes. An older browser

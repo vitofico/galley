@@ -10,7 +10,7 @@ import {
   OPEN_PROJECT_RPC_TIMEOUT_MS,
   type ControlToolDeps,
 } from "./control-tools.js";
-import type { ControlRpcOutcome } from "./control.js";
+import { COMPILE_PENDING_REFUSAL, type ControlRpcOutcome } from "./control.js";
 import type { KernelSession } from "./session.js";
 
 /**
@@ -213,7 +213,7 @@ describe("create_project control tool (F1)", () => {
     expect(calls).toEqual([{ op: "create_project", params: { name: "My Doc" } }]);
     expect(result.isError).toBeUndefined();
     expect(JSON.parse(result.content[0]!.text)).toMatchObject({
-      projectId: "proj-x", name: "My Doc", projectPath: "/p/proj-x", nextAction: "open_in_browser",
+      projectId: "proj-x", name: "My Doc", projectPath: "/p/proj-x", nextAction: "open_project",
     });
   });
 
@@ -931,6 +931,40 @@ describe("buildBrowserCompiler (F9/F5)", () => {
     const rpc = async (): Promise<ControlRpcOutcome> => ({ ok: false, error: "timeout" });
     const out = await buildBrowserCompiler({ rpc, projectId: "proj-1" })();
     expect(out).toEqual({ error: "timeout" });
+  });
+
+  it("waits out a still-compiling preview, then returns the settled build", async () => {
+    const answers: ControlRpcOutcome[] = [
+      { ok: false, error: COMPILE_PENDING_REFUSAL },
+      { ok: false, error: COMPILE_PENDING_REFUSAL },
+      { ok: true, result: { ok: true, pageCount: 19, diagnostics: [] } },
+    ];
+    let calls = 0;
+    const rpc = async (): Promise<ControlRpcOutcome> => answers[calls++]!;
+    const out = await buildBrowserCompiler({ rpc, projectId: "proj-1", pendingRetryMs: 0 })();
+    expect(out).toEqual({ ok: true, pageCount: 19, diagnostics: [] });
+    expect(calls).toBe(3);
+  });
+
+  it("gives up on a preview that never settles with the honest pending line", async () => {
+    let calls = 0;
+    const rpc = async (): Promise<ControlRpcOutcome> => {
+      calls++;
+      return { ok: false, error: COMPILE_PENDING_REFUSAL };
+    };
+    const out = await buildBrowserCompiler({ rpc, projectId: "proj-1", pendingRetryMs: 0 })();
+    expect(out).toEqual({ error: COMPILE_PENDING_REFUSAL });
+    expect(calls).toBe(8);
+  });
+
+  it("does not retry any other refusal", async () => {
+    let calls = 0;
+    const rpc = async (): Promise<ControlRpcOutcome> => {
+      calls++;
+      return { ok: false, error: "the responder refused this request" };
+    };
+    await buildBrowserCompiler({ rpc, projectId: "proj-1", pendingRetryMs: 0 })();
+    expect(calls).toBe(1);
   });
 
   it("returns a generic error when the browser result does not parse (missing diagnostics)", async () => {

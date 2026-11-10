@@ -128,6 +128,46 @@ describe("batched project access choices", () => {
   });
 });
 
+describe("agent-open-handler — ADR-0032: consent given on the dialog that navigated here", () => {
+  it("skips the lock and the modal but still runs the share-upgrade with the chosen options", async () => {
+    const options: AgentAccessOptions = { mode: "auto", backgroundAccess: true };
+    let received: AgentAccessOptions | undefined;
+    const { seams, log } = makeSeams({
+      isConsentPending: () => true, // would be the busy refusal on the normal path
+      getEnsureShared: () => async (approvedOptions) => {
+        received = approvedOptions;
+        return HANDOFF;
+      },
+    });
+    const result = await createAgentOpenHandler(seams)("proj-current", () => true, { options });
+    expect(result).toEqual(HANDOFF);
+    expect(received).toEqual(options);
+    expect(log.consentRequests).toBe(0);
+    expect(log.pendingFlips).toEqual([]);
+  });
+
+  it("does not bypass the joined-session refusal", async () => {
+    const { seams, log } = makeSeams({ joinedSession: true });
+    const result = await createAgentOpenHandler(seams)("proj-current", () => true, {});
+    expect(refusalOf(result)).toBe(REFUSAL_JOINED_SESSION);
+    expect(log.ensureCalls).toBe(0);
+  });
+
+  it("does not bypass the scope gate: approval for one project never shares another", async () => {
+    const { seams, log } = makeSeams();
+    const result = await createAgentOpenHandler(seams)("some-other-project", () => true, {});
+    expect(refusalOf(result)).toBe(REFUSAL_WRONG_PROJECT);
+    expect(log.ensureCalls).toBe(0);
+  });
+
+  it("does not share when the kernel withdrew the request during the navigation", async () => {
+    const { seams, log } = makeSeams();
+    const result = await createAgentOpenHandler(seams)("proj-current", () => false, {});
+    expect(refusalOf(result)).toBe(REFUSAL_WITHDRAWN);
+    expect(log.ensureCalls).toBe(0);
+  });
+});
+
 describe("agent-open-handler — SEC-16.3b: joined/CONNECTED sessions are refused outright", () => {
   it("refuses with the joined-session reason and runs NO consent and NO share", async () => {
     const { seams, log } = makeSeams({ joinedSession: true });

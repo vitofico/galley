@@ -42,6 +42,7 @@ Format: lightweight [MADR](https://adr.github.io/madr/)-style. Status is one of
 | [0029](ADR-0029-group-primitive.md)                | Minimal Group primitive: group-owned projects and group-aware authorization                    | Accepted                                               |
 | [0030](ADR-0030-background-artwork.md)             | Background artwork independent of colour                                                       | Accepted                                               |
 | [0031](ADR-0031-document-review-aids.md)           | Deterministic review aids and explicit portable workbench content                              | Accepted                                               |
+| [0032](ADR-0032-mcp-open-switches-project.md)    | An agent's `open_project` asks first, then switches the tab                                    | Accepted                                               |
 
 ## Adding an ADR
 

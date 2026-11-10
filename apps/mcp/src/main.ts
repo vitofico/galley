@@ -1,6 +1,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { bytesToBase64Url, base64UrlToBytes } from "@galley/collab";
 import { parseKernelConfig, roomFingerprint, KERNEL_USAGE } from "./config.js";
+import { resolveSiteUrl } from "./site-config.js";
 import type { ControlKernelConfig } from "./config.js";
 import { createHttpCompileService } from "./compile-client.js";
 import { joinRoom } from "./session.js";
@@ -112,7 +113,10 @@ async function resolveControlAuthority(
  */
 async function main(): Promise<void> {
   // Fail loud on bad config: the parse error names the missing/invalid flag.
-  const config = parseKernelConfig(process.argv.slice(2), process.env);
+  // `--url <site>` is resolved to the site's relay first, so the parser below
+  // only ever sees the explicit `--sync` form.
+  const argv = await resolveSiteUrl(process.argv.slice(2), process.env);
+  const config = parseKernelConfig(argv, process.env);
   if (config.mode === "help") {
     console.log(KERNEL_USAGE);
     return;

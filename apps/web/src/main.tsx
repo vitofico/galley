@@ -4,6 +4,7 @@ import { isAuthEnabled } from "./auth-gate.js";
 import { AuthGate } from "./components/AuthGate.js";
 import { getControlResponderManager } from "./control-responder-mount.js";
 import { AgentBackgroundHosts } from "./components/AgentBackgroundHosts.js";
+import { AgentOpenElsewhereHost } from "./components/AgentOpenElsewhereHost.js";
 import {
   currentRoute,
   homeShowsEditor,
@@ -143,6 +144,10 @@ createRoot(root).render(
         Mounted outside the AuthGate so it keeps applying regardless of the shown
         route; it renders nothing. */}
     <AgentBackgroundHosts />
+    {/* ADR-0032: answers an agent's open_project for a project that is not on
+        screen, from any page: one consent dialog, then the tab switches. Inert
+        until Agent Access is enabled and such a request arrives. */}
+    <AgentOpenElsewhereHost />
     <Suspense fallback={<BrandLoading />}>
       {authEnabled ? <AuthGate>{view}</AuthGate> : view}
     </Suspense>
