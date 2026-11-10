@@ -31,6 +31,8 @@ import {
   userIdFromOidc,
   registerCapabilityRoom,
   revokeCapabilityRoom,
+  listConnectedProjects,
+  setConnectorReviewMode,
   type JwksGetter,
   type RandomSource,
 } from "@galley/auth";
@@ -57,7 +59,16 @@ export interface AuthRouterDeps {
    * (e.g. no `GALLEY_DATA_DIR` on the web-server) → the routes are absent and the
    * rest of the router is byte-for-byte unchanged.
    */
-  capabilityRooms?: { store: CapabilityRoomStore };
+  capabilityRooms?: {
+    store: CapabilityRoomStore;
+    /**
+     * The operator enabled the hosted connector (ADR-0033, default off). Set →
+     * `connector` rooms may be registered and the connected-project routes
+     * (`GET /connector/projects`, `POST /connector/projects/:roomId/review-mode`)
+     * are mounted.
+     */
+    hostedConnector?: boolean;
+  };
 }
 
 /** Max accepted body for the capability-room routes ({roomId, kind, projectId?}). */
@@ -326,44 +337,64 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
     };
     const utf8 = new TextEncoder();
 
-    app.post("/capability-rooms", async (c) => {
+    /**
+     * The same-origin, signed-in, bounded-JSON gate every capability POST with
+     * a body goes through. Resolves the session and parsed body, or the
+     * constant refusal to return.
+     */
+    const readJsonPost = async (
+      c: Context,
+    ): Promise<
+      { session: SessionRecord; body: unknown } | { refusal: Response }
+    > => {
       if (c.req.header("origin") !== expectedOrigin) {
-        return constJson(c, 403, { ok: false, code: "forbidden" });
+        return { refusal: constJson(c, 403, { ok: false, code: "forbidden" }) };
       }
       const session = await sessionOf(c);
       if (!session)
-        return constJson(c, 401, { ok: false, code: "unauthenticated" });
+        return {
+          refusal: constJson(c, 401, { ok: false, code: "unauthenticated" }),
+        };
       // M1: Content-Length is mandatory — absent (e.g. a chunked request) → 411
       // BEFORE any body byte is read; malformed or over-cap → 413. Only then is
       // the (now declared-bounded) body read, and re-measured in UTF-8 BYTES as
       // defense-in-depth against a lying declaration.
       const declared = c.req.header("content-length")?.trim();
       if (declared === undefined) {
-        return constJson(c, 411, { ok: false, code: "length-required" });
+        return {
+          refusal: constJson(c, 411, { ok: false, code: "length-required" }),
+        };
       }
       if (
         !/^\d{1,9}$/.test(declared) ||
         Number(declared) > MAX_CAPABILITY_BODY_BYTES
       ) {
-        return constJson(c, 413, { ok: false, code: "too-large" });
+        return { refusal: constJson(c, 413, { ok: false, code: "too-large" }) };
       }
       const contentType = c.req.header("content-type") ?? "";
       if (!contentType.toLowerCase().includes("application/json")) {
-        return constJson(c, 400, { ok: false, code: "invalid" });
+        return { refusal: constJson(c, 400, { ok: false, code: "invalid" }) };
       }
-      let body: unknown;
       try {
         const text = await c.req.text();
         if (
           text.length > MAX_CAPABILITY_BODY_BYTES ||
           utf8.encode(text).byteLength > MAX_CAPABILITY_BODY_BYTES
         ) {
-          return constJson(c, 413, { ok: false, code: "too-large" });
+          return {
+            refusal: constJson(c, 413, { ok: false, code: "too-large" }),
+          };
         }
-        body = JSON.parse(text);
+        return { session, body: JSON.parse(text) as unknown };
       } catch {
-        return constJson(c, 400, { ok: false, code: "invalid" });
+        return { refusal: constJson(c, 400, { ok: false, code: "invalid" }) };
       }
+    };
+
+    app.post("/capability-rooms", async (c) => {
+      const post = await readJsonPost(c);
+      if ("refusal" in post) return post.refusal;
+      const { session, body } = post;
       let result;
       try {
         result = await registerCapabilityRoom(store, {
@@ -371,6 +402,7 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
           userId: session.userId,
           sessionExpiresAtMs: session.expiresAtMs,
           nowMs: now(),
+          allowConnector: deps.capabilityRooms?.hostedConnector === true,
         });
       } catch (error) {
         if (error instanceof OwnedProjectLimitError)
@@ -394,6 +426,34 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
       });
       return constJson(c, result.status, result.body);
     });
+
+    // Connected projects (ADR-0033 §1, §3), mounted only when the operator
+    // enabled the hosted connector. The list returns room ids: they are the
+    // caller's OWN capabilities, read with their session cookie, and the
+    // browser needs them to keep each connected project synced.
+    if (deps.capabilityRooms.hostedConnector === true) {
+      app.get("/connector/projects", async (c) => {
+        c.header("cache-control", "no-store");
+        const session = await sessionOf(c);
+        if (!session) return c.json({ ok: false, code: "unauthenticated" }, 401);
+        return c.json({
+          ok: true,
+          projects: await listConnectedProjects(store, session.userId, now()),
+        });
+      });
+
+      app.post("/connector/projects/:roomId/review-mode", async (c) => {
+        const post = await readJsonPost(c);
+        if ("refusal" in post) return post.refusal;
+        const result = await setConnectorReviewMode(store, {
+          roomId: c.req.param("roomId"),
+          body: post.body,
+          userId: post.session.userId,
+          nowMs: now(),
+        });
+        return constJson(c, result.status, result.body);
+      });
+    }
   }
 
   return app;

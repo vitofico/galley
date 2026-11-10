@@ -175,6 +175,11 @@ import {
   readHostedRunTarget,
   rememberHostedRunTarget,
 } from "./hosted-run-target.js";
+import {
+  hostedConnectorEnabled,
+  listConnectedProjects,
+  openConnectorReplica,
+} from "./hosted-connector.js";
 import { ImportPanel } from "./components/ImportPanel.js";
 import { FigurePanel } from "./components/FigurePanel.js";
 import {
@@ -2408,6 +2413,36 @@ export function ProjectApp({
     recordGrant(room);
     return { room, syncUrl, mainFile: mainPath, grantId };
   };
+
+  // Hosted connector (ADR-0033 §1): while a project the person CONNECTED is
+  // open, keep its server replica current over a connection of its own, beside
+  // any Share connection. Nothing runs unless the operator enabled the
+  // connector, and never for a joiner's session (someone else's project). It
+  // waits for the local project to load first, so an empty document is never
+  // what reaches the server.
+  useEffect(() => {
+    if (!hostedConnectorEnabled() || config.syncUrl !== undefined) return;
+    let disposed = false;
+    let replica: ReturnType<typeof openConnectorReplica> | undefined;
+    void Promise.all([session.whenReady, listConnectedProjects()])
+      .then(([, listed]) => {
+        if (disposed || !listed.ok) return;
+        const connected = listed.projects.find(
+          (p) => p.projectId === projectId,
+        );
+        if (!connected) return;
+        replica = openConnectorReplica(
+          session.project,
+          resolveSyncUrl(configuredSyncUrlOverride(), window.location),
+          connected.roomId,
+        );
+      })
+      .catch(() => undefined); // a misconfigured relay address: stay local
+    return () => {
+      disposed = true;
+      replica?.destroy();
+    };
+  }, [projectId, session]);
 
   // Rejoin only a mailbox explicitly consented to on this browser and bound to
   // this configured host. This recovers proposals after a closed tab/restart;

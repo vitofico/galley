@@ -53,7 +53,7 @@ class MemStore implements CapabilityRoomStore {
   }
 }
 
-async function setup(withStore = true) {
+async function setup(withStore = true, hostedConnector = false) {
   const sessionStore = new InMemorySessionStore(
     () => `sid${Math.random().toString(36).slice(2)}`,
   );
@@ -66,7 +66,7 @@ async function setup(withStore = true) {
       throw new Error("jwks never used by these routes");
     }) as unknown as JwksGetter,
     now: () => NOW,
-    ...(withStore ? { capabilityRooms: { store } } : {}),
+    ...(withStore ? { capabilityRooms: { store, hostedConnector } } : {}),
   });
   const { id } = await sessionStore.create({
     userId: "alice",
@@ -313,5 +313,73 @@ describe("router without a registry store", () => {
       body: goodBody,
     });
     expect(res.status).toBe(404);
+  });
+});
+
+describe("connected projects (ADR-0033)", () => {
+  const connectBody = JSON.stringify({
+    roomId: ROOM,
+    kind: "connector",
+    projectId: "proj-1",
+  });
+  const list = (app: Hono, cookie?: string) =>
+    Promise.resolve(
+      app.request("/connector/projects", {
+        headers: cookie ? { cookie } : {},
+      }),
+    );
+
+  it("is off by default: no connector registration, no connector routes", async () => {
+    const { app, store, sid } = await setup();
+    const res = await post(app, "/capability-rooms", {
+      cookie: cookieFor(sid),
+      body: connectBody,
+    });
+    expect(res.status).toBe(400);
+    expect(store.map.size).toBe(0);
+    expect((await list(app, cookieFor(sid))).status).toBe(404);
+    const mode = await post(app, `/connector/projects/${ROOM}/review-mode`, {
+      cookie: cookieFor(sid),
+      body: JSON.stringify({ reviewMode: "auto" }),
+    });
+    expect(mode.status).toBe(404);
+  });
+
+  it("connects, lists, switches the review mode and disconnects", async () => {
+    const { app, store, sid } = await setup(true, true);
+    const cookie = cookieFor(sid);
+    expect(
+      (await post(app, "/capability-rooms", { cookie, body: connectBody })).status,
+    ).toBe(200);
+
+    const listed = await list(app, cookie);
+    expect(listed.status).toBe(200);
+    expect(listed.headers.get("cache-control")).toBe("no-store");
+    expect(await listed.json()).toEqual({
+      ok: true,
+      projects: [
+        { roomId: ROOM, projectId: "proj-1", reviewMode: "ask", connectedAtMs: NOW },
+      ],
+    });
+
+    const mode = await post(app, `/connector/projects/${ROOM}/review-mode`, {
+      cookie,
+      body: JSON.stringify({ reviewMode: "auto" }),
+    });
+    expect(mode.status).toBe(200);
+    expect(store.map.get(ROOM)?.reviewMode).toBe("auto");
+
+    await post(app, `/capability-rooms/${ROOM}/revoke`, { cookie });
+    expect(await (await list(app, cookie)).json()).toEqual({ ok: true, projects: [] });
+  });
+
+  it("requires a session to list, and the same-origin gate to switch mode", async () => {
+    const { app, sid } = await setup(true, true);
+    expect((await list(app)).status).toBe(401);
+    const body = JSON.stringify({ reviewMode: "auto" });
+    const path = `/connector/projects/${ROOM}/review-mode`;
+    expect((await post(app, path, { cookie: cookieFor(sid), body, origin: "https://evil.example" })).status).toBe(403);
+    expect((await post(app, path, { body })).status).toBe(401);
+    expect((await post(app, path, { cookie: cookieFor(sid), body, contentLength: null })).status).toBe(411);
   });
 });

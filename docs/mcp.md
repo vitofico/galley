@@ -23,6 +23,14 @@ What Galley contributes is the part a general coding agent does not have: the
 live document, the file tree, real Typst diagnostics, and a review gate that
 stops an agent from silently editing your work.
 
+> **Two ways in.** This page covers the **local bridge**: a program on your
+> machine, paired with an open Galley tab, where your browser applies every
+> change. A second way, the **hosted connector** (an address on your Galley
+> server that works with no tab open), is being built in steps
+> ([ADR-0033](decisions/ADR-0033-hosted-connector.md)). So far a signed-in
+> deployment can keep a server copy of a project you connect; see
+> [`self-host.md`](self-host.md#hosted-connector-connected-projects).
+
 > **This is a how-to.** For the exhaustive reference, including every flag,
 > control-mode detail and troubleshooting case, see
 > [`mcp-kernel-setup.md`](mcp-kernel-setup.md). For the reasoning behind the

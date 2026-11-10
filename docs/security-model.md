@@ -99,6 +99,18 @@ room to be **registered and active**:
   rooms have no default expiry). The record lives on the shared
   `GALLEY_DATA_DIR` volume (`capability-rooms/<roomId>.json`), where the relay
   reads it — the same cross-container pattern as sessions.
+- **Connector rooms** ([ADR-0033](decisions/ADR-0033-hosted-connector.md)) are
+  a third kind, accepted only where the operator set
+  `GALLEY_HOSTED_CONNECTOR=1`. One names a project and carries its review mode
+  (Ask or Auto); it has no expiry and at most one is active per project. It is
+  the only kind the relay is meant to **persist**: with
+  `GALLEY_SYNC_PERSIST_ROOMS=connector` a connected project has a plaintext
+  server replica and nothing else does. Revoking it erases that replica (the
+  relay polls the registry for revoked connector rooms, drops their
+  connections and retires their storage). `GET /auth/connector/projects`
+  returns the caller's own connector room ids to their session, so the browser
+  can keep each connected project synced; it is the one route that echoes a
+  room id, and only to its creator.
 - **Authorization at the upgrade, never per message** — the relay's order is:
   parse room → Origin policy (an absent Origin proceeds only for a capability
   room, preserving the cookie-less Node kernel; browsers always send Origin
