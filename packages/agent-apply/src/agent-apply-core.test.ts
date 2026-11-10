@@ -9,9 +9,9 @@ import {
 } from "./agent-apply-core.js";
 import type { AutoAcceptCtx } from "./auto-accept.js";
 import { AutoAcceptAudit } from "./auto-accept-audit.js";
-import { autoApplierLockName, type LockManagerLike } from "./auto-applier-ownership.js";
+import { autoApplierLockName, type LockManagerLike } from "./auto-applier-lock.js";
 import type { ProposalRecord, ProjectSnapshot, ProposalScope, SignableProposal } from "@galley/collab";
-import type { SessionStoreLike } from "./control-responder-mount.js";
+import type { SessionStoreLike } from "./session-store.js";
 
 /**
  * Offline unit tests for the PURE auto-apply run core (F13.3) — the lifted twin of

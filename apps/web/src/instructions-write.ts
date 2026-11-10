@@ -21,7 +21,7 @@
 
 import type { CollabProject } from "@galley/collab";
 import type { Author } from "@galley/shared";
-import { applyMinimalDiff } from "./collab-session.js";
+import { applyMinimalDiff } from "@galley/agent-apply";
 import {
   findAllInstructionsFiles,
   INSTRUCTIONS_CANONICAL_PATH,

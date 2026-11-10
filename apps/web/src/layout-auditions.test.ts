@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { layoutCandidates, replaceScratchMain } from "./layout-auditions.js";
-import { resolveAccept } from "./accept.js";
+import { resolveAccept } from "@galley/agent-apply";
 describe("layout auditions", () => {
   it("preserves all original wording and size rules in scratch candidates", () => {
     const source =

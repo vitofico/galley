@@ -17,6 +17,7 @@
     "@galley/shared": "workspace:*",
     "@galley/compiler": "workspace:*",
     "@galley/agent": "workspace:*",
+    "@galley/agent-apply": "workspace:*",
     "@galley/collab": "workspace:*",
     "@galley/persistence": "workspace:*",
     "@codemirror/autocomplete": "^6.20.3",

@@ -18,7 +18,7 @@ import {
 } from "@galley/collab";
 import { AutoAcceptAudit } from "./auto-accept-audit.js";
 import { decideAutoAcceptSingle, type AutoAcceptCtx } from "./auto-accept.js";
-import type { SessionStoreLike } from "./control-responder-mount.js";
+import type { SessionStoreLike } from "./session-store.js";
 
 const RESPONSE_KEY = new Uint8Array(32).fill(3);
 const scope: ProposalScope = {

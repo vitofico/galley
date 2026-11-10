@@ -5,7 +5,7 @@ import {
   auditStorageKey,
   type AuditEntry,
 } from "./auto-accept-audit.js";
-import type { SessionStoreLike } from "./control-responder-mount.js";
+import type { SessionStoreLike } from "./session-store.js";
 
 /**
  * Offline tests for the durable auto-accept tombstone audit (ADR-0023 §3). The

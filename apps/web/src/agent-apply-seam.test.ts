@@ -14,7 +14,7 @@ import {
   type FileProposalInput,
 } from "@galley/collab";
 import { makeHeadlessApplySeam } from "./agent-apply-seam.js";
-import type { FrozenApply } from "./agent-apply-core.js";
+import type { FrozenApply } from "@galley/agent-apply";
 
 /**
  * Offline unit tests for the HEADLESS apply seam (F13.3) — the non-UI twin of

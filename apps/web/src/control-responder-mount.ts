@@ -170,7 +170,11 @@ import { loadLocalProfile } from "./local-profile.js";
 import { IdbProjectStore } from "./idb-project-store.js";
 import { IdbVersionStore } from "./idb-version-store.js";
 import { createLibraryProject } from "./create-library-project.js";
-import { AutoAcceptAudit, auditStorageKey } from "./auto-accept-audit.js";
+import {
+  AutoAcceptAudit,
+  auditStorageKey,
+  type SessionStoreLike,
+} from "@galley/agent-apply";
 
 /** The browser identity the responder writes its answers under. */
 const RESPONDER_AUTHOR: Author = { kind: "human", userId: "agent-access-responder" };
@@ -442,13 +446,6 @@ export interface ControlLink {
   host: DocHost;
   /** Disconnect from the relay and destroy the doc. Idempotent. */
   destroy(): void;
-}
-
-/** A tiny Storage-like seam so the unit gate can pass a fake (no DOM). */
-export interface SessionStoreLike {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-  removeItem(key: string): void;
 }
 
 /**

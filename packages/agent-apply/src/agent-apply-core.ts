@@ -47,7 +47,7 @@ import {
   passesFinalApplyGate,
   type AutoAcceptCtx,
 } from "./auto-accept.js";
-import { withAutoApplierLock, type LockManagerLike } from "./auto-applier-ownership.js";
+import { withAutoApplierLock, type LockManagerLike } from "./auto-applier-lock.js";
 import type { AutoAcceptAudit } from "./auto-accept-audit.js";
 
 const utf8 = new TextEncoder();
@@ -117,7 +117,7 @@ export interface AgentApplyDeps {
    * liveness is its own presence, not a TTL). Called with the apply instant.
    */
   onActive?: () => void;
-  /** Injectable Web-Locks manager (tests); production omits it → ambient navigator.locks. */
+  /** Injectable lock manager; browser callers supply their ambient Web Locks manager. */
   locks?: LockManagerLike | null;
   /** Re-entrancy backstop set (the caller's ref). A no-op when the id is already in flight. */
   inFlight: Set<string>;

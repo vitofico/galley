@@ -6,7 +6,7 @@ import {
   clearHeadlessStamp,
 } from "./headless-access-stamp.js";
 import { headlessAccessExpired, HEADLESS_ACCESS_IDLE_TTL_MS } from "./proposal-grant.js";
-import type { SessionStoreLike } from "./control-responder-mount.js";
+import type { SessionStoreLike } from "@galley/agent-apply";
 
 /**
  * Offline unit tests for the per-grant HEADLESS ACTIVITY STAMP (F13) — the

@@ -59,7 +59,8 @@ These are architecture, not preference. Don't violate them without a new ADR.
 shared  → (nothing)
 compiler → shared            # + typst.ts; no React
 agent    → shared            # + AI SDK behind adapter; no React, no typst.ts
-web      → shared, compiler, agent   # the only React package; owns live state
+agent-apply → shared, agent, collab  # no React, no DOM
+web      → shared, compiler, agent, agent-apply   # the only React package; owns live state
 proxy    → shared            # separate Node runtime; thin/stateless; not imported by web
 ```
 
