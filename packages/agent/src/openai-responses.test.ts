@@ -14,6 +14,31 @@ const config: ProviderConfig = {
 };
 
 describe("GPT-6 Responses transport", () => {
+  it("uses Responses for any compatible provider that opts in", () => {
+    const router: ProviderConfig = {
+      ...config,
+      model: "high",
+      transport: {
+        mode: "proxy",
+        proxyUrl: "https://proxy.example.test",
+        upstreamId: "router",
+      },
+    };
+    expect(usesOpenAIResponses(router)).toBe(false);
+    expect(usesOpenAIResponses({ ...router, responsesApi: true })).toBe(true);
+    expect(
+      usesOpenAIResponses({
+        ...router,
+        responsesApi: true,
+        baseUrl: "https://router.example.test/v1",
+        transport: { mode: "direct" },
+      }),
+    ).toBe(true);
+    expect(
+      usesOpenAIResponses({ ...router, responsesApi: true, kind: "anthropic" }),
+    ).toBe(false);
+  });
+
   it("keeps other endpoints and models on their configured protocol", () => {
     expect(usesOpenAIResponses(config)).toBe(true);
     expect(

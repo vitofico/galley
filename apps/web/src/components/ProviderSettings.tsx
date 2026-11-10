@@ -76,6 +76,9 @@ export function ProviderSettings({
       ? config.transport.upstreamId
       : preset.upstreamId,
   );
+  const [responsesApi, setResponsesApi] = useState(
+    config?.responsesApi ?? false,
+  );
   const [probe, setProbe] = useState<ProviderCapabilities | null>(null);
   const [probing, setProbing] = useState(false);
 
@@ -97,7 +100,7 @@ export function ProviderSettings({
     return () => {
       probeRequest.current++;
     };
-  }, [kind, baseUrl, model, mode, apiKey, proxyUrl, upstreamId]);
+  }, [kind, baseUrl, model, mode, apiKey, proxyUrl, upstreamId, responsesApi]);
   useEffect(() => {
     modelsRequest.current++;
     setModels([]);
@@ -136,6 +139,9 @@ export function ProviderSettings({
       mode === "direct"
         ? { mode: "direct", ...(apiKey ? { apiKey } : {}) }
         : { mode: "proxy", proxyUrl, upstreamId },
+    ...(kind === "openai-compatible" && responsesApi
+      ? { responsesApi: true }
+      : {}),
   });
 
   const testConnection = async () => {
@@ -205,6 +211,23 @@ export function ProviderSettings({
           data-testid="provider-baseurl"
         />
       </div>
+      {kind === "openai-compatible" && (
+        <div className="settings-row">
+          <label>
+            <input
+              type="checkbox"
+              checked={responsesApi}
+              onChange={(e) => setResponsesApi(e.currentTarget.checked)}
+              data-testid="provider-responses-api"
+            />{" "}
+            Use the Responses API
+          </label>
+          <p>
+            OpenAI’s GPT-6 models use it automatically. Tick this for a
+            compatible server or proxy upstream that expects Responses.
+          </p>
+        </div>
+      )}
       <div className="settings-row">
         <label htmlFor={`${modelListId}-input`}>Model</label>
         <input

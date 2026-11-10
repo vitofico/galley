@@ -202,6 +202,37 @@ test("a provider saved on /settings reaches the editor's agent panel (the headli
   await expect(page.getByTestId("settings-provider-current")).toContainText("Demo");
 });
 
+test("AI provider: an OpenAI-compatible provider can opt into the Responses API", async ({
+  page,
+}) => {
+  await page.goto("/settings");
+  await expect(page.getByTestId("provider-settings")).toBeVisible({ timeout: 30_000 });
+
+  // Off by default, and offered only where it applies.
+  const responses = page.getByTestId("provider-responses-api");
+  await expect(responses).not.toBeChecked();
+  await page.getByTestId("provider-kind").selectOption("anthropic");
+  await expect(responses).toHaveCount(0);
+  await page.getByTestId("provider-kind").selectOption("openai-compatible");
+
+  await page.getByTestId("provider-mode").selectOption("proxy");
+  await page.getByTestId("provider-upstream").fill("router");
+  await page.getByTestId("provider-model").fill("high");
+  await responses.check();
+  await page.getByTestId("provider-save").click();
+  await expect(page.getByTestId("settings-provider-saved")).toBeVisible();
+
+  const saved = JSON.parse(
+    await page.evaluate(() => localStorage.getItem("galley.provider") ?? ""),
+  ) as { responsesApi?: boolean; transport: { upstreamId?: string } };
+  expect(saved.responsesApi).toBe(true);
+  expect(saved.transport.upstreamId).toBe("router");
+
+  // The saved choice comes back ticked.
+  await page.reload();
+  await expect(page.getByTestId("provider-responses-api")).toBeChecked();
+});
+
 test("AI provider: Ollama offers BOTH direct (local) and proxy (server/cluster) transports", async ({
   page,
 }) => {

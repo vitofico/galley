@@ -193,6 +193,29 @@ describe("createProxyHandler — CORS allowlist", () => {
     for (const h of requested) expect(allowed).toContain(h);
   });
 
+  it("allows the Responses SDK headers for a configured origin before the bearer gate", async () => {
+    const proxy = createProxyHandler(UPSTREAMS, { allowedOrigins: ORIGINS, accessToken: "proxy-token" });
+    const requested = ["authorization", "content-type", GALLEY_UPSTREAM_HEADER];
+    const preflight = (origin: string) => proxy.request("/forward/responses", {
+      method: "OPTIONS",
+      headers: {
+        origin,
+        "access-control-request-method": "POST",
+        "access-control-request-headers": requested.join(","),
+      },
+    });
+
+    const allowed = await preflight("http://localhost:5173");
+    expect(allowed.status).toBe(204);
+    expect(allowed.headers.get("access-control-allow-origin")).toBe("http://localhost:5173");
+    const headers = (allowed.headers.get("access-control-allow-headers") ?? "").toLowerCase().split(/\s*,\s*/);
+    for (const header of requested) expect(headers).toContain(header);
+
+    const denied = await preflight("http://evil.example");
+    expect(denied.headers.get("access-control-allow-origin")).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("does not authorize a disallowed origin", async () => {
     const res = await app().request("/forward/x", {
       method: "POST",

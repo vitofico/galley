@@ -159,10 +159,10 @@ export function createProxyHandler(
     cors({
       origin: (origin) => (options.allowedOrigins.includes(origin) ? origin : null),
       allowMethods: ["GET", "POST", "OPTIONS"],
-      // The Anthropic SDK also sends its protocol headers plus a placeholder
-      // `x-api-key` (stripped below, the real key is injected server-side).
-      // Without them in the allowlist the browser's preflight fails.
+      // The Responses SDK sends Authorization. Anthropic sends its protocol
+      // headers and x-api-key. The proxy replaces client credentials below.
       allowHeaders: [
+        "authorization",
         "content-type",
         "accept",
         GALLEY_UPSTREAM_HEADER,

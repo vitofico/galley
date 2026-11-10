@@ -54,6 +54,12 @@ export interface ProviderConfig {
   isLocal: boolean;
   /** Direct browser call vs. routed through @galley/proxy. */
   transport: ProviderTransport;
+  /**
+   * Speak the OpenAI Responses API instead of Chat Completions. Read only for
+   * `openai-compatible`: set it for a compatible server or proxy upstream that
+   * expects Responses. Unset, OpenAI's own GPT-6 models still use Responses.
+   */
+  responsesApi?: boolean;
 }
 
 /**

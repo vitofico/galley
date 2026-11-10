@@ -271,13 +271,14 @@ export function createModelClient(config: ProviderConfig): LanguageModelClient {
   return new AiSdkClient(config, provider(config.model));
 }
 
-/** GPT-6 tool calls use Responses; compatible servers retain their own protocol. */
+/**
+ * GPT-6 tool calls use Responses; compatible servers retain their own protocol
+ * unless the provider opts in with `responsesApi`.
+ */
 export function usesOpenAIResponses(config: ProviderConfig): boolean {
-  if (
-    config.kind !== "openai-compatible" ||
-    !/^gpt-6(?:[.-]|$)/.test(config.model)
-  )
-    return false;
+  if (config.kind !== "openai-compatible") return false;
+  if (config.responsesApi) return true;
+  if (!/^gpt-6(?:[.-]|$)/.test(config.model)) return false;
   if (config.transport.mode === "proxy")
     return config.transport.upstreamId === "openai";
   try {
