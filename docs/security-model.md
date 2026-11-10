@@ -23,14 +23,21 @@ out of the box is deliberately small.
 
 - **CRDT-as-truth.** A project is a Yjs document persisted locally. Edits converge
   via CRDT merge; there is no server-authoritative document to corrupt. Server
-  components relay or transform, they do not own state.
+  components relay or transform, they do not own state. The one exception is
+  opt-in: a project a person **connects** to the hosted connector
+  ([ADR-0033](decisions/ADR-0033-hosted-connector.md)) gets a server-side
+  replica, which merges like any other peer and is removed on disconnect.
 - **The Accept gate.** By default the AI agent never writes to a user's document
   directly — it produces a _proposal_ the user must **Accept** before any change
   lands. An operator may arm opt-in **MCP auto-accept**
   ([ADR-0023](decisions/ADR-0023-mcp-auto-accept-provenance.md); OFF by default,
   per-grant, signature-authenticated, checkpointed and revertable, with an instant
   kill-switch), which delegates write authority to the paired kernel for that
-  grant; even then the same Accept handler is the sole apply chokepoint. The agent
+  grant; even then the same Accept handler is the sole apply chokepoint. A
+  connected project in **Auto** mode additionally lets the hosted connector apply
+  on the server with no tab open (ADR-0033): token-authenticated, re-checked
+  before every apply, checkpointed first, audited, and using the same
+  conflict-aware apply code. The agent
   loop is sandboxed behind injected model + compiler seams and parses no privileged
   bytes on the user's behalf without that gate.
 - **Default-OFF sharing & agent access.** Collaboration rooms (Share) and the
