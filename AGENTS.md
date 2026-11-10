@@ -36,7 +36,10 @@ These are architecture, not preference. Don't violate them without a new ADR.
    document without an explicit user **Accept**; the in-app loop never auto-applies.
    (External MCP agents may be granted opt-in, off-by-default, signed + checkpointed
    - revertable auto-accept that drives this same Accept path —
-     [ADR-0023](docs/decisions/ADR-0023-mcp-auto-accept-provenance.md).)
+     [ADR-0023](docs/decisions/ADR-0023-mcp-auto-accept-provenance.md). A project
+     a person connects to the hosted connector may also be changed on the server
+     with no tab open, under the same safeguards —
+     [ADR-0033](docs/decisions/ADR-0033-hosted-connector.md).)
 2. **Scratch isolation.** The agent loop operates on a scratch copy and has **no
    handle to live document state.** Concurrent user typing must never corrupt a
    run.
