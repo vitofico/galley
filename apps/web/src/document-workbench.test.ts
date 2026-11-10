@@ -1,4 +1,4 @@
-import { resolveAccept } from "./accept.js";
+import { resolveAccept } from "@galley/agent-apply";
 import { describe, expect, it } from "vitest";
 import {
   bindingStatus,

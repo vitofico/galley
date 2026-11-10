@@ -19,14 +19,13 @@ import type {
   VersionStore,
 } from "@galley/shared";
 import {
-  applyAcceptedFileAsAgent,
-  applyAcceptedFileSetAsAgent,
   connectProjectSession,
   createProjectSession,
   ensureAuthenticatedBlobChannel,
   setSessionDisplayName,
   wireBlobSync,
 } from "./project-session.js";
+import { applyAcceptedFileAsAgent, applyAcceptedFileSetAsAgent } from "@galley/agent-apply";
 import { buildBlobTerminalAuth } from "@galley/collab";
 import { PersistentBlobStore, InMemoryBlobBackend } from "./idb-blob-store.js";
 import type { DraftStore, DraftStoreFactory } from "./collab-session.js";

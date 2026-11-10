@@ -37,11 +37,15 @@ import type {
 } from "@galley/collab";
 import { resolveProposal, resolveFileProposal, getFileProposal } from "@galley/collab";
 import type { Author } from "@galley/shared";
-import { resolveAccept } from "./accept.js";
-import { findProposalTarget } from "./components/McpProposals.js";
-import { applyAcceptedFileAsAgent, applyAcceptedFileSetAsAgent } from "./project-session.js";
-import { planFileProposalAccept, verifyBinaryBlobsPresent } from "./file-proposal-accept.js";
-import type { FrozenApply } from "./agent-apply-core.js";
+import {
+  applyAcceptedFileAsAgent,
+  applyAcceptedFileSetAsAgent,
+  findProposalTarget,
+  planFileProposalAccept,
+  resolveAccept,
+  verifyBinaryBlobsPresent,
+  type FrozenApply,
+} from "@galley/agent-apply";
 
 /** The agent run id mutations attribute to (matches ProjectApp's MCP accept path). */
 const MCP_RUN_ID = "mcp";

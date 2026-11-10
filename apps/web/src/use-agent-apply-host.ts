@@ -50,13 +50,17 @@ import { createProjectSession, connectProjectSession } from "./project-session.j
 import { PersistentBlobStore, IndexeddbBlobBackend, blobDbName } from "./idb-blob-store.js";
 import { IdbVersionStore } from "./idb-version-store.js";
 import { getControlResponderManager } from "./control-responder-mount.js";
-import { isAutoApplierOwner, claimAutoApplier, releaseAutoApplier } from "./auto-applier-ownership.js";
-import { runAgentApply, type ApplyRecord, type AgentApplyDeps } from "./agent-apply-core.js";
+import { isAutoApplierOwner, claimAutoApplier, releaseAutoApplier, defaultLockManager } from "./auto-applier-ownership.js";
+import {
+  runAgentApply,
+  verifyBinaryBlobsPresent,
+  type AgentApplyDeps,
+  type ApplyRecord,
+  type AutoAcceptCtx,
+  type SessionStoreLike,
+} from "@galley/agent-apply";
 import { makeHeadlessApplySeam } from "./agent-apply-seam.js";
 import { writeHeadlessStamp } from "./headless-access-stamp.js";
-import { verifyBinaryBlobsPresent } from "./file-proposal-accept.js";
-import type { SessionStoreLike } from "./control-responder-mount.js";
-import type { AutoAcceptCtx } from "./auto-accept.js";
 
 /** The op/byte burst budget — the SAME bounds the foreground editor charges. */
 const AUTO_ACCEPT_MAX_OPS = 500;
@@ -234,6 +238,7 @@ export function useAgentApplyHost(opts: {
 
       const deps = (audit: NonNullable<ReturnType<typeof mgr.getAudit>>): AgentApplyDeps => ({
         grantId: grant.grantId,
+        locks: defaultLockManager(),
         buildCtx,
         audit,
         checkpoint: async (request: string): Promise<string | null> => {

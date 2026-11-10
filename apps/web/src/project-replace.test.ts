@@ -10,7 +10,7 @@ import {
   type ReplaceChange,
   type ReplaceDocAccess,
 } from "./project-replace.js";
-import { applyMinimalDiff } from "./collab-session.js";
+import { applyMinimalDiff } from "@galley/agent-apply";
 import { searchProjectFiles, type SearchInputFile } from "./project-search.js";
 
 /** Tiny helper to build the {fileId, path, text} input rows tersely. */

@@ -37,6 +37,11 @@
  * read; only `setLocalStateField`/`getLocalState` are written), so the unit gate
  * drives it with a tiny fake — no relay, no Y.Doc, no DOM.
  */
+import {
+  withAutoApplierLock as withInjectedAutoApplierLock,
+  type AutoApplierLockResult,
+  type LockManagerLike,
+} from "@galley/agent-apply";
 
 /** The awareness-state field key carrying a tab's auto-applier claim. */
 export const AUTO_APPLIER_FIELD = "autoApplier";
@@ -216,34 +221,8 @@ export function isAutoApplierOwner(
 // H3 step 2 — the REAL same-origin mutual exclusion: the Web Locks API.
 // ---------------------------------------------------------------------------
 
-/**
- * The minimal slice of the Web Locks API this module needs. The real
- * `navigator.locks` satisfies it structurally; the unit gate passes a fake (or
- * undefined, to exercise the fail-closed path).
- */
-export interface LockManagerLike {
-  request<T>(
-    name: string,
-    options: { ifAvailable?: boolean },
-    callback: (lock: unknown | null) => Promise<T>,
-  ): Promise<T>;
-}
-
-/** The lock NAME for one grant's auto-applier — keyed by grant id (one critical section per grant). */
-export function autoApplierLockName(grantId: string): string {
-  return `galley.autoApplier.${grantId}`;
-}
-
-/** The outcome of an attempted lock-guarded run. */
-export interface AutoApplierLockResult<T> {
-  /** True only if the lock was acquired and `fn` actually ran. */
-  ranWithLock: boolean;
-  /** `fn`'s result, present only when `ranWithLock` is true. */
-  result?: T;
-}
-
 /** Resolve the ambient `navigator.locks`, or null when unavailable (jsdom/old runtime). */
-function defaultLockManager(): LockManagerLike | null {
+export function defaultLockManager(): LockManagerLike | null {
   const nav = (globalThis as { navigator?: { locks?: LockManagerLike } })
     .navigator;
   return nav?.locks ?? null;
@@ -270,24 +249,9 @@ export async function withAutoApplierLock<T>(
   fn: () => Promise<T>,
   locks?: LockManagerLike | null,
 ): Promise<AutoApplierLockResult<T>> {
-  const mgr = locks === undefined ? defaultLockManager() : locks;
-  if (mgr === null || typeof mgr.request !== "function") {
-    return { ranWithLock: false }; // fail closed: no lock primitive → never auto-apply
-  }
-  try {
-    return await mgr.request(
-      autoApplierLockName(grantId),
-      { ifAvailable: true },
-      async (lock) => {
-        // `ifAvailable` hands back null when the lock is already held — do NOT run.
-        if (lock === null)
-          return { ranWithLock: false } as AutoApplierLockResult<T>;
-        const result = await fn();
-        return { ranWithLock: true, result };
-      },
-    );
-  } catch {
-    // A lock-manager throw must never become an unguarded apply (fail closed).
-    return { ranWithLock: false };
-  }
+  return withInjectedAutoApplierLock(
+    grantId,
+    fn,
+    locks === undefined ? defaultLockManager() : locks,
+  );
 }

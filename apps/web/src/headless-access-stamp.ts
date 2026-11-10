@@ -25,7 +25,7 @@
  * best-effort and never throws — a storage failure just means the TTL is measured
  * from `grantedAt` (the conservative bound).
  */
-import type { SessionStoreLike } from "./control-responder-mount.js";
+import type { SessionStoreLike } from "@galley/agent-apply";
 
 /** Storage-key prefix for the per-grant headless activity stamp. */
 const STAMP_KEY_PREFIX = "galley.agentAccess.headlessActive.";

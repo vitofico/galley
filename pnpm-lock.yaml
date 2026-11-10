@@ -170,6 +170,9 @@ importers:
       '@galley/agent':
         specifier: workspace:*
         version: link:../../packages/agent
+      '@galley/agent-apply':
+        specifier: workspace:*
+        version: link:../../packages/agent-apply
       '@galley/collab':
         specifier: workspace:*
         version: link:../../packages/collab
@@ -292,6 +295,21 @@ importers:
       ai:
         specifier: ^6.0.0
         version: 6.0.197(zod@4.6.7)
+
+  packages/agent-apply:
+    dependencies:
+      '@galley/agent':
+        specifier: workspace:*
+        version: link:../agent
+      '@galley/collab':
+        specifier: workspace:*
+        version: link:../collab
+      '@galley/shared':
+        specifier: workspace:*
+        version: link:../shared
+      yjs:
+        specifier: ^13.6.0
+        version: 13.6.31
 
   packages/agent-client:
     dependencies:

@@ -37,8 +37,11 @@
 - `agent` depends only on `shared`. **No React, no DOM, no typst.ts** — it
   receives a compiler via an injected `AgentCompiler` interface and a model via
   an injected `LanguageModelClient`.
-- `web` depends on `shared`, `compiler`, `agent` and is the only package allowed
-  to import React. It owns live document state.
+- `agent-apply` depends on `shared`, `agent` and `collab`. **No React, no DOM.**
+  It holds the logic that decides and applies an accepted proposal, so a
+  browser and a server-side applier run the same code.
+- `web` depends on `shared`, `compiler`, `agent`, `agent-apply` and is the only
+  package allowed to import React. It owns live document state.
 - `proxy` (`apps/proxy`) depends only on `shared` (for the wire-contract types).
   It is a **separate Node runtime**, not imported by the browser packages. See
   "Model transport" below.

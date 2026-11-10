@@ -22,7 +22,7 @@ import { authorOrigin } from "@galley/collab";
 import type { CollabProject } from "@galley/collab";
 import type { Author, ProjectInput, CheckResult, Diagnostic } from "@galley/shared";
 import { generateShim, type Style, type Styleability } from "./style-manifest.js";
-import { applyMinimalDiff } from "./collab-session.js";
+import { applyMinimalDiff } from "@galley/agent-apply";
 
 /** The /style.typ text to write: the style's entry-file source + the shim tail. */
 export function buildStyleSource(style: Style, styleability: Styleability): string {

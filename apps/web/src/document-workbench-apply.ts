@@ -1,6 +1,6 @@
 import type { CompileInput } from "@galley/shared";
 import { compileInputKey } from "./useCompiler.js";
-import { resolveAccept } from "./accept.js";
+import { resolveAccept } from "@galley/agent-apply";
 import {
   readWorkbench,
   WORKBENCH_PATH,

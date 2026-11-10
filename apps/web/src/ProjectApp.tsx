@@ -76,7 +76,8 @@ import type {
   ProviderCapabilities,
   SourceLineCol,
 } from "@galley/shared";
-import { applyMinimalDiff, type CollabConfig } from "./collab-session.js";
+import { type CollabConfig } from "./collab-session.js";
+import { applyMinimalDiff } from "@galley/agent-apply";
 import { authorLabel, ANON_AUTHOR_LABEL } from "./attribution-style.js";
 import { applyReplaceChanges, type ReplaceChange } from "./project-replace.js";
 import { omittedBinariesNotice, exportFailureNotice } from "./export-notice.js";
@@ -104,8 +105,6 @@ import {
   type JoinSyncPhase,
 } from "./join-sync.js";
 import {
-  applyAcceptedFileAsAgent,
-  applyAcceptedFileSetAsAgent,
   connectProjectSession,
   createProjectSession,
   disconnectProjectSession,
@@ -114,6 +113,7 @@ import {
   setSessionDisplayName,
   type ProjectSession,
 } from "./project-session.js";
+import { applyAcceptedFileAsAgent, applyAcceptedFileSetAsAgent } from "@galley/agent-apply";
 import {
   resolveSyncUrl,
   configuredSyncUrlOverride,
@@ -142,7 +142,7 @@ import {
 import { Notice } from "./components/Notice.js";
 import { AccountChip } from "./components/AccountChip.js";
 import { getActiveAuthUser } from "./auth-gate.js";
-import { resolveAccept } from "./accept.js";
+import { resolveAccept } from "@galley/agent-apply";
 import { passesInAppFinalGate } from "./in-app-auto.js";
 import {
   getProjectAcceptanceMode,
@@ -230,7 +230,7 @@ import {
   appendSnippet,
   wholeSourceBlock,
 } from "./components/authoring-insert.js";
-import { findProposalTarget } from "./components/McpProposals.js";
+import { findProposalTarget } from "@galley/agent-apply";
 import { PendingReviewBadge } from "./components/PendingReviewBadge.js";
 import { RunReviewCard } from "./components/RunReviewCard.js";
 import { applyRunAccepts } from "./run-accept-all.js";
@@ -247,7 +247,7 @@ import {
   observeAutoEligibility,
   promotePendingToEligible,
   type AutoAcceptCtx,
-} from "./auto-accept.js";
+} from "@galley/agent-apply";
 import {
   maintainAutoApplierClaim,
   isAutoApplierOwner,
@@ -257,7 +257,7 @@ import {
   planFileProposalAccept,
   verifyBinaryBlobsPresent,
   blobHashIsReferenced,
-} from "./file-proposal-accept.js";
+} from "@galley/agent-apply";
 import { TabBar, TAB_PANEL_ID } from "./components/TabBar.js";
 import { tablistKeyTarget } from "./components/tablist-nav.js";
 import { IconRail } from "./components/IconRail.js";

@@ -3,8 +3,8 @@ import type { ProposalRecord, ProjectFileSnapshot } from "@galley/collab";
 import {
   MAX_RENDERED_PROPOSALS,
   visibleProposals,
-  findProposalTarget,
 } from "./McpProposals.js";
+import { findProposalTarget } from "@galley/agent-apply";
 
 function proposal(id: string): ProposalRecord {
   return {

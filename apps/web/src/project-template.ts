@@ -37,7 +37,7 @@
  */
 import { CollabProject, authorOrigin } from "@galley/collab";
 import type { Author } from "@galley/shared";
-import { applyMinimalDiff } from "./collab-session.js";
+import { applyMinimalDiff } from "@galley/agent-apply";
 
 /** A project template: a flat set of files plus which one is `main`. */
 export interface ProjectTemplate {

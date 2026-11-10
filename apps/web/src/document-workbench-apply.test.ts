@@ -12,7 +12,7 @@ import {
   type WorkbenchFile,
 } from "./document-workbench.js";
 import { compileInputKey } from "./useCompiler.js";
-import { applyAcceptedFileSetAsAgent } from "./project-session.js";
+import { applyAcceptedFileSetAsAgent } from "@galley/agent-apply";
 const metadata = JSON.stringify(emptyWorkbench());
 const files: WorkbenchFile[] = [
   { fileId: "doc", path: "/main.typ", text: "Revenue 12" },

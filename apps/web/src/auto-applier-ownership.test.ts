@@ -8,10 +8,9 @@ import {
   isAutoApplierOwner,
   releaseAutoApplier,
   withAutoApplierLock,
-  autoApplierLockName,
   type AutoApplierAwareness,
-  type LockManagerLike,
 } from "./auto-applier-ownership.js";
+import { autoApplierLockName, type LockManagerLike } from "@galley/agent-apply";
 
 /**
  * A tiny fake of the `y-protocols` Awareness slice this module reads/writes. Each
