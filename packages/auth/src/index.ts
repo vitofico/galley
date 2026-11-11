@@ -58,8 +58,11 @@ export type { AuthorizeSyncUpgradeOptions } from "./upgrade.js";
 export {
   registerCapabilityRoom,
   revokeCapabilityRoom,
+  listConnectedProjects,
+  setConnectorReviewMode,
   MAX_ACTIVE_CAPABILITY_ROOMS_PER_USER,
   MAX_ACTIVE_CONTROL_ROOMS_PER_USER,
+  MAX_ACTIVE_CONNECTOR_ROOMS_PER_USER,
   TOMBSTONE_CAP_PER_USER,
 } from "./capability-rooms.js";
 export type {
@@ -67,7 +70,25 @@ export type {
   CapabilityRoomErrorCode,
   RegisterCapabilityRoomInput,
   RevokeCapabilityRoomInput,
+  ConnectedProject,
+  SetConnectorReviewModeInput,
 } from "./capability-rooms.js";
+export {
+  createConnectorToken,
+  listConnectorTokens,
+  revokeConnectorToken,
+  verifyConnectorToken,
+  hashConnectorToken,
+  MAX_ACTIVE_CONNECTOR_TOKENS_PER_USER,
+  CONNECTOR_TOKEN_LIFETIMES_DAYS,
+} from "./connector-tokens.js";
+export type {
+  ConnectorTokenInfo,
+  ConnectorTokenErrorCode,
+  CreateConnectorTokenInput,
+  CreateConnectorTokenResult,
+  RevokeConnectorTokenResult,
+} from "./connector-tokens.js";
 export {
   createAccountResourcePolicyReader,
   type AccountResourcePolicy,

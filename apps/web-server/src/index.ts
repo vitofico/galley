@@ -88,6 +88,8 @@ export interface WebServerAppOptions {
   hostedRunsApiPath?: string | null | undefined;
   hostedAccountPath?: string | null | undefined;
   hostedStorage?: boolean;
+  /** The hosted connector is enabled (ADR-0033): the SPA offers "Connect". */
+  hostedConnector?: boolean;
   /**
    * Service-authenticated internal membership-read wiring (Wave 13 cloud enabler).
    * When present, a `/internal/projects/:projectId/membership/:userId` route is
@@ -230,6 +232,8 @@ export interface RuntimeConfigValues {
   auth?: true;
   hostedRuns?: { apiPath: string; accountPath?: string };
   hostedStorage?: true;
+  /** People may connect a project to the hosted connector (ADR-0033). */
+  hostedConnector?: true;
 }
 
 export function renderRuntimeConfigScript(values: RuntimeConfigValues): string {
@@ -243,6 +247,7 @@ export function renderRuntimeConfigScript(values: RuntimeConfigValues): string {
   if (values.auth === true) config["auth"] = true;
   if (values.hostedRuns !== undefined) config["hostedRuns"] = values.hostedRuns;
   if (values.hostedStorage === true) config["hostedStorage"] = true;
+  if (values.hostedConnector === true) config["hostedConnector"] = true;
   const json = JSON.stringify(config)
     .replace(/</g, "\\u003c")
     .replace(/>/g, "\\u003e")
@@ -317,7 +322,8 @@ export function createWebServerApp(options: WebServerAppOptions): Hono {
     syncUrl !== null ||
     authEnabled ||
     hostedRuns !== null ||
-    options.hostedStorage === true
+    options.hostedStorage === true ||
+    options.hostedConnector === true
       ? {
           ...(compileUrl !== null ? { compileUrl } : {}),
           ...(syncUrl !== null ? { syncUrl } : {}),
@@ -325,6 +331,9 @@ export function createWebServerApp(options: WebServerAppOptions): Hono {
           ...(hostedRuns ? { hostedRuns } : {}),
           ...(options.hostedStorage === true
             ? { hostedStorage: true as const }
+            : {}),
+          ...(options.hostedConnector === true
+            ? { hostedConnector: true as const }
             : {}),
         }
       : null;

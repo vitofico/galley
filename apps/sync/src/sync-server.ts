@@ -467,6 +467,28 @@ export interface SyncServerOptions {
   crdtStore?: CrdtStore;
 
   /**
+   * Narrow WHICH rooms `crdtStore` persists. Absent (the default) → every room
+   * with a safe storage key, unchanged. When provided, a room persists only if
+   * this returns true at the moment the room is created; the rest stay
+   * ephemeral. The hosted connector uses it so that only a project a person
+   * connected gets a server copy (ADR-0033 §1). Must be cheap and synchronous:
+   * it runs on the join path, after the room was authorized.
+   */
+  persistRoom?: (room: string) => boolean;
+
+  /**
+   * Rooms whose stored state must be erased, polled at startup and then every
+   * `retireSweepMs`. Each is retired once (connections dropped, store, history
+   * and assets removed, the room unjoinable from then on); a failed retirement
+   * is retried on the next poll. Absent (the default) → no polling. The hosted
+   * connector returns disconnected projects here, so a server copy does not
+   * outlive its grant.
+   */
+  roomsToRetire?: () => Promise<string[]>;
+  /** Poll interval for {@link roomsToRetire}. Default 30s. */
+  retireSweepMs?: number;
+
+  /**
    * Optional per-room storage caps (B2 — cloud enabler). ABSENT (the default) ⇒
    * NO storage accounting: the message-loop admission peek never runs and the
    * relay is byte-for-byte the previous behavior. When present it gates GROWTH
@@ -568,6 +590,24 @@ export function startSyncServer(
     await options.crdtStore?.retire?.(name);
     await options.hostedStorage?.retire(name);
     options.storageQuota?.retire?.(name);
+  };
+  const swept = new Set<string>();
+  let sweeping = false;
+  const sweepRetired = async (): Promise<void> => {
+    if (sweeping || options.roomsToRetire === undefined) return;
+    sweeping = true;
+    try {
+      for (const name of await options.roomsToRetire()) {
+        if (swept.has(name)) continue;
+        await retireRoom(name);
+        swept.add(name); // only once it is really gone — a failure retries
+      }
+    } catch {
+      // eslint-disable-next-line no-console
+      console.error("[galley/sync] failed to retire a disconnected room");
+    } finally {
+      sweeping = false;
+    }
   };
   // Normalize the Origin allowlist once. Empty → the check is OFF (default). A
   // non-empty list is fail-closed: only listed origins (exact match) are allowed.
@@ -1140,7 +1180,9 @@ export function startSyncServer(
     // storage key; otherwise `persist` is undefined and every branch below is
     // the exact stateless path.
     const persist =
-      options.crdtStore !== undefined && PERSISTABLE_ROOM_ID.test(name)
+      options.crdtStore !== undefined &&
+      PERSISTABLE_ROOM_ID.test(name) &&
+      (options.persistRoom?.(name) ?? true)
         ? options.crdtStore
         : undefined;
     const room: Room = {
@@ -1781,6 +1823,12 @@ export function startSyncServer(
   });
   return new Promise((resolve) => {
     httpServer.listen(port, () => {
+      void sweepRetired();
+      const sweepTimer = setInterval(
+        () => void sweepRetired(),
+        options.retireSweepMs ?? 30_000,
+      );
+      sweepTimer.unref();
       const address = httpServer.address();
       const boundPort =
         typeof address === "object" && address !== null ? address.port : port;
@@ -1815,6 +1863,7 @@ export function startSyncServer(
         retireRoom,
         close: () =>
           new Promise<void>((res, rej) => {
+            clearInterval(sweepTimer);
             blobRelay.closeAll();
             hostedBlobs?.closeAll();
             // Flush-on-shutdown (B1.3): compact every persisted room's log to

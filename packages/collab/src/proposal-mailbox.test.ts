@@ -371,6 +371,29 @@ describe("proposal mailbox — provenance (sig, seq, map-key guard)", () => {
     expect(rec.request).toBe(PROPOSAL.request);
   });
 
+  it("a record born accepted is never pending on any peer, and arrives as one update", async () => {
+    const { a, b, connA, connB } = twoPeers();
+    const seen: string[] = [];
+    const stop = observeProposals(a, () =>
+      seen.push(...getProposals(a).map((p) => p.status)),
+    );
+    const id = await publishProposal(b, PROPOSAL, MCP, undefined, "accepted");
+    const fileId = await publishFileProposal(
+      b,
+      { request: "Add a file", ops: [{ kind: "create", path: "/new.typ", baseText: "", proposedText: "x", blocks: [] }] },
+      MCP,
+      undefined,
+      "accepted",
+    );
+    expect(getProposal(a, id)?.status).toBe("accepted");
+    expect(getFileProposal(a, fileId)?.status).toBe("accepted");
+    expect(getPendingProposals(a)).toEqual([]);
+    expect(seen).toEqual(["accepted"]);
+    stop();
+    connA.destroy();
+    connB.destroy();
+  });
+
   it("promotes `seq` onto the public read record", async () => {
     const b = new CollabProject();
     b.create("/main.typ", "= Title\nbody\n", HUMAN);

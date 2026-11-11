@@ -33,13 +33,31 @@ export const CAPABILITY_ROOM_PREFIX = "share-";
  * + registration gate apply unchanged) and registered as a `"control"`-kind room
  * bounded to the registering session — it carries no durable authority and is torn
  * down on code-consume / 10-min TTL.
+ *
+ *  - `"connector"` — the room a project connected to the hosted connector is
+ *    kept synced into (ADR-0033). No expiry; the relay PERSISTS it, so the
+ *    server holds a replica while no tab is open. The record is also the
+ *    project's connector GRANT: it carries the review mode.
  */
-export type CapabilityRoomKind = "share" | "control";
+export type CapabilityRoomKind = "share" | "control" | "connector";
 
 /** The set of known kinds, exported so validators never drift from the type. */
 export const CAPABILITY_ROOM_KINDS: readonly CapabilityRoomKind[] = [
   "share",
   "control",
+  "connector",
+];
+
+/**
+ * How a change from the hosted connector reaches a connected project
+ * (ADR-0033 §3): `"ask"` leaves it for the person to accept in the browser,
+ * `"auto"` lets the server apply it.
+ */
+export type ConnectorReviewMode = "ask" | "auto";
+
+export const CONNECTOR_REVIEW_MODES: readonly ConnectorReviewMode[] = [
+  "ask",
+  "auto",
 ];
 
 /**
@@ -57,8 +75,20 @@ export interface CapabilityRoomRecord {
   createdAtMs: number;
   /** Absolute expiry. Control rooms: the registering session's expiry. Share rooms: none. */
   expiresAtMs?: number;
-  /** Optional informational association (never used for authorization). */
+  /**
+   * The project the room belongs to. Informational for share/control rooms
+   * (never used for authorization); REQUIRED for a connector room, where it
+   * names the connected project.
+   */
   projectId?: string;
+  /** Connector rooms only: the grant's review mode. Absent reads as `"ask"`. */
+  reviewMode?: ConnectorReviewMode;
+  /**
+   * Connector rooms only: the project's name when it was connected, so the
+   * connector can tell an AI client which project is which. A label, never an
+   * identifier: it is not kept in step with later renames.
+   */
+  projectName?: string;
   /** Tombstone marker: set on revoke, never cleared. */
   revokedAtMs?: number;
   revokedBy?: string;

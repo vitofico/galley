@@ -22,6 +22,13 @@
  *     state survive crash/restart: loaded on room create, appended per update,
  *     compacted on reap/shutdown.
  *
+ *   - `GALLEY_SYNC_PERSIST_ROOMS` — which rooms that volume keeps: `all` (the
+ *     default, unchanged) or `connector`, only the rooms of projects a person
+ *     connected to the hosted connector (ADR-0033). `connector` needs the
+ *     persist dir and `GALLEY_SYNC_AUTH=required`, because a connected project
+ *     is a registered room. Either way, once a connector room is revoked (the
+ *     project was disconnected) its stored state is erased.
+ *
  * FAIL CLOSED: all three pieces must agree across containers via mounted volumes.
  * When auth is required but the durable, SHARED `GALLEY_SESSION_DIR` (and/or the
  * `GALLEY_DATA_DIR`) is missing, we THROW rather than silently use an in-memory
@@ -68,6 +75,22 @@ export function isSyncAuthRequired(env: SyncEnv = process.env): boolean {
       `"required" (gate the ws upgrade) or "off"/unset (open rooms). A typo must never ` +
       `silently leave rooms open.`,
   );
+}
+
+/**
+ * Strict parse of `GALLEY_SYNC_PERSIST_ROOMS`: `all`/unset, or `connector`. A
+ * typo throws — guessing `all` would keep documents the operator meant not to.
+ */
+export function persistsOnlyConnectorRooms(env: SyncEnv = process.env): boolean {
+  const raw = env.GALLEY_SYNC_PERSIST_ROOMS?.trim().toLowerCase() ?? "";
+  if (raw === "" || raw === "all") return false;
+  if (raw !== "connector")
+    throw new Error("GALLEY_SYNC_PERSIST_ROOMS must be all or connector");
+  if (!env.GALLEY_SYNC_PERSIST_DIR?.trim() || !isSyncAuthRequired(env))
+    throw new Error(
+      "GALLEY_SYNC_PERSIST_ROOMS=connector requires GALLEY_SYNC_PERSIST_DIR and GALLEY_SYNC_AUTH=required",
+    );
+  return true;
 }
 
 /**
@@ -153,6 +176,7 @@ export function buildSyncOptions(
       throw new Error(
         "Restored data requires lifecycle reconciliation before serving",
       );
+  const connectorRoomsOnly = persistsOnlyConnectorRooms(env);
   const allowedOrigins = parseAllowedOrigins(env);
   // Only attach the key when non-empty so the default config stays byte-for-byte
   // `{}` (the open, unchanged path) — an empty allowlist is the OFF state anyway.
@@ -346,22 +370,42 @@ export function buildSyncOptions(
   // registry record (no cookie); every other room keeps the session+membership
   // gate below, unchanged.
   const capabilityRegistry = new FsCapabilityRoomRegistry(dataDir);
+  // Hosted connector (ADR-0033). The rooms seen ACTIVE with kind `connector`:
+  // every join authorizes first (below), so by the time the relay creates a
+  // room and asks whether to persist it, its kind is already known here.
+  const connectorRooms = new Set<string>();
+  const connectorOpt: SyncServerOptions = persistOpt.crdtStore
+    ? {
+        ...(connectorRoomsOnly
+          ? { persistRoom: (room) => connectorRooms.has(room) }
+          : {}),
+        // A disconnected project (its connector room revoked) keeps no server copy.
+        roomsToRetire: async () =>
+          (await capabilityRegistry.list())
+            .filter((r) => r.kind === "connector" && r.revokedAtMs !== undefined)
+            .map((r) => r.roomId),
+      }
+    : {};
   return {
     ...originOpt,
     ...persistOpt,
     ...storageOpt,
     ...lifecycleOpt,
+    ...connectorOpt,
     capabilityRooms: {
       isCapabilityRoom: isCapabilityRoomId,
       authorize: async (room) => {
         const record = await capabilityRegistry.get(room);
         if (record && (await sessionStore.isUserClosed(record.createdBy)))
           return false;
-        return authorizeCapabilityRoomUpgrade({
+        const allowed = await authorizeCapabilityRoomUpgrade({
           room,
           registry: capabilityRegistry,
           nowMs: Date.now(),
         });
+        if (allowed && record?.kind === "connector") connectorRooms.add(room);
+        else connectorRooms.delete(room);
+        return allowed;
       },
     },
     authorizeUpgrade: ({ room, req }) =>

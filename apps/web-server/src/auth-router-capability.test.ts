@@ -12,6 +12,9 @@ import type { Hono } from "hono";
 import type {
   CapabilityRoomRecord,
   CapabilityRoomStore,
+  ConnectorActivityEntry,
+  ConnectorTokenRecord,
+  ConnectorTokenStore,
   OidcProviderConfig,
 } from "@galley/shared";
 import { isCapabilityRoomId } from "@galley/shared";
@@ -20,7 +23,11 @@ import {
   InMemoryOidcLoginStateStore,
   type JwksGetter,
 } from "@galley/auth";
-import { createAuthRouter, MAX_CAPABILITY_BODY_BYTES } from "./auth-router.js";
+import {
+  createAuthRouter,
+  MAX_CAPABILITY_BODY_BYTES,
+  type ConnectorHistoryReader,
+} from "./auth-router.js";
 
 const ORIGIN = "https://galley.example.com";
 const NOW = 1_700_000_000_000;
@@ -53,11 +60,32 @@ class MemStore implements CapabilityRoomStore {
   }
 }
 
-async function setup(withStore = true) {
+class MemTokens implements ConnectorTokenStore {
+  readonly map = new Map<string, ConnectorTokenRecord>();
+  async get(hash: string) {
+    return this.map.get(hash) ?? null;
+  }
+  async put(record: ConnectorTokenRecord) {
+    this.map.set(record.hash, record);
+  }
+  async list() {
+    return [...this.map.values()];
+  }
+  async remove(hash: string) {
+    this.map.delete(hash);
+  }
+}
+
+async function setup(
+  withStore = true,
+  hostedConnector = false,
+  history?: ConnectorHistoryReader,
+) {
   const sessionStore = new InMemorySessionStore(
     () => `sid${Math.random().toString(36).slice(2)}`,
   );
   const store = new MemStore();
+  const tokens = new MemTokens();
   const app = createAuthRouter({
     config,
     sessionStore,
@@ -66,14 +94,28 @@ async function setup(withStore = true) {
       throw new Error("jwks never used by these routes");
     }) as unknown as JwksGetter,
     now: () => NOW,
-    ...(withStore ? { capabilityRooms: { store } } : {}),
+    ...(withStore
+      ? {
+          capabilityRooms: {
+            store,
+            ...(hostedConnector
+              ? {
+                  hostedConnector: {
+                    tokens,
+                    ...(history ? { history } : {}),
+                  },
+                }
+              : {}),
+          },
+        }
+      : {}),
   });
   const { id } = await sessionStore.create({
     userId: "alice",
     createdAtMs: NOW - 1000,
     expiresAtMs: NOW + SESSION_TTL,
   });
-  return { app, store, sessionStore, sid: id };
+  return { app, store, tokens, sessionStore, sid: id };
 }
 
 function post(
@@ -313,5 +355,249 @@ describe("router without a registry store", () => {
       body: goodBody,
     });
     expect(res.status).toBe(404);
+  });
+});
+
+describe("connected projects (ADR-0033)", () => {
+  const connectBody = JSON.stringify({
+    roomId: ROOM,
+    kind: "connector",
+    projectId: "proj-1",
+  });
+  const list = (app: Hono, cookie?: string) =>
+    Promise.resolve(
+      app.request("/connector/projects", {
+        headers: cookie ? { cookie } : {},
+      }),
+    );
+
+  it("is off by default: no connector registration, no connector routes", async () => {
+    const { app, store, sid } = await setup();
+    const res = await post(app, "/capability-rooms", {
+      cookie: cookieFor(sid),
+      body: connectBody,
+    });
+    expect(res.status).toBe(400);
+    expect(store.map.size).toBe(0);
+    expect((await list(app, cookieFor(sid))).status).toBe(404);
+    const mode = await post(app, `/connector/projects/${ROOM}/review-mode`, {
+      cookie: cookieFor(sid),
+      body: JSON.stringify({ reviewMode: "auto" }),
+    });
+    expect(mode.status).toBe(404);
+  });
+
+  it("connects, lists, switches the review mode and disconnects", async () => {
+    const { app, store, sid } = await setup(true, true);
+    const cookie = cookieFor(sid);
+    expect(
+      (await post(app, "/capability-rooms", { cookie, body: connectBody })).status,
+    ).toBe(200);
+
+    const listed = await list(app, cookie);
+    expect(listed.status).toBe(200);
+    expect(listed.headers.get("cache-control")).toBe("no-store");
+    expect(await listed.json()).toEqual({
+      ok: true,
+      projects: [
+        { roomId: ROOM, projectId: "proj-1", reviewMode: "ask", connectedAtMs: NOW },
+      ],
+      appliesChanges: false,
+    });
+
+    const mode = await post(app, `/connector/projects/${ROOM}/review-mode`, {
+      cookie,
+      body: JSON.stringify({ reviewMode: "auto" }),
+    });
+    expect(mode.status).toBe(200);
+    expect(store.map.get(ROOM)?.reviewMode).toBe("auto");
+
+    await post(app, `/capability-rooms/${ROOM}/revoke`, { cookie });
+    expect(await (await list(app, cookie)).json()).toEqual({
+      ok: true,
+      projects: [],
+      appliesChanges: false,
+    });
+  });
+
+  it("requires a session to list, and the same-origin gate to switch mode", async () => {
+    const { app, sid } = await setup(true, true);
+    expect((await list(app)).status).toBe(401);
+    const body = JSON.stringify({ reviewMode: "auto" });
+    const path = `/connector/projects/${ROOM}/review-mode`;
+    expect((await post(app, path, { cookie: cookieFor(sid), body, origin: "https://evil.example" })).status).toBe(403);
+    expect((await post(app, path, { body })).status).toBe(401);
+    expect((await post(app, path, { cookie: cookieFor(sid), body, contentLength: null })).status).toBe(411);
+  });
+});
+
+describe("what the connector applied (ADR-0033 §4)", () => {
+  const CHECKPOINT = `${"0".repeat(13)}-${"a".repeat(64)}`;
+  const GONE = `${"0".repeat(13)}-${"b".repeat(64)}`;
+  const change = (
+    over: Partial<ConnectorActivityEntry>,
+  ): ConnectorActivityEntry => ({
+    version: 1,
+    changeId: "c1",
+    state: "started",
+    atMs: 1,
+    tokenId: "aaaaaaaaaaaaaaaa",
+    request: "Fix a typo",
+    files: ["/main.typ"],
+    ops: 1,
+    bytes: 3,
+    checkpointId: CHECKPOINT,
+    ...over,
+  });
+  const history: ConnectorHistoryReader = {
+    activity: {
+      read: async (room) =>
+        room === ROOM
+          ? [
+              change({}),
+              change({ state: "applied", atMs: 2 }),
+              change({ changeId: "c2", atMs: 3, checkpointId: GONE }),
+            ]
+          : [],
+    },
+    checkpoints: {
+      list: async () => [CHECKPOINT],
+      read: async (room, id) =>
+        room === ROOM && id === CHECKPOINT
+          ? new TextEncoder().encode('{"version":1,"files":[],"binaryFiles":[]}')
+          : null,
+    },
+  };
+  const connect = async (app: Hono, cookie: string) =>
+    post(app, "/capability-rooms", {
+      cookie,
+      body: JSON.stringify({ roomId: ROOM, kind: "connector", projectId: "proj-1" }),
+    });
+  const get = (app: Hono, path: string, cookie?: string) =>
+    Promise.resolve(app.request(path, { headers: cookie ? { cookie } : {} }));
+
+  it("shows the owner each change once, and whether its checkpoint is still kept", async () => {
+    const { app, sid } = await setup(true, true, history);
+    const cookie = cookieFor(sid);
+    await connect(app, cookie);
+    expect(
+      await (await get(app, "/connector/projects", cookie)).json(),
+    ).toMatchObject({ appliesChanges: true });
+    const res = await get(app, `/connector/projects/${ROOM}/activity`, cookie);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(await res.json()).toEqual({
+      ok: true,
+      changes: [
+        { ...change({ changeId: "c2", atMs: 3, checkpointId: GONE }), restorable: false },
+        { ...change({ state: "applied", atMs: 2 }), restorable: true },
+      ],
+    });
+  });
+
+  it("serves a kept checkpoint, and nothing for one that is gone or malformed", async () => {
+    const { app, sid } = await setup(true, true, history);
+    const cookie = cookieFor(sid);
+    await connect(app, cookie);
+    const base = `/connector/projects/${ROOM}/checkpoints`;
+    const ok = await get(app, `${base}/${CHECKPOINT}`, cookie);
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get("cache-control")).toBe("no-store");
+    expect(await ok.json()).toEqual({ version: 1, files: [], binaryFiles: [] });
+    expect((await get(app, `${base}/${GONE}`, cookie)).status).toBe(404);
+    expect((await get(app, `${base}/..%2F..%2Fetc`, cookie)).status).toBe(404);
+  });
+
+  it("answers only the project's owner, and only for a connected project", async () => {
+    const { app, sid, sessionStore } = await setup(true, true, history);
+    await connect(app, cookieFor(sid));
+    const paths = [
+      `/connector/projects/${ROOM}/activity`,
+      `/connector/projects/${ROOM}/checkpoints/${CHECKPOINT}`,
+    ];
+    const bob = await sessionStore.create({
+      userId: "bob",
+      createdAtMs: NOW - 1000,
+      expiresAtMs: NOW + SESSION_TTL,
+    });
+    for (const path of paths) {
+      expect((await get(app, path)).status).toBe(401);
+      expect((await get(app, path, cookieFor(bob.id))).status).toBe(404);
+    }
+    await post(app, `/capability-rooms/${ROOM}/revoke`, { cookie: cookieFor(sid) });
+    for (const path of paths)
+      expect((await get(app, path, cookieFor(sid))).status).toBe(404);
+  });
+
+  it("has an empty trail when the server does not apply changes itself", async () => {
+    const { app, sid } = await setup(true, true);
+    const cookie = cookieFor(sid);
+    await connect(app, cookie);
+    const res = await get(app, `/connector/projects/${ROOM}/activity`, cookie);
+    expect(await res.json()).toEqual({ ok: true, changes: [] });
+    expect(
+      (await get(app, `/connector/projects/${ROOM}/checkpoints/${CHECKPOINT}`, cookie)).status,
+    ).toBe(404);
+  });
+});
+
+describe("connector tokens (ADR-0033 §3)", () => {
+  const get = (app: Hono, cookie?: string) =>
+    Promise.resolve(
+      app.request("/connector/tokens", { headers: cookie ? { cookie } : {} }),
+    );
+
+  it("are not mounted unless the connector is enabled", async () => {
+    const { app, sid } = await setup();
+    expect((await get(app, cookieFor(sid))).status).toBe(404);
+    const made = await post(app, "/connector/tokens", {
+      cookie: cookieFor(sid),
+      body: JSON.stringify({ name: "Claude chat" }),
+    });
+    expect(made.status).toBe(404);
+  });
+
+  it("creates a token shown once, lists it without the secret, and revokes it", async () => {
+    const { app, tokens, sid } = await setup(true, true);
+    const cookie = cookieFor(sid);
+    const made = await post(app, "/connector/tokens", {
+      cookie,
+      body: JSON.stringify({ name: "Claude chat", expiresInDays: 30 }),
+    });
+    expect(made.status).toBe(200);
+    expect(made.headers.get("cache-control")).toBe("no-store");
+    const created = (await made.json()) as { token: string; tokenId: string };
+    expect(created.token).toMatch(/^gly_[A-Za-z0-9_-]{43}$/);
+    // The store holds a hash, not the token.
+    expect(JSON.stringify([...tokens.map.values()])).not.toContain(created.token);
+
+    const listed = await get(app, cookie);
+    expect(listed.headers.get("cache-control")).toBe("no-store");
+    const body = (await listed.json()) as { tokens: Record<string, unknown>[] };
+    expect(body.tokens).toEqual([
+      {
+        tokenId: created.tokenId,
+        name: "Claude chat",
+        createdAtMs: NOW,
+        expiresAtMs: NOW + 30 * 24 * 60 * 60 * 1000,
+      },
+    ]);
+
+    const revoked = await post(app, `/connector/tokens/${created.tokenId}/revoke`, { cookie });
+    expect(revoked.status).toBe(200);
+    expect(tokens.map.size).toBe(0);
+  });
+
+  it("guards every token route with the session, and writes with the same-origin gate", async () => {
+    const { app, sid } = await setup(true, true);
+    const body = JSON.stringify({ name: "x" });
+    expect((await get(app)).status).toBe(401);
+    expect((await post(app, "/connector/tokens", { body })).status).toBe(401);
+    expect(
+      (await post(app, "/connector/tokens", { cookie: cookieFor(sid), body, origin: "https://evil.example" })).status,
+    ).toBe(403);
+    expect(
+      (await post(app, "/connector/tokens/0123456789abcdef/revoke", { cookie: cookieFor(sid), origin: null })).status,
+    ).toBe(403);
+    expect((await post(app, "/connector/tokens/0123456789abcdef/revoke", {})).status).toBe(401);
   });
 });

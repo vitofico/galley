@@ -10,15 +10,29 @@ import {
   sha256Hex,
   type FileProposalOp,
 } from "@galley/collab";
-import { isSafeProjectPath, type Diagnostic, type EditBlock } from "@galley/shared";
+import type { Diagnostic, EditBlock } from "@galley/shared";
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
 import { isAbsolute as pathIsAbsolute } from "node:path";
 import type { CompileService } from "./compile-client.js";
+import {
+  buildTextOp,
+  claimPath,
+  describeEditFailures,
+  TEXT_OP_SCHEMAS,
+} from "./propose-build.js";
 import { READ_LIMITS, type ToolSurface } from "./surface.js";
 import {
-  summarizeListTruncation,
-  summarizeContextTruncation,
-} from "./truncation-summary.js";
+  compileServiceResult,
+  errorResult,
+  jsonResult,
+  listFilesResult,
+  projectContextResult,
+  readFileResult,
+  textOrJson,
+  textResult,
+  withLiveness,
+  type ToolResult,
+} from "./read-tools.js";
 import type { Liveness } from "./session.js";
 
 /**
@@ -153,22 +167,7 @@ const NO_PROJECT_RESULT = {
   message: "call open_project first",
 } as const;
 
-export type ToolResult = {
-  content: { type: "text"; text: string }[];
-  isError?: boolean;
-};
-
-export function textResult(text: string): ToolResult {
-  return { content: [{ type: "text", text }] };
-}
-
-export function jsonResult(value: unknown): ToolResult {
-  return textResult(JSON.stringify(value, null, 2));
-}
-
-export function errorResult(message: string): ToolResult {
-  return { isError: true, content: [{ type: "text", text: message }] };
-}
+export { textResult, jsonResult, errorResult, type ToolResult };
 
 /**
  * The honesty note (ADR-0024 §1) attached to a propose_* result when no browser
@@ -179,14 +178,6 @@ export function errorResult(message: string): ToolResult {
 const UNWATCHED_NOTE =
   "published, but no browser is attached to review — ask the user to open the project in Galley";
 
-/** Max characters of a failing block's `search` echoed back in `edit_failed`. */
-const MAX_FAILURE_ECHO_CHARS = 200;
-
-function truncateEcho(text: string): string {
-  return text.length <= MAX_FAILURE_ECHO_CHARS
-    ? text
-    : `${text.slice(0, MAX_FAILURE_ECHO_CHARS)}… [truncated]`;
-}
 
 /**
  * Decode a STRICT, CANONICAL base64 string (A2-D2) → bytes, or null when it is not
@@ -397,23 +388,6 @@ export function registerProjectTools(
     return att;
   };
 
-  // ADR-0024 §1 honesty helpers, resolved per call. When a liveness provider is
-  // present on the live attachment, EVERY per-project result carries the current
-  // room status; when ABSENT (the surface-only fixtures), results are
-  // byte-for-byte as before.
-  //
-  // - `withLiveness` merges the field into a JSON payload (read at send time so
-  //   it reflects the live roster).
-  // - `textOrJson` keeps the historical PLAIN-TEXT read result when there is no
-  //   liveness provider, and upgrades to a `{ text, liveness }` JSON sidecar when
-  //   there is (a read must never imply a browser is attached — ADR-0024 §1).
-  const withLiveness = (
-    att: ProjectAttachment,
-    value: Record<string, unknown>,
-  ): ToolResult =>
-    jsonResult(att.liveness === undefined ? value : { ...value, liveness: att.liveness() });
-  const textOrJson = (att: ProjectAttachment, text: string): ToolResult =>
-    att.liveness === undefined ? textResult(text) : jsonResult({ text, liveness: att.liveness() });
 
   server.registerTool(
     "read_document",
@@ -448,22 +422,7 @@ export function registerProjectTools(
     async () => {
       const att = await attached();
       if (att === undefined) return jsonResult(NO_PROJECT_RESULT);
-      const listed = att.surface.listFiles();
-      if (!listed.ok) return errorResult(`list_files: ${listed.error}`);
-      // D1: one human-readable line when the listing was cut (entry cap, hidden
-      // forged paths, or sizes reported as lower bounds). Null ⇒ omitted, so a
-      // complete listing's result is byte-for-byte unchanged.
-      const truncationSummary = summarizeListTruncation({
-        truncated: listed.truncated,
-        omitted: listed.omitted,
-        inexactSizes: listed.files.filter((f) => !f.sizeExact).length,
-      });
-      return withLiveness(att, {
-        files: listed.files,
-        truncated: listed.truncated,
-        omitted: listed.omitted,
-        ...(truncationSummary !== null ? { truncationSummary } : {}),
-      });
+      return listFilesResult(att);
     },
   );
 
@@ -488,26 +447,7 @@ export function registerProjectTools(
     async ({ path }) => {
       const att = await attached();
       if (att === undefined) return jsonResult(NO_PROJECT_RESULT);
-      // ALL read_file bounding lives in the surface (Security round 2): the
-      // byte cap is enforced BEFORE the text is materialized (O(1) length
-      // pre-check), duplicate-path conflicts are a structured refusal, and
-      // hostile path echoes come back JSON-escaped. The tool layer only
-      // relays the structured outcome.
-      const read = att.surface.readFile(path);
-      if (!read.ok) return errorResult(`read_file: ${read.error}`);
-      // A3: a binary file has no text — return its structured pointer
-      // ({ kind:"binary", path, hash, size, mime }) so the agent learns it is
-      // binary + its content-address, without bytes (no transport for them yet).
-      if ("kind" in read) {
-        return withLiveness(att, {
-          kind: "binary",
-          path: read.path,
-          hash: read.hash,
-          size: read.size,
-          mime: read.mime,
-        });
-      }
-      return textOrJson(att, read.text);
+      return readFileResult(att, path);
     },
   );
 
@@ -542,34 +482,7 @@ export function registerProjectTools(
     async ({ query, budget }) => {
       const att = await attached();
       if (att === undefined) return jsonResult(NO_PROJECT_RESULT);
-      // ALL context bounding lives in the surface (the read_file pattern): the
-      // metadata-first scan, the per-file cap, the cumulative materialization
-      // budget, and the response budget are enforced there — the tool layer
-      // only relays the structured outcome. Surface errors echo no
-      // caller-controlled text (the query is ranking input, never an echo).
-      const ctx = att.surface.projectContext(query, budget);
-      if (!ctx.ok) return errorResult(`project_context: ${ctx.error}`);
-      // D1: one human-readable line aggregating what was left out of the ranking
-      // / selection (file cap, hidden forged paths, per-reason skips, response
-      // budget). Null ⇒ omitted, so an untruncated result is unchanged.
-      const truncationSummary = summarizeContextTruncation({
-        omitted: ctx.omitted,
-        filesTruncated: ctx.filesTruncated,
-        scanTruncated: ctx.scanTruncated,
-        chunksTruncated: ctx.chunksTruncated,
-        selectionTruncated: ctx.selectionTruncated,
-        skippedReasons: ctx.skipped.map((s) => s.reason),
-      });
-      return withLiveness(att, {
-        excerpts: ctx.excerpts,
-        skipped: ctx.skipped,
-        omitted: ctx.omitted,
-        filesTruncated: ctx.filesTruncated,
-        scanTruncated: ctx.scanTruncated,
-        chunksTruncated: ctx.chunksTruncated,
-        selectionTruncated: ctx.selectionTruncated,
-        ...(truncationSummary !== null ? { truncationSummary } : {}),
-      });
+      return projectContextResult(att, query, budget);
     },
   );
 
@@ -627,13 +540,7 @@ export function registerProjectTools(
           status: "edit_failed",
           message:
             "No proposal was published: one or more blocks did not apply. Fix the failing blocks and retry.",
-          failures: result.failures.map((f) => ({
-            reason: f.reason,
-            ...(f.matchCount !== undefined ? { matchCount: f.matchCount } : {}),
-            // Echo a bounded prefix only — failure payloads must not become a
-            // second oversized channel (finding 1).
-            search: truncateEcho(f.block.search),
-          })),
+          failures: describeEditFailures(result.failures),
         });
       }
 
@@ -705,67 +612,7 @@ export function registerProjectTools(
         ops: z
           .array(
             z.discriminatedUnion("kind", [
-              z.object({
-                kind: z.literal("create"),
-                path: z
-                  .string()
-                  .min(1)
-                  .max(READ_LIMITS.maxPathChars)
-                  .describe("Canonical path of the NEW file, e.g. /chapters/intro.typ."),
-                text: z
-                  .string()
-                  .max(FILE_PROPOSAL_LIMITS.maxTextBytes)
-                  .describe("Full text of the new file."),
-              }),
-              z.object({
-                kind: z.literal("edit"),
-                path: z
-                  .string()
-                  .min(1)
-                  .max(READ_LIMITS.maxPathChars)
-                  .describe("Exact path of the EXISTING file to edit (as listed by list_files)."),
-                edits: z
-                  .array(
-                    z.object({
-                      search: z
-                        .string()
-                        .max(FILE_PROPOSAL_LIMITS.maxBlockBytes)
-                        .describe("Exact text to find in this file — must match exactly once."),
-                      replace: z
-                        .string()
-                        .max(FILE_PROPOSAL_LIMITS.maxBlockBytes)
-                        .describe("Replacement text."),
-                    }),
-                  )
-                  .min(1)
-                  .max(FILE_PROPOSAL_LIMITS.maxBlocks)
-                  .describe("Search/replace blocks, applied in order against this file's text."),
-              }),
-              z.object({
-                kind: z.literal("rename"),
-                path: z
-                  .string()
-                  .min(1)
-                  .max(READ_LIMITS.maxPathChars)
-                  .describe("Exact CURRENT path of the EXISTING file to move (as listed by list_files)."),
-                newPath: z
-                  .string()
-                  .min(1)
-                  .max(READ_LIMITS.maxPathChars)
-                  .describe(
-                    "Destination path — also moves into a folder (e.g. /draft.typ → /chapters/intro.typ). " +
-                      "Must be a free, safe in-tree path. References (#include/#image) are NOT auto-rewritten — " +
-                      "bundle the corrective `edit` ops in the same proposal.",
-                  ),
-              }),
-              z.object({
-                kind: z.literal("delete"),
-                path: z
-                  .string()
-                  .min(1)
-                  .max(READ_LIMITS.maxPathChars)
-                  .describe("Exact path of the EXISTING file to remove (recoverable soft-delete on Accept)."),
-              }),
+              ...TEXT_OP_SCHEMAS,
               z.object({
                 kind: z.literal("create-binary"),
                 path: z
@@ -846,58 +693,16 @@ export function registerProjectTools(
         // Every path is caller-supplied here (unlike the session-bound
         // propose_edit), so it must pass the same in-tree safety gate the
         // version store and mailbox enforce — fail BEFORE any work, as data.
-        if (!isSafeProjectPath(op.path)) {
-          return withLiveness(att, {
-            status: "invalid_path",
-            path: op.path,
-            message: `No proposal was published: ${op.path} is not a safe in-tree project path (needs a leading slash, no traversal, not under /.galley).`,
-          });
-        }
-        if (seenPaths.has(op.path)) {
-          return withLiveness(att, {
-            status: "duplicate_path",
-            path: op.path,
-            message: `No proposal was published: two ops target ${op.path}. Combine them into one op.`,
-          });
-        }
-        seenPaths.add(op.path);
+        const pathRefusal = claimPath(seenPaths, op.path);
+        if (pathRefusal !== null) return withLiveness(att, pathRefusal);
 
-        if (op.kind === "create") {
-          built[i] = { kind: "create", path: op.path, baseText: "", proposedText: op.text, blocks: [] };
-          continue;
-        }
-
-        if (op.kind === "rename") {
-          // The destination is caller-supplied too — gate it through the same
-          // safety + uniqueness rules as `path` before publishing.
-          if (!isSafeProjectPath(op.newPath)) {
-            return withLiveness(att, {
-              status: "invalid_path",
-              path: op.newPath,
-              message: `No proposal was published: ${op.newPath} is not a safe in-tree project path (needs a leading slash, no traversal, not under /.galley).`,
-            });
-          }
-          if (seenPaths.has(op.newPath)) {
-            return withLiveness(att, {
-              status: "duplicate_path",
-              path: op.newPath,
-              message: `No proposal was published: two ops target ${op.newPath}. Combine them into one op.`,
-            });
-          }
-          seenPaths.add(op.newPath);
-          built[i] = {
-            kind: "rename",
-            path: op.path,
-            newPath: op.newPath,
-            baseText: "",
-            proposedText: "",
-            blocks: [],
-          };
-          continue;
-        }
-
-        if (op.kind === "delete") {
-          built[i] = { kind: "delete", path: op.path, baseText: "", proposedText: "", blocks: [] };
+        // Text ops (create / edit / rename / delete) are built by the code the
+        // hosted connector shares; an edit's proposed text is computed from the
+        // live file on a SCRATCH copy, never taken from the model.
+        if (op.kind !== "create-binary" && op.kind !== "create-binary-path") {
+          const text = buildTextOp(surface, op, seenPaths);
+          if ("refusal" in text) return withLiveness(att, text.refusal);
+          built[i] = text.op;
           continue;
         }
 
@@ -1048,48 +853,6 @@ export function registerProjectTools(
           continue;
         }
 
-        // edit: read the live file and apply the blocks to a SCRATCH copy only —
-        // the kernel computes the proposed text (never trusts a model-supplied
-        // full body), exactly like propose_edit.
-        const read = surface.readFile(op.path);
-        if (!read.ok) {
-          return withLiveness(att, {
-            status: "file_unreadable",
-            path: op.path,
-            message: `No proposal was published: could not read ${op.path} — ${read.error}.`,
-          });
-        }
-        // A3: an edit op targets a text file's body — a binary file (no Y.Text)
-        // can't take search/replace blocks, so refuse the whole change set
-        // honestly rather than apply edits to a phantom empty string.
-        if ("kind" in read) {
-          return withLiveness(att, {
-            status: "file_unreadable",
-            path: op.path,
-            message: `No proposal was published: ${op.path} is a binary file (${read.mime}) and cannot be edited as text.`,
-          });
-        }
-        const blocks: EditBlock[] = op.edits.map((e) => ({ search: e.search, replace: e.replace }));
-        const result = applyEdits(read.text, blocks);
-        if (!result.ok) {
-          return withLiveness(att, {
-            status: "edit_failed",
-            path: op.path,
-            message: `No proposal was published: one or more blocks did not apply to ${op.path}. Fix the failing blocks and retry.`,
-            failures: result.failures.map((f) => ({
-              reason: f.reason,
-              ...(f.matchCount !== undefined ? { matchCount: f.matchCount } : {}),
-              search: truncateEcho(f.block.search),
-            })),
-          });
-        }
-        built[i] = {
-          kind: "edit",
-          path: op.path,
-          baseText: read.text,
-          proposedText: result.source,
-          blocks,
-        };
       }
 
       // Every slot is filled (the loop sets built[i] or returns) — assert + narrow.
@@ -1259,31 +1022,7 @@ export function registerProjectTools(
           return errorResult(`compile: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
-      const input = att.surface.compileInput();
-      if (typeof input === "object" && input !== null && "error" in input) {
-        return errorResult(`compile: ${input.error}`);
-      }
-      try {
-        const check = await compileService.check(input);
-        return withLiveness(att, {
-          status: "ok",
-          // ADDITIVE (F9): symmetry with the browser-routed path so an agent can
-          // tell which diagnostics source answered.
-          source: "loopback",
-          ok: check.ok,
-          pageCount: check.pageCount,
-          diagnostics: check.diagnostics,
-          durationMs: check.durationMs,
-          // ADDITIVE (D3): when the compile produced output bytes, surface a
-          // descriptor (size + sha256 + mime) so the agent knows the build
-          // genuinely succeeded and how big it is. Omitted on a failed/empty
-          // compile or a service that predates the field.
-          ...(check.artifact !== undefined ? { artifact: check.artifact } : {}),
-        });
-      } catch (err) {
-        // Honest message, no stack: the client sees what failed, not our internals.
-        return errorResult(`compile: ${err instanceof Error ? err.message : String(err)}`);
-      }
+      return compileServiceResult(att, compileService, "loopback");
     },
   );
 }

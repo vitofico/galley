@@ -17,6 +17,7 @@ import {
   resolveAuthStores,
   isOidcEnabled,
   isOidcHttpAllowed,
+  isHostedConnectorEnabled,
   resolveInternalMembershipConfig,
 } from "./server-config.js";
 import { FsSessionStore, FsOidcLoginStateStore } from "@galley/persistence";
@@ -189,5 +190,30 @@ describe("internal membership-read config — fail loud", () => {
       audience: "galley-self-host",
       dataDir: "/data",
     });
+  });
+});
+
+describe("GALLEY_HOSTED_CONNECTOR — operator switch, fail closed", () => {
+  const ready = { GALLEY_AUTH_MODE: "oidc", GALLEY_DATA_DIR: "/data" };
+
+  it("is off unless exactly 1", () => {
+    expect(isHostedConnectorEnabled({})).toBe(false);
+    expect(isHostedConnectorEnabled({ ...ready, GALLEY_HOSTED_CONNECTOR: "0" })).toBe(false);
+    expect(isHostedConnectorEnabled({ ...ready, GALLEY_HOSTED_CONNECTOR: "1" })).toBe(true);
+  });
+
+  it("refuses a typo rather than guessing", () => {
+    expect(() =>
+      isHostedConnectorEnabled({ ...ready, GALLEY_HOSTED_CONNECTOR: "true" }),
+    ).toThrow(/must be 0 or 1/);
+  });
+
+  it("refuses to start without sign-in or the shared data volume", () => {
+    expect(() =>
+      isHostedConnectorEnabled({ GALLEY_HOSTED_CONNECTOR: "1", GALLEY_DATA_DIR: "/data" }),
+    ).toThrow(/requires/);
+    expect(() =>
+      isHostedConnectorEnabled({ GALLEY_HOSTED_CONNECTOR: "1", GALLEY_AUTH_MODE: "oidc" }),
+    ).toThrow(/requires/);
   });
 });

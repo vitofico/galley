@@ -171,10 +171,19 @@ import {
   type HostedHistoryTarget,
 } from "./hosted-history.js";
 import {
+  createConnectorHistoryVersionStore,
+  restoreConnectorCheckpoint,
+} from "./connector-history.js";
+import {
   forgetHostedRunTarget,
   readHostedRunTarget,
   rememberHostedRunTarget,
 } from "./hosted-run-target.js";
+import {
+  hostedConnectorEnabled,
+  listConnectedProjects,
+  openConnectorReplica,
+} from "./hosted-connector.js";
 import { ImportPanel } from "./components/ImportPanel.js";
 import { FigurePanel } from "./components/FigurePanel.js";
 import {
@@ -781,6 +790,10 @@ export function ProjectApp({
   const [connection, setConnection] = useState<CollabConnection | undefined>(
     () => session.connection,
   );
+  // Hosted connector (ADR-0033): true while this project is synced into its
+  // connector room. Proposals from the connector arrive over that link, so it
+  // turns the review surface on just as a Share connection does.
+  const [connectorLinked, setConnectorLinked] = useState(false);
   // M8: a live connection means a SHARED session, where `offline` is a real
   // signal (edits aren't reaching peers); solo-local sessions suppress it.
   const saveState = useSaveState(saveTarget, {
@@ -1203,10 +1216,16 @@ export function ProjectApp({
           room: activeShareRoom,
         }
       : undefined;
+  // The open project's connector room while it is connected (ADR-0033): its
+  // server-side checkpoints are listed in History beside the local versions.
+  const connectorRoom = useRef<string | undefined>(undefined);
   const versionStore = useMemo(
     () =>
       createHostedHistoryVersionStore(
-        new IdbVersionStore(),
+        createConnectorHistoryVersionStore(
+          new IdbVersionStore(),
+          () => connectorRoom.current,
+        ),
         () => historyTarget.current,
         undefined,
         () =>
@@ -1969,8 +1988,11 @@ export function ProjectApp({
 
   // `observeProposals` is deep (a record arriving OR its status flipping), so
   // the cards appear and clear without any polling. Disconnected → cleared.
+  // A project connected to the hosted connector counts as connected here: its
+  // proposals arrive over the connector replica, with no Share session at all,
+  // and wait for exactly this manual Accept (ADR-0033 §4, Ask mode).
   useEffect(() => {
-    if (!connection) return;
+    if (!connection && !connectorLinked) return;
     const refresh = () => {
       const pending = getPendingProposals(project);
       setMcpProposals(pending);
@@ -2006,12 +2028,12 @@ export function ProjectApp({
       setMcpProposals([]);
       setRunGroups([]);
     };
-  }, [connection, project]);
+  }, [connection, connectorLinked, project]);
 
   // The sibling multi-file mailbox (`propose_files`): same connection-gated
   // mirror into state, observed deeply so cards appear/clear without polling.
   useEffect(() => {
-    if (!connection) return;
+    if (!connection && !connectorLinked) return;
     const refresh = () => {
       const pending = getPendingFileProposals(project);
       setFileProposals(pending);
@@ -2038,7 +2060,7 @@ export function ProjectApp({
       setFileProposals([]);
       setRunGroups([]);
     };
-  }, [connection, project]);
+  }, [connection, connectorLinked, project]);
 
   // ADR-0024 §4: keep the global review pane in step with the pending set for an
   // EDITOR — auto-open it the moment a proposal lands (so the review surface is
@@ -2408,6 +2430,40 @@ export function ProjectApp({
     recordGrant(room);
     return { room, syncUrl, mainFile: mainPath, grantId };
   };
+
+  // Hosted connector (ADR-0033 §1): while a project the person CONNECTED is
+  // open, keep its server replica current over a connection of its own, beside
+  // any Share connection. Nothing runs unless the operator enabled the
+  // connector, and never for a joiner's session (someone else's project). It
+  // waits for the local project to load first, so an empty document is never
+  // what reaches the server.
+  useEffect(() => {
+    if (!hostedConnectorEnabled() || config.syncUrl !== undefined) return;
+    let disposed = false;
+    let replica: ReturnType<typeof openConnectorReplica> | undefined;
+    void Promise.all([session.whenReady, listConnectedProjects()])
+      .then(([, listed]) => {
+        if (disposed || !listed.ok) return;
+        const connected = listed.projects.find(
+          (p) => p.projectId === projectId,
+        );
+        if (!connected) return;
+        replica = openConnectorReplica(
+          session.project,
+          resolveSyncUrl(configuredSyncUrlOverride(), window.location),
+          connected.roomId,
+        );
+        connectorRoom.current = connected.roomId;
+        setConnectorLinked(true);
+      })
+      .catch(() => undefined); // a misconfigured relay address: stay local
+    return () => {
+      disposed = true;
+      replica?.destroy();
+      connectorRoom.current = undefined;
+      setConnectorLinked(false);
+    };
+  }, [projectId, session]);
 
   // Rejoin only a mailbox explicitly consented to on this browser and bound to
   // this configured host. This recovers proposals after a closed tab/restart;
@@ -3874,6 +3930,16 @@ export function ProjectApp({
       historyTarget.current,
       HUMAN,
     )
+      .then(
+        async (restored) =>
+          restored ||
+          restoreConnectorCheckpoint(
+            project,
+            versionId,
+            connectorRoom.current,
+            HUMAN,
+          ),
+      )
       .then((restored) =>
         restored ? null : versionStore.getVersionTree(versionId),
       )
@@ -7616,7 +7682,7 @@ export function ProjectApp({
           editor clicks it to reveal the EXISTING Accept/Reject cards (reused
           verbatim), a viewer sees the count plus an "ask an editor" cue. Absent
           when there is no connection or nothing pending (default-safe). */}
-      {connection && (
+      {(connection || connectorLinked) && (
         <PendingReviewBadge
           count={pendingRunCount}
           canMutate={canMutate}

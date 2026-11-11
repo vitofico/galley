@@ -99,6 +99,64 @@ room to be **registered and active**:
   rooms have no default expiry). The record lives on the shared
   `GALLEY_DATA_DIR` volume (`capability-rooms/<roomId>.json`), where the relay
   reads it — the same cross-container pattern as sessions.
+- **Connector rooms** ([ADR-0033](decisions/ADR-0033-hosted-connector.md)) are
+  a third kind, accepted only where the operator set
+  `GALLEY_HOSTED_CONNECTOR=1`. One names a project and carries its review mode
+  (Ask or Auto); it has no expiry and at most one is active per project. It is
+  the only kind the relay is meant to **persist**: with
+  `GALLEY_SYNC_PERSIST_ROOMS=connector` a connected project has a plaintext
+  server replica and nothing else does. Revoking it erases that replica (the
+  relay polls the registry for revoked connector rooms, drops their
+  connections and retires their storage). `GET /auth/connector/projects`
+  returns the caller's own connector room ids to their session, so the browser
+  can keep each connected project synced; it is the one route that echoes a
+  room id, and only to its creator.
+- **Connector tokens** ([ADR-0033](decisions/ADR-0033-hosted-connector.md) §3)
+  are the credential an AI client will present to the hosted connector. A
+  token is 32 random bytes behind a `gly_` prefix, minted by the web service
+  for a signed-in session and returned **once**; the service keeps only its
+  SHA-256 hash (`connector-tokens/<hash>.json` on the data volume, mode 0600),
+  so the store cannot be turned back into tokens and a lookup is a file read
+  by hash, never a comparison against stored secrets. A token carries no
+  scope of its own: it resolves to its creator, and its reach is that
+  person's connected projects **at the time of each call**, so disconnecting
+  a project removes it from every token at once. It expires (90 days by
+  default, at most 365) and revoking it deletes the record. Because some chat
+  clients cannot send a header, the connector also accepts the token in
+  the URL path; treat the whole connector address as a secret there.
+- **The connector service** is the one component that answers the open
+  internet with no browser session. Its rules: `POST /mcp` only; every request
+  is authenticated before anything else and a missing, malformed, unknown,
+  expired or revoked token, or one whose account is closed, gets the same
+  `401`; no session is kept, so a revoked token or a disconnected project
+  stops at the next request; a project is named by its id and resolved against
+  the caller's own connected projects on every call, so a guessed id or a
+  leaked room id opens nothing; it reaches a project only by joining its room
+  on the relay as a peer, and reads the data volume read-only; the only
+  addresses it dials are the operator-configured relay and compile service;
+  request bodies are capped at 1 MiB and concurrent calls at 8; it logs no
+  request line, since the path may be a token, and no document text. Its two
+  write tools compute the proposed text on the server from the live file
+  (never taken whole from the model), text files only, under the same size
+  limits as the local bridge. What happens next is the project's review mode.
+  In **Ask** they publish a pending proposal into the project's room and
+  nothing more; the record is unsigned, so no browser auto-applies it, it
+  lands only through the browser's Accept gate, and at most 20 may wait per
+  project. In **Auto** the connector applies the change itself, in a fixed
+  order where the first failure stops the rest: check the token and the grant
+  again; stay under 500 file operations and 16 MiB per project per hour; save
+  a checkpoint of the whole project; write a `started` entry naming the token
+  and the checkpoint; apply with the conflict-aware code the browser's Accept
+  uses (text that moved means nothing is applied); leave a resolved record in
+  the document. Checkpoints and the trail live on a volume only the connector
+  writes; the web app serves them to the project's owner, who restores a
+  checkpoint from the project's History; both are erased within a minute of
+  the project being disconnected. A failure before anything is applied
+  falls back to a pending proposal. A deployment that gives the connector no
+  such volume never applies on the server. So a leaked token can read
+  connected projects and fill their review queue, and **can change a project
+  set to Auto** until it is revoked: each such change is recorded and can be
+  undone, not prevented.
 - **Authorization at the upgrade, never per message** — the relay's order is:
   parse room → Origin policy (an absent Origin proceeds only for a capability
   room, preserving the cookie-less Node kernel; browsers always send Origin

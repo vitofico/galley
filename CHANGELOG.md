@@ -49,6 +49,18 @@ The first public cut. Everything below is built, tested (2300+ unit tests,
 - **Self-hosting** — one runtime image + `docker compose up`; Kubernetes
   kustomize base with composable overlays (compile, registry, auth/OIDC);
   hardened defaults (CSP, default-deny NetworkPolicy, read-only rootfs).
+- **Hosted connector, first step (opt-in, in progress)** — on a signed-in
+  deployment whose operator enabled it, a project can be connected in
+  Settings: the relay then keeps a server copy of it, and only of it, so an AI
+  client will be able to work on it with no tab open
+  ([ADR-0033](docs/decisions/ADR-0033-hosted-connector.md)). The same card
+  issues per-client access tokens, shown once and stored only as a
+  fingerprint. A new connector service answers at `/mcp` and lets a client
+  holding a token list, read, search and compile a connected project, and
+  change it. In Ask mode a change waits for the owner's Accept in Galley. In
+  Auto mode the server applies it with no tab open: it saves a checkpoint of
+  the whole project first and records the change, the owner sees the record
+  in Settings and can return to the checkpoint from the project's History.
 
 ### Security & robustness
 

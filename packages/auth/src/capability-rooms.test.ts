@@ -14,8 +14,11 @@ import { isCapabilityRoomId } from "@galley/shared";
 import {
   registerCapabilityRoom,
   revokeCapabilityRoom,
+  listConnectedProjects,
+  setConnectorReviewMode,
   MAX_ACTIVE_CAPABILITY_ROOMS_PER_USER,
   MAX_ACTIVE_CONTROL_ROOMS_PER_USER,
+  MAX_ACTIVE_CONNECTOR_ROOMS_PER_USER,
   TOMBSTONE_CAP_PER_USER,
 } from "./capability-rooms.js";
 import { authorizeCapabilityRoomUpgrade } from "./upgrade.js";
@@ -49,6 +52,7 @@ const register = (
     userId: string;
     sessionExpiresAtMs: number;
     nowMs: number;
+    allowConnector: boolean;
   }> = {},
 ) =>
   registerCapabilityRoom(store, {
@@ -56,6 +60,9 @@ const register = (
     userId: over.userId ?? "alice",
     sessionExpiresAtMs: over.sessionExpiresAtMs ?? SESSION_EXP,
     nowMs: over.nowMs ?? NOW,
+    ...(over.allowConnector !== undefined
+      ? { allowConnector: over.allowConnector }
+      : {}),
   });
 
 describe("registerCapabilityRoom — validation", () => {
@@ -516,5 +523,146 @@ describe("authorizeCapabilityRoomUpgrade — the relay's capability gate", () =>
         nowMs: NOW,
       }),
     ).toBe(false);
+  });
+});
+
+describe("connector rooms (ADR-0033)", () => {
+  const room = (n: number) => `share-connector${String(n).padStart(20, "0")}`;
+  const connect = (
+    store: CapabilityRoomStore,
+    body: Record<string, unknown>,
+    userId = "alice",
+  ) =>
+    register(
+      store,
+      { kind: "connector", ...body },
+      { userId, allowConnector: true },
+    );
+
+  it("is refused as an unknown kind unless the operator enabled the connector", async () => {
+    const store = new MemStore();
+    const res = await register(store, {
+      roomId: ROOM,
+      kind: "connector",
+      projectId: "p1",
+    });
+    expect(res).toEqual({ status: 400, body: { ok: false, code: "invalid" } });
+    expect(store.map.size).toBe(0);
+  });
+
+  it("needs a project, and only accepts a known review mode", async () => {
+    const store = new MemStore();
+    expect((await connect(store, { roomId: ROOM })).status).toBe(400);
+    expect(
+      (await connect(store, { roomId: ROOM, projectId: "p1", reviewMode: "yes" }))
+        .status,
+    ).toBe(400);
+    // A review mode is a connector-only field.
+    expect(
+      (
+        await register(
+          store,
+          { roomId: ROOM, kind: "share", reviewMode: "auto" },
+          { allowConnector: true },
+        )
+      ).status,
+    ).toBe(400);
+    expect(store.map.size).toBe(0);
+  });
+
+  it("registers without an expiry and defaults to Ask", async () => {
+    const store = new MemStore();
+    expect((await connect(store, { roomId: ROOM, projectId: "p1" })).status).toBe(200);
+    expect(store.map.get(ROOM)).toEqual({
+      version: 1,
+      roomId: ROOM,
+      kind: "connector",
+      createdBy: "alice",
+      createdAtMs: NOW,
+      projectId: "p1",
+      reviewMode: "ask",
+    });
+    // The relay admits it like any other active capability room.
+    expect(
+      await authorizeCapabilityRoomUpgrade({ room: ROOM, registry: store, nowMs: NOW }),
+    ).toBe(true);
+  });
+
+  it("allows one active room per project, per user", async () => {
+    const store = new MemStore();
+    await connect(store, { roomId: room(1), projectId: "p1" });
+    expect(await connect(store, { roomId: room(2), projectId: "p1" })).toEqual({
+      status: 409,
+      body: { ok: false, code: "exists" },
+    });
+    // Someone else's project id is their own namespace.
+    expect((await connect(store, { roomId: room(3), projectId: "p1" }, "bob")).status).toBe(200);
+    // Disconnecting frees the project for a fresh room.
+    await revokeCapabilityRoom(store, { roomId: room(1), userId: "alice", nowMs: NOW });
+    expect((await connect(store, { roomId: room(2), projectId: "p1" })).status).toBe(200);
+  });
+
+  it("keeps the project's name as a label, on connector rooms only", async () => {
+    const store = new MemStore();
+    await connect(store, { roomId: room(1), projectId: "p1", projectName: "My novel" });
+    expect(store.map.get(room(1))?.projectName).toBe("My novel");
+    expect(await listConnectedProjects(store, "alice", NOW)).toEqual([
+      { roomId: room(1), projectId: "p1", name: "My novel", reviewMode: "ask", connectedAtMs: NOW },
+    ]);
+    for (const projectName of ["", "x".repeat(121), "two\nlines", 7])
+      expect(
+        (await connect(store, { roomId: room(2), projectId: "p2", projectName })).status,
+      ).toBe(400);
+    expect(
+      (
+        await register(
+          store,
+          { roomId: room(3), kind: "share", projectName: "nope" },
+          { allowConnector: true },
+        )
+      ).status,
+    ).toBe(400);
+  });
+
+  it("caps the number of connected projects", async () => {
+    const store = new MemStore();
+    for (let i = 0; i < MAX_ACTIVE_CONNECTOR_ROOMS_PER_USER; i++)
+      expect((await connect(store, { roomId: room(i), projectId: `p${i}` })).status).toBe(200);
+    expect(await connect(store, { roomId: room(999), projectId: "one-more" })).toEqual({
+      status: 409,
+      body: { ok: false, code: "cap-exceeded" },
+    });
+  });
+
+  it("lists only the caller's active connected projects", async () => {
+    const store = new MemStore();
+    await connect(store, { roomId: room(1), projectId: "p1", reviewMode: "auto" });
+    await connect(store, { roomId: room(2), projectId: "p2" });
+    await connect(store, { roomId: room(3), projectId: "p3" }, "bob");
+    await register(store, { roomId: room(4), kind: "share", projectId: "p4" });
+    await revokeCapabilityRoom(store, { roomId: room(2), userId: "alice", nowMs: NOW });
+    expect(await listConnectedProjects(store, "alice", NOW)).toEqual([
+      { roomId: room(1), projectId: "p1", reviewMode: "auto", connectedAtMs: NOW },
+    ]);
+  });
+
+  it("switches the review mode for the owner only, and only on a live connector room", async () => {
+    const store = new MemStore();
+    await connect(store, { roomId: room(1), projectId: "p1" });
+    await register(store, { roomId: room(2), kind: "share" });
+    const set = (roomId: string, body: unknown, userId = "alice") =>
+      setConnectorReviewMode(store, { roomId, body, userId, nowMs: NOW });
+
+    expect((await set(room(1), { reviewMode: "auto" })).status).toBe(200);
+    expect(store.map.get(room(1))?.reviewMode).toBe("auto");
+    expect((await set(room(1), { reviewMode: "sometimes" })).status).toBe(400);
+
+    const unknown = { status: 404, body: { ok: false, code: "unknown" } };
+    expect(await set(room(1), { reviewMode: "ask" }, "bob")).toEqual(unknown);
+    expect(await set(room(2), { reviewMode: "auto" })).toEqual(unknown); // a share room
+    expect(await set(room(9), { reviewMode: "auto" })).toEqual(unknown); // no such room
+    await revokeCapabilityRoom(store, { roomId: room(1), userId: "alice", nowMs: NOW });
+    expect(await set(room(1), { reviewMode: "ask" })).toEqual(unknown); // disconnected
+    expect(store.map.get(room(1))?.reviewMode).toBe("auto"); // tombstone untouched
   });
 });

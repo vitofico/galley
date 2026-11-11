@@ -55,10 +55,19 @@ The collaboration core is `packages/collab` (framework-agnostic; Yjs only):
 
 A thin, doc-holding y-websocket relay (ADR-0008). Per room (the websocket URL
 path) it keeps a `Y.Doc` + `Awareness`, speaks the standard y-protocols sync +
-awareness messages, and broadcasts each peer's updates to the others. It has
-**no durable persistence**: room state lives in memory and is rebuilt from
-peers' local replicas after a restart — clients persist locally via
+awareness messages, and broadcasts each peer's updates to the others. By
+default it has **no durable persistence**: room state lives in memory and is
+rebuilt from peers' local replicas after a restart — clients persist locally via
 `y-indexeddb`.
+
+Persistence is opt-in. `GALLEY_SYNC_PERSIST_DIR` makes the relay keep every
+room's CRDT state on that volume, so a restart loses nothing.
+`GALLEY_SYNC_PERSIST_ROOMS=connector` narrows that to the rooms of projects a
+person connected to the hosted connector
+([ADR-0033](decisions/ADR-0033-hosted-connector.md)): those keep a server
+replica while no tab is open, and every other room stays in memory only. When a
+project is disconnected, the relay erases its stored state within about half a
+minute.
 
 Built-in abuse bounds: a ws frame-size cap, a cap on concurrent rooms (empty
 rooms are reaped), per-frame and per-connection awareness client-id caps, and a

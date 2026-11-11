@@ -40,6 +40,29 @@ export function isOidcEnabled(env: WebEnv = process.env): boolean {
 }
 
 /**
+ * `GALLEY_HOSTED_CONNECTOR=1` — the operator switch for the hosted connector
+ * (ADR-0033, default OFF). On → people may connect a project, which keeps a
+ * replica of it on the server. Strictly `1`, `0` or unset: a typo throws, and
+ * so does enabling it without what a connected project needs — sign-in (a
+ * connected project belongs to an account) and the shared `GALLEY_DATA_DIR`
+ * (where its grant is recorded for the relay and the connector to read).
+ *
+ * The relay must be told separately to keep connected projects on disk
+ * (`GALLEY_SYNC_PERSIST_DIR`, see apps/sync). This process cannot see that
+ * container's env, so the two are documented as one switch in docs/mcp.md.
+ */
+export function isHostedConnectorEnabled(env: WebEnv = process.env): boolean {
+  const raw = env.GALLEY_HOSTED_CONNECTOR?.trim() ?? "";
+  if (raw === "" || raw === "0") return false;
+  if (raw !== "1") throw new Error("GALLEY_HOSTED_CONNECTOR must be 0 or 1");
+  if (!isOidcEnabled(env) || !env.GALLEY_DATA_DIR?.trim())
+    throw new Error(
+      "GALLEY_HOSTED_CONNECTOR=1 requires GALLEY_AUTH_MODE=oidc and GALLEY_DATA_DIR",
+    );
+  return true;
+}
+
+/**
  * `GALLEY_OIDC_ALLOW_HTTP=1` — dev/local-only: let OIDC discovery accept a
  * plain-`http:` issuer and plain-`http:` endpoints, so a self-hoster can sign in
  * against a local IdP that has no TLS (a Keycloak on
