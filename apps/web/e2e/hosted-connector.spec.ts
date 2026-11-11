@@ -101,3 +101,66 @@ test("enabled: a connected project can change review mode and be disconnected", 
   await expect(list.getByTestId("hosted-connector-mode")).toHaveCount(0);
   expect(posts[1]?.url).toContain(`/auth/capability-rooms/${ROOM}/revoke`);
 });
+
+test("enabled: a token is created, shown once, listed without its secret, and revoked", async ({
+  page,
+}) => {
+  await signedIn(page, true);
+  await page.route("**/auth/connector/projects", (route) =>
+    route.fulfill({ status: 200, json: { ok: true, projects: [] } }),
+  );
+  const info = {
+    tokenId: "aaaaaaaaaaaaaaaa",
+    name: "Claude chat",
+    createdAtMs: 1_800_000_000_000,
+    expiresAtMs: 1_807_776_000_000,
+  };
+  const secret = `gly_${"A".repeat(43)}`;
+  let tokens: (typeof info)[] = [];
+  const created: unknown[] = [];
+  await page.route("**/auth/connector/tokens", (route) => {
+    if (route.request().method() === "GET")
+      return route.fulfill({ status: 200, json: { ok: true, tokens } });
+    created.push(route.request().postDataJSON());
+    tokens = [info];
+    return route.fulfill({
+      status: 200,
+      json: { ok: true, token: secret, ...info },
+    });
+  });
+  await page.route(
+    `**/auth/connector/tokens/${info.tokenId}/revoke`,
+    (route) => {
+      tokens = [];
+      return route.fulfill({ status: 200, json: { ok: true } });
+    },
+  );
+
+  await page.goto("/settings#agent-access");
+  const create = page.getByTestId("connector-token-create");
+  await expect(create).toBeDisabled({ timeout: 60_000 }); // a token needs a name
+  await page.getByTestId("connector-token-name").fill("Claude chat");
+  await page.getByTestId("connector-token-lifetime").selectOption("30");
+  await create.click();
+
+  await expect(page.getByTestId("connector-token-secret")).toHaveValue(secret);
+  await expect(page.getByTestId("connector-token-created")).toContainText(
+    "only this once",
+  );
+  expect(created).toEqual([{ name: "Claude chat", expiresInDays: 30 }]);
+  // The list names the token and never carries the secret.
+  const row = page.getByTestId("connector-tokens").getByLabel("Token name");
+  await expect(row).toHaveValue(/Claude chat \(expires /);
+  await expect(page.getByTestId("connector-tokens")).not.toContainText("gly_");
+
+  await page.getByTestId("connector-token-revoke").click();
+  await expect(
+    page.getByTestId("connector-tokens").getByLabel("Token name"),
+  ).toHaveCount(0);
+  // The secret is not re-fetchable: a reload shows no token and no secret.
+  await page.reload();
+  await expect(page.getByTestId("connector-token-create")).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(page.getByTestId("connector-token-secret")).toHaveCount(0);
+});

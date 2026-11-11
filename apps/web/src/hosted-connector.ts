@@ -59,7 +59,7 @@ const ERROR_NOT_SIGNED_IN = "You're not signed in. Sign in and try again.";
 const ERROR_EXISTS =
   "This project is already connected. Reload to see its current state.";
 const ERROR_CAP =
-  "You have reached the limit of connected projects on this server. Disconnect one and try again.";
+  "You have reached this server's limit. Remove one you no longer need and try again.";
 const ERROR_GENERIC =
   "The server did not answer. Nothing was changed; try again.";
 
@@ -196,6 +196,74 @@ export async function disconnectProject(
 ): Promise<ConnectorResult> {
   const res = await call(
     `/auth/capability-rooms/${encodeURIComponent(roomId)}/revoke`,
+    {},
+    fetchImpl,
+  );
+  return res.ok ? { ok: true } : res;
+}
+
+/** A token as listed: everything but the secret, which is shown once at creation. */
+export interface ConnectorToken {
+  tokenId: string;
+  name: string;
+  createdAtMs: number;
+  expiresAtMs: number;
+}
+
+function parseToken(value: unknown): ConnectorToken | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { tokenId, name, createdAtMs, expiresAtMs } = value as Record<
+    string,
+    unknown
+  >;
+  return typeof tokenId === "string" &&
+    typeof name === "string" &&
+    typeof createdAtMs === "number" &&
+    typeof expiresAtMs === "number"
+    ? { tokenId, name, createdAtMs, expiresAtMs }
+    : null;
+}
+
+/** The signed-in person's live tokens. */
+export async function listConnectorTokens(
+  fetchImpl: CapabilityFetch = defaultFetch(),
+): Promise<ConnectorResult<{ tokens: ConnectorToken[] }>> {
+  const res = await call("/auth/connector/tokens", undefined, fetchImpl);
+  if (!res.ok) return res;
+  const rows = (res.json as { tokens?: unknown } | undefined)?.tokens;
+  if (!Array.isArray(rows)) return { ok: false, error: ERROR_GENERIC };
+  return { ok: true, tokens: rows.flatMap((row) => parseToken(row) ?? []) };
+}
+
+/**
+ * Create a token for one client. `secret` is the token itself: the server
+ * returns it this once and keeps only its hash, so it cannot be shown again.
+ */
+export async function createConnectorToken(
+  name: string,
+  expiresInDays: number,
+  fetchImpl: CapabilityFetch = defaultFetch(),
+): Promise<ConnectorResult<{ secret: string; token: ConnectorToken }>> {
+  const res = await call(
+    "/auth/connector/tokens",
+    { name, expiresInDays },
+    fetchImpl,
+  );
+  if (!res.ok) return res;
+  const token = parseToken(res.json);
+  const secret = (res.json as { token?: unknown } | undefined)?.token;
+  if (token === null || typeof secret !== "string")
+    return { ok: false, error: ERROR_GENERIC };
+  return { ok: true, secret, token };
+}
+
+/** Revoke a token: the client holding it is refused from the next call on. */
+export async function revokeConnectorToken(
+  tokenId: string,
+  fetchImpl: CapabilityFetch = defaultFetch(),
+): Promise<ConnectorResult> {
+  const res = await call(
+    `/auth/connector/tokens/${encodeURIComponent(tokenId)}/revoke`,
     {},
     fetchImpl,
   );

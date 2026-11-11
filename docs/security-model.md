@@ -111,6 +111,19 @@ room to be **registered and active**:
   returns the caller's own connector room ids to their session, so the browser
   can keep each connected project synced; it is the one route that echoes a
   room id, and only to its creator.
+- **Connector tokens** ([ADR-0033](decisions/ADR-0033-hosted-connector.md) §3)
+  are the credential an AI client will present to the hosted connector. A
+  token is 32 random bytes behind a `gly_` prefix, minted by the web service
+  for a signed-in session and returned **once**; the service keeps only its
+  SHA-256 hash (`connector-tokens/<hash>.json` on the data volume, mode 0600),
+  so the store cannot be turned back into tokens and a lookup is a file read
+  by hash, never a comparison against stored secrets. A token carries no
+  scope of its own: it resolves to its creator, and its reach is that
+  person's connected projects **at the time of each call**, so disconnecting
+  a project removes it from every token at once. It expires (90 days by
+  default, at most 365) and revoking it deletes the record. Because some chat
+  clients cannot send a header, the connector will also accept the token in
+  the URL path; treat the whole connector address as a secret there.
 - **Authorization at the upgrade, never per message** — the relay's order is:
   parse room → Origin policy (an absent Origin proceeds only for a capability
   room, preserving the cookie-less Node kernel; browsers always send Origin

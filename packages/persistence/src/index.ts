@@ -35,6 +35,7 @@ export {
 export type { VersionMessageInput } from "./version-message.js";
 export { FsSessionStore, FsOidcLoginStateStore } from "./fs-auth-stores.js";
 export { FsCapabilityRoomRegistry } from "./fs-capability-rooms.js";
+export { FsConnectorTokenStore } from "./fs-connector-tokens.js";
 // Git-remote projection (ADR-0018/0019). Browser-safe core + Node-only adapters
 // are re-aggregated by `git-remote.ts` so this Node barrel keeps stable names.
 export {

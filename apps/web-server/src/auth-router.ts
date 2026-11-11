@@ -15,6 +15,7 @@ import { OwnedProjectLimitError } from "@galley/persistence";
 import type { Context } from "hono";
 import type {
   CapabilityRoomStore,
+  ConnectorTokenStore,
   OidcProviderConfig,
   OidcLoginStateStore,
   SessionRecord,
@@ -33,6 +34,9 @@ import {
   revokeCapabilityRoom,
   listConnectedProjects,
   setConnectorReviewMode,
+  createConnectorToken,
+  listConnectorTokens,
+  revokeConnectorToken,
   type JwksGetter,
   type RandomSource,
 } from "@galley/auth";
@@ -63,11 +67,12 @@ export interface AuthRouterDeps {
     store: CapabilityRoomStore;
     /**
      * The operator enabled the hosted connector (ADR-0033, default off). Set →
-     * `connector` rooms may be registered and the connected-project routes
+     * `connector` rooms may be registered, and the connected-project routes
      * (`GET /connector/projects`, `POST /connector/projects/:roomId/review-mode`)
-     * are mounted.
+     * and token routes (`GET|POST /connector/tokens`,
+     * `POST /connector/tokens/:tokenId/revoke`) are mounted.
      */
-    hostedConnector?: boolean;
+    hostedConnector?: { tokens: ConnectorTokenStore };
   };
 }
 
@@ -402,7 +407,7 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
           userId: session.userId,
           sessionExpiresAtMs: session.expiresAtMs,
           nowMs: now(),
-          allowConnector: deps.capabilityRooms?.hostedConnector === true,
+          allowConnector: deps.capabilityRooms?.hostedConnector !== undefined,
         });
       } catch (error) {
         if (error instanceof OwnedProjectLimitError)
@@ -431,7 +436,8 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
     // enabled the hosted connector. The list returns room ids: they are the
     // caller's OWN capabilities, read with their session cookie, and the
     // browser needs them to keep each connected project synced.
-    if (deps.capabilityRooms.hostedConnector === true) {
+    const tokens = deps.capabilityRooms.hostedConnector?.tokens;
+    if (tokens !== undefined) {
       app.get("/connector/projects", async (c) => {
         c.header("cache-control", "no-store");
         const session = await sessionOf(c);
@@ -450,6 +456,46 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
           body: post.body,
           userId: post.session.userId,
           nowMs: now(),
+        });
+        return constJson(c, result.status, result.body);
+      });
+
+      // Tokens (ADR-0033 §3): what a client presents at the connector. The
+      // create answer is the ONLY response in this router that carries a
+      // secret, and the only time that secret exists outside the client.
+      app.get("/connector/tokens", async (c) => {
+        c.header("cache-control", "no-store");
+        const session = await sessionOf(c);
+        if (!session) return c.json({ ok: false, code: "unauthenticated" }, 401);
+        return c.json({
+          ok: true,
+          tokens: await listConnectorTokens(tokens, session.userId, now()),
+        });
+      });
+
+      app.post("/connector/tokens", async (c) => {
+        const post = await readJsonPost(c);
+        if ("refusal" in post) return post.refusal;
+        const result = await createConnectorToken(tokens, {
+          body: post.body,
+          userId: post.session.userId,
+          nowMs: now(),
+          ...(deps.random ? { random: deps.random } : {}),
+        });
+        c.header("cache-control", "no-store");
+        return c.json(result.body, result.status);
+      });
+
+      app.post("/connector/tokens/:tokenId/revoke", async (c) => {
+        if (c.req.header("origin") !== expectedOrigin) {
+          return constJson(c, 403, { ok: false, code: "forbidden" });
+        }
+        const session = await sessionOf(c);
+        if (!session)
+          return constJson(c, 401, { ok: false, code: "unauthenticated" });
+        const result = await revokeConnectorToken(tokens, {
+          tokenId: c.req.param("tokenId"),
+          userId: session.userId,
         });
         return constJson(c, result.status, result.body);
       });
