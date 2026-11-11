@@ -23,20 +23,36 @@ What Galley contributes is the part a general coding agent does not have: the
 live document, the file tree, real Typst diagnostics, and a review gate that
 stops an agent from silently editing your work.
 
-> **Two ways in.** This page covers the **local bridge**: a program on your
-> machine, paired with an open Galley tab, where your browser applies every
-> change. A second way, the **hosted connector** (an address on your Galley
-> server that works with no tab open), is being built in steps
-> ([ADR-0033](decisions/ADR-0033-hosted-connector.md)). So far, on a signed-in
-> deployment whose operator enabled it, a client holding an access token can
-> read a project you connected (list, read, search, compile) and **change
-> it**. You choose how per project: in **Ask** a change waits for your Accept
-> in Galley; in **Auto** the server applies it with no tab open, after saving
-> a checkpoint you can return to from the project's History. You connect a
-> project and create the token in **Settings →
-> Agent Access → Hosted connector**, which also shows the address to give the
-> client; operators see
-> [`self-host.md`](self-host.md#hosted-connector-connected-projects).
+## Two ways to connect: local bridge or hosted connector
+
+Your own agent can reach a Galley project in two ways. They use the same tool
+names for the same jobs, and differ in where the bridge runs and who applies a
+change.
+
+| | Local bridge | Hosted connector |
+| --- | --- | --- |
+| What it is | A program on your machine (`galley-mcp`) | An address on your Galley server (`https://<your-galley>/mcp`) |
+| Made for | Coding agents that run on your machine: Claude Code, Codex, and the like | Chat apps that connect to a remote MCP server, from any device |
+| Needs a Galley tab open | Yes. The tab is the other end of the bridge | No |
+| Who applies a change | Your browser, after your Accept (or its own auto-accept) | **Ask:** your browser, after your Accept the next time you open Galley. **Auto:** the server, with nobody watching |
+| Where your document lives | In your browser. A project you share also passes through the relay | In your browser **and** as a plain-text copy on the server, for each project you connect and only those |
+| What the client presents | A room id you mint, or a one-time pairing code and then a key kept on your machine | An access token you create in Settings: shown once, expiring, revocable |
+| Which projects it reaches | The one you scope it to or approve with `open_project`, one per run | Every project you connected; each call names its `project` |
+| Tools | The full list on this page, including versions, artifacts and creating a project | `list_projects`, `list_files`, `read_file`, `project_context`, `compile`, `propose_edit`, `propose_files` |
+| Not available | | Images and other binary files in `compile`, export, versions, creating a project |
+| Needs from the deployment | Nothing beyond the relay | Sign-in, and an operator who enabled it ([`self-host.md`](self-host.md#hosted-connector-connected-projects)) |
+| How to undo an applied change | The checkpoint taken before it, in History | The server's checkpoint taken before it, in the project's History |
+
+**Which one?** If your agent runs in a terminal next to your browser, use the
+local bridge: the server keeps no copy of your project. If you want to say "tighten chapter 3" from a chat app on your phone, use
+the hosted connector, and accept that the server keeps a copy of that project.
+You can use both on the same project.
+
+The rest of this page covers the **local bridge**. For the hosted connector:
+connect a project and create a token in **Settings → Agent Access → Hosted
+connector**, which also shows the address to give your chat app, and choose
+**Ask** or **Auto** per project there. The reasoning is in
+[ADR-0033](decisions/ADR-0033-hosted-connector.md).
 
 > **This is a how-to.** For the exhaustive reference, including every flag,
 > control-mode detail and troubleshooting case, see

@@ -201,10 +201,9 @@ Access behave exactly as in the zero-config local mode.
 #### Hosted connector (connected projects)
 
 The hosted connector lets an AI chat client work on a project with no Galley
-tab open ([ADR-0033](decisions/ADR-0033-hosted-connector.md)). It is being
-built in steps. **This release reads and writes:** connected projects, access
-tokens, and an endpoint an AI client can use to list, read, search and compile
-a connected project and to change it. In Ask mode a change is stored in the
+tab open ([ADR-0033](decisions/ADR-0033-hosted-connector.md)). It has three
+parts: connected projects, access tokens, and an endpoint an AI client can use
+to list, read, search and compile a connected project and to change it. In Ask mode a change is stored in the
 project as a proposal and waits for its owner to accept it in Galley. In Auto
 mode the server applies it, provided you gave the connector a state volume
 (below); without one a project set to Auto is reviewed like one set to Ask.
