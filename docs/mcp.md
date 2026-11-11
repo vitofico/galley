@@ -25,9 +25,11 @@ stops an agent from silently editing your work.
 
 ## Two ways to connect: local bridge or hosted connector
 
-Your own agent can reach a Galley project in two ways. They use the same tool
-names for the same jobs, and differ in where the bridge runs and who applies a
-change.
+Your own agent can reach a Galley project in two ways. They share one tool
+list: the hosted connector's seven tools exist on the local bridge under the
+same names with the same inputs, and every call names its `project`. So
+instructions written for one work on the other. They differ in where the bridge
+runs and who applies a change.
 
 | | Local bridge | Hosted connector |
 | --- | --- | --- |
@@ -37,8 +39,8 @@ change.
 | Who applies a change | Your browser, after your Accept (or its own auto-accept) | **Ask:** your browser, after your Accept the next time you open Galley. **Auto:** the server, with nobody watching |
 | Where your document lives | In your browser. A project you share also passes through the relay | In your browser **and** as a plain-text copy on the server, for each project you connect and only those |
 | What the client presents | A room id you mint, or a one-time pairing code and then a key kept on your machine | An access token you create in Settings: shown once, expiring, revocable |
-| Which projects it reaches | The one you scope it to or approve with `open_project`, one per run | Every project you connected; each call names its `project` |
-| Tools | The full list on this page, including versions, artifacts and creating a project | `list_projects`, `list_files`, `read_file`, `project_context`, `compile`, `propose_edit`, `propose_files` |
+| Which projects it reaches | The one you scope it to or approve with `open_project`, one per run. Files of other projects you granted can still be read | Every project you connected |
+| Tools | The same seven, plus `open_project`, versions, export, bibliography, search and creating a project | `list_projects`, `list_files`, `read_file`, `project_context`, `compile`, `propose_edit`, `propose_files` |
 | Not available | | Images and other binary files in `compile`, export, versions, creating a project |
 | Needs from the deployment | Nothing beyond the relay | Sign-in, and an operator who enabled it ([`self-host.md`](self-host.md#hosted-connector-connected-projects)) |
 | How to undo an applied change | The checkpoint taken before it, in History | The server's checkpoint taken before it, in the project's History |
@@ -66,15 +68,16 @@ connector**, which also shows the address to give your chat app, and choose
 
 ## What your agent can do
 
-Once connected to a project, your agent gets these tools:
+Your agent gets these tools. Each one except `list_projects` takes a `project`:
+the `projectId` that `list_projects` returned.
 
 | Tool | What it does |
 | --- | --- |
-| `read_document` | Read the live text of the file this session is scoped to. |
+| `list_projects` | List the projects this session can reach. A kernel started on one room answers with a single project, `current`. |
 | `list_files` | List the project's files. |
 | `read_file` | Read any project file by exact path. Read-only. |
 | `project_context` | Pull query-relevant excerpts across all files, with provenance. |
-| `propose_edit` | Publish a **pending** search/replace proposal. Never writes. |
+| `propose_edit` | Publish a **pending** search/replace proposal for one file, named by `path`. Never writes. |
 | `propose_files` | Publish a **pending** multi-file change set, applied all-or-nothing. Never writes. |
 | `compile` | Type-check through a loopback compile service. Requires `--compile-url`. |
 
@@ -224,6 +227,9 @@ Three things stay under your control:
 
 - **Listing is metadata only.** `list_projects` returns ids, names and
   timestamps. Nothing else.
+- **The tool list never changes.** Every tool is there from the start. One
+  that needs an open project answers `no_project_attached` until you approve
+  `open_project` for it, instead of appearing later.
 - **Reading requires a per-project grant.** `search_project`, `list_files`,
   `read_file` and `list_bibliography` answer only for projects where you clicked
   **"Allow file access (this session)"** or approved project access. The default

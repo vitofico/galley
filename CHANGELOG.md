@@ -73,6 +73,29 @@ The first public cut. Everything below is built, tested (2300+ unit tests,
 
 ### Migration notes
 
+- **The local MCP bridge takes the hosted connector's tool shapes (breaking for
+  MCP clients).** The two ways in now share one tool list
+  ([ADR-0033](docs/decisions/ADR-0033-hosted-connector.md) §5). What changes for
+  an agent using `galley-mcp`:
+  - every project tool takes a required `project`, the `projectId` from
+    `list_projects`: `list_files`, `read_file`, `project_context`, `compile`,
+    `propose_edit`, `propose_files`, `export_compiled`. A kernel started with
+    `--room` has one project, `current`;
+  - `propose_edit` takes the `path` of the file to edit instead of always
+    editing the session's file;
+  - `read_document` is gone: use `read_file` with the path;
+  - the control-mode tools that took `projectId` take `project` instead
+    (`open_project`, `list_versions`, `search_project`, `list_bibliography`,
+    `list_version_files`, `read_version_file`, `request_restore_version`).
+    Results still say `projectId`;
+  - the tool list is static. Nothing appears after `open_project` and nothing is
+    retired by it: a tool that needs an open project answers
+    `status: "no_project_attached"` until one is open.
+
+  Agents discover tools and their inputs from the server, so most clients adapt
+  on reconnect. Saved prompts or scripts that name `read_document`, pass
+  `projectId`, or call `propose_edit` without a `path` need updating.
+
 - **Server-side compile now isolates by default.** `GALLEY_COMPILE_ISOLATION`
   left unset now resolves to `worker` — each compile runs in a terminable
   `worker_thread`, so a runaway document returns 503 instead of wedging the

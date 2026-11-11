@@ -185,7 +185,8 @@ claude mcp add galley -- galley-mcp \
 ```
 
 Your agent gets the live document, the file tree, query-relevant excerpts across
-files, and real Typst diagnostics. What it does **not** get is write access:
+files, and real Typst diagnostics, through the same tool list the hosted
+connector serves. What it does **not** get is write access:
 `propose_edit` and `propose_files` publish a pending review card, and a human
 clicks Accept. That gate is structural, not a preference.
 

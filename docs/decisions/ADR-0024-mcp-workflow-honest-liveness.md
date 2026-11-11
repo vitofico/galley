@@ -95,6 +95,16 @@ register/deregister churn that dropped `search_project`, and makes the tool list
 stable across reconnects. The tool *schemas* never change; only their runtime
 guard does.
 
+> **Amended 2026-11-11** ([ADR-0033](ADR-0033-hosted-connector.md) §5). The
+> project tools now take the `project` they act on, like the hosted
+> connector's. The static surface holds for all of them, `compile`,
+> `export_compiled` and `save_artifact` included: with no project open the
+> answer is `no_project_attached`, and for a project other than the open one it
+> is `already_open`. `list_files` and `read_file` are the exception: for a
+> project that is not open they answer through the browser, under that
+> project's file-access grant. `read_document` is removed; `read_file` covers
+> it.
+
 #### 2.1 `create_project { name }` — control-mode project mint (road-test F1)
 
 A `create_project { name }` control-mode tool sits alongside `list_projects`:
