@@ -31,6 +31,15 @@ describe("hosted connector config", () => {
     ).toMatchObject({ port: 9000, compileUrl: "http://galley-compile:3001" });
   });
 
+  it("takes a state volume of its own for Auto mode, never the data volume", () => {
+    expect(
+      parseHostedConfig({ ...ok, GALLEY_CONNECTOR_STATE_DIR: "/var/lib/galley/connector" }),
+    ).toMatchObject({ stateDir: "/var/lib/galley/connector" });
+    expect(() =>
+      parseHostedConfig({ ...ok, GALLEY_CONNECTOR_STATE_DIR: ok.GALLEY_DATA_DIR }),
+    ).toThrow(/GALLEY_CONNECTOR_STATE_DIR/);
+  });
+
   it("refuses a URL of the wrong kind, with credentials, or with a query", () => {
     for (const GALLEY_CONNECTOR_SYNC_URL of [
       "galley-sync",

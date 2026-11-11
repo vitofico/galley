@@ -65,6 +65,9 @@ importers:
       '@galley/agent':
         specifier: workspace:*
         version: link:../../packages/agent
+      '@galley/agent-apply':
+        specifier: workspace:*
+        version: link:../../packages/agent-apply
       '@galley/auth':
         specifier: workspace:*
         version: link:../../packages/auth

@@ -1,13 +1,17 @@
 /**
  * Binds the connector's HTTP surface to the deployment: the token and
  * connected-project records on the web service's data volume, the relay, and
- * the compile service. The connector only READS the data volume.
+ * the compile service. The connector only READS the data volume; what Auto
+ * mode writes (checkpoints, the activity trail) goes to a volume of its own.
  */
 import { listConnectedProjects, verifyConnectorToken } from "@galley/auth";
 import {
   FsCapabilityRoomRegistry,
+  FsConnectorActivityLog,
+  FsConnectorCheckpoints,
   FsConnectorTokenStore,
   FsSessionStore,
+  KeyedMutex,
 } from "@galley/persistence";
 import { createHttpCompileService } from "../compile-client.js";
 import type { ConnectorAppDeps } from "./app.js";
@@ -36,5 +40,15 @@ export function buildConnectorDeps(config: HostedConfig): ConnectorAppDeps {
     ...(config.compileUrl !== undefined
       ? { compileService: createHttpCompileService(config.compileUrl) }
       : {}),
+    ...(config.stateDir !== undefined ? { auto: autoStore(config.stateDir) } : {}),
+  };
+}
+
+function autoStore(stateDir: string): NonNullable<ConnectorAppDeps["auto"]> {
+  const locks = new KeyedMutex();
+  return {
+    checkpoints: new FsConnectorCheckpoints(stateDir),
+    activity: new FsConnectorActivityLog(stateDir),
+    serialize: (room, op) => locks.run(room, op),
   };
 }
