@@ -42,6 +42,13 @@ export interface CollabConfig {
    * additive: a config literal that omits it is treated as no decoded role.
    */
   role?: ShareRole;
+  /**
+   * Set when this session is the signed-in owner's connector room, opened on a
+   * device that does not hold the project (ADR-0034). `room` is then a secret
+   * with no expiry, so everything this device stores is keyed by this project
+   * id instead and the room id stays in memory.
+   */
+  connectedProjectId?: string;
 }
 
 export function readCollabConfig(search: string = window.location.search): CollabConfig {

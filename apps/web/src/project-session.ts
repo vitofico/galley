@@ -252,7 +252,9 @@ export function createProjectSession(
     ((u: string) => new WebSocket(u) as unknown as WebSocketLike);
   // Distinct namespace from the LOCAL `galley-local-project-v1-*` draft store so a
   // joiner's replica never collides with a locally-owned project of the same room.
-  const cacheDbName = `galley-connected-project-v1-${config.room ?? "default"}`;
+  // An owner's connector room (ADR-0034) is cached under the project id, so the
+  // room id, a secret with no expiry, is never written to storage.
+  const cacheDbName = `galley-connected-project-v1-${config.connectedProjectId ?? config.room ?? "default"}`;
   const store = (deps.draftStore ?? createIndexeddbDraftStore)(
     cacheDbName,
     project.doc,

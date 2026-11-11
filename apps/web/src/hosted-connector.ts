@@ -150,6 +150,53 @@ export async function listConnectedProjects(
   };
 }
 
+/** The connected projects this device does not hold (ADR-0034). */
+export function connectedElsewhere<T extends { projectId: string }>(
+  connected: readonly T[],
+  heldHere: readonly { id: string }[],
+): T[] {
+  return connected.filter((c) => !heldHere.some((p) => p.id === c.projectId));
+}
+
+/** What `/c/<project id>` does on this device (ADR-0034). */
+export type ConnectedEntry =
+  | { kind: "local" }
+  | { kind: "open"; project: ConnectedProject }
+  | { kind: "unavailable"; message: string; retry: boolean };
+
+/**
+ * Decide how to open a connected project by its id. A device that holds the
+ * project opens it the usual way; any other device may join the server copy,
+ * but only for a project the signed-in person connected. The server's list is
+ * the authority: nothing here trusts the id in the address.
+ */
+export async function resolveConnectedEntry(
+  projectId: string,
+  heldHere: boolean,
+  enabled: boolean = hostedConnectorEnabled(),
+  fetchImpl: CapabilityFetch = defaultFetch(),
+): Promise<ConnectedEntry> {
+  if (heldHere) return { kind: "local" };
+  if (!enabled)
+    return {
+      kind: "unavailable",
+      message: "This server does not keep connected projects.",
+      retry: false,
+    };
+  const listed = await listConnectedProjects(fetchImpl);
+  if (!listed.ok)
+    return { kind: "unavailable", message: listed.error, retry: true };
+  const project = listed.projects.find((p) => p.projectId === projectId);
+  return project !== undefined
+    ? { kind: "open", project }
+    : {
+        kind: "unavailable",
+        message:
+          "This project is not connected to your account. It may have been disconnected, or connected from a different account.",
+        retry: false,
+      };
+}
+
 /** One change the connector applied on the server, as its owner sees it. */
 export interface ConnectorChange extends ConnectorActivityEntry {
   /** Its checkpoint is still kept, so the project can be put back to it. */

@@ -111,6 +111,19 @@ room to be **registered and active**:
   returns the caller's own connector room ids to their session, so the browser
   can keep each connected project synced; it is the one route that echoes a
   room id, and only to its creator.
+- **A connected project on another device**
+  ([ADR-0034](decisions/ADR-0034-connected-project-second-device.md)). Any
+  browser signed in to the same account can open a connected project at
+  `/c/<project id>`: it reads the room id from that same route and joins the
+  room as a Share guest would. The address carries the project id, which opens
+  nothing without the session; the room id is held in memory and that device's
+  cached copy is stored under the project id, so the room id is not written to
+  history or browser storage. Such a session offers no Share link and never
+  applies an AI client's proposal on its own. What it does leave behind is the cached text of
+  the project, which signing out or disconnecting does not erase; clearing the
+  site's data does. A signed-in session is therefore enough to read and edit
+  every connected project of that account, which was already true for anyone
+  calling the route and the relay by hand.
 - **Connector tokens** ([ADR-0033](decisions/ADR-0033-hosted-connector.md) §3)
   are the credential an AI client will present to the hosted connector. A
   token is 32 random bytes behind a `gly_` prefix, minted by the web service

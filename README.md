@@ -132,6 +132,7 @@ Galley uses **path-based routes** (a tiny History-API router):
 - **`/p/<id>`** — a specific **local-first project** (auto-saved to the browser, reload-survivable).
 - **`/library`** — the project dashboard.
 - **`/join/<room>`** — share-link entry (joins a collaboration room; carries `?sync=` / `?role=`).
+- **`/c/<id>`** — one of your connected projects, opened from its server copy on a device that does not hold it (hosted connector only).
 - **`/settings`** — device-scoped settings.
 - **`/settings/whats-new`** — recent features, linked from Settings.
 

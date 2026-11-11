@@ -56,6 +56,13 @@ connector**, which also shows the address to give your chat app, and choose
 **Ask** or **Auto** per project there. The reasoning is in
 [ADR-0033](decisions/ADR-0033-hosted-connector.md).
 
+To look at the result where you asked for it: sign in to Galley on that device.
+Its Projects page lists your connected projects that live on another device
+under **On the server**. One opens from its server copy, where you can read it,
+fix a typo and accept or reject what is waiting. Images and project fonts are
+not part of the server copy yet, so a project that uses them renders without
+them there ([ADR-0034](decisions/ADR-0034-connected-project-second-device.md)).
+
 > **This is a how-to.** For the exhaustive reference, including every flag,
 > control-mode detail and troubleshooting case, see
 > [`mcp-kernel-setup.md`](mcp-kernel-setup.md). For the reasoning behind the

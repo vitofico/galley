@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ConnectorReviewMode } from "@galley/shared";
 import {
   connectProject,
+  connectedElsewhere,
   createConnectorToken,
   disconnectProject,
   listConnectedProjects,
@@ -16,6 +17,7 @@ import {
 } from "../hosted-connector.js";
 import { IdbProjectStore } from "../idb-project-store.js";
 import { loadLocalProfile } from "../local-profile.js";
+import { navigate, routeHref } from "../router.js";
 
 /**
  * "Hosted connector" settings (ADR-0033 §1, §3) — where a person connects a
@@ -74,14 +76,12 @@ export function HostedConnectorSettings() {
   const byProject = new Map((connected ?? []).map((c) => [c.projectId, c]));
   // A project connected from another browser, or deleted here since: it still
   // has a server copy, so it must stay visible and disconnectable.
-  const elsewhere = (connected ?? []).filter(
-    (c) => !local.some((p) => p.id === c.projectId),
-  );
   const rows = [
-    ...local,
-    ...elsewhere.map((c) => ({
+    ...local.map((p) => ({ ...p, elsewhere: false })),
+    ...connectedElsewhere(connected ?? [], local).map((c) => ({
       id: c.projectId,
       name: `${c.name ?? c.projectId} (not on this device)`,
+      elsewhere: true,
     })),
   ];
 
@@ -93,8 +93,9 @@ export function HostedConnectorSettings() {
         <strong>keeps a copy of it on this server</strong>, readable by whoever
         runs the server, until you disconnect it. The copy is brought up to date
         whenever the project is open in Galley, so open it once after
-        connecting. It is <strong>off for every project</strong> until you
-        connect one here.
+        connecting. A connected project can also be opened, from that copy, in{" "}
+        <strong>any browser signed in to your account</strong>. It is{" "}
+        <strong>off for every project</strong> until you connect one here.
       </p>
       <p className="settings-note">
         An AI client can <strong>read</strong> a connected project and{" "}
@@ -178,6 +179,19 @@ export function HostedConnectorSettings() {
                       <option value="ask">Ask</option>
                       <option value="auto">Auto</option>
                     </select>
+                    {p.elsewhere && (
+                      <button
+                        type="button"
+                        className="settings-back"
+                        data-testid="hosted-connector-open"
+                        data-project-id={p.id}
+                        onClick={() =>
+                          navigate(routeHref({ kind: "connected", id: p.id }))
+                        }
+                      >
+                        Open
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="settings-back"

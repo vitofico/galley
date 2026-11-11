@@ -216,6 +216,9 @@ the server needs its own copy, so connecting a project means exactly that:
   and, whenever the project is open, keeps it synced into that room. The relay
   stores the room on disk. **The server then holds the project in plain text**,
   readable by whoever operates it, until the project is disconnected.
+- A connected project can be opened from its server copy in any browser signed
+  in to the same account (Projects page, **On the server**), for example to
+  review a change on a phone. That browser keeps a cached copy of the text.
 - Each connected project has a review mode, **Ask** (default) or **Auto**,
   recorded with the room. In Ask a change from the connector appears as a
   review card the next time the project is open in Galley, and nothing changes

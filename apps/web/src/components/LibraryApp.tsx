@@ -7,6 +7,7 @@ import { createProject, einsteinSeed, blankSeed } from "../project-create.js";
 import type { ProjectTemplate } from "../templates/index.js";
 import { AccountChip } from "./AccountChip.js";
 import type { AuthUser } from "../auth-gate.js";
+import { connectedElsewhere } from "../hosted-connector.js";
 import "./library.css";
 
 /**
@@ -40,6 +41,13 @@ export interface LibraryAppProps {
    * byte-for-byte the same as before (no chip).
    */
   user?: AuthUser;
+  /**
+   * The signed-in person's connected projects (hosted connector, ADR-0034).
+   * Those this device does not hold are listed apart and open through
+   * `onOpenConnected`, from their server copy. Omitted where the connector is off.
+   */
+  connected?: readonly { projectId: string; name?: string }[];
+  onOpenConnected?: (projectId: string) => void;
 }
 
 /**
@@ -147,6 +155,8 @@ export function LibraryApp({
   onOpen,
   onOpenSettings,
   user,
+  connected = [],
+  onOpenConnected,
 }: LibraryAppProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -593,6 +603,60 @@ export function LibraryApp({
         </div>
       ) : (
         <>
+          {onOpenConnected !== undefined &&
+            connectedElsewhere(connected, projects).length > 0 && (
+              <section
+                className="library-connected"
+                data-testid="library-connected"
+                aria-labelledby="library-connected-title"
+              >
+                <h2
+                  className="library-connected-title"
+                  id="library-connected-title"
+                >
+                  On the server
+                </h2>
+                <p className="library-connected-hint">
+                  Projects you connected from another device. They open from
+                  their server copy, to read and to review changes.
+                </p>
+                <div className="library-grid">
+                  {connectedElsewhere(connected, projects).map((c) => (
+                    <article
+                      key={c.projectId}
+                      className="library-card"
+                      data-testid="connected-project-card"
+                      data-project-id={c.projectId}
+                    >
+                      <div className="library-card-body">
+                        <span className="library-cover" aria-hidden="true">
+                          <span className="library-cover-title">
+                            {c.name ?? c.projectId}
+                          </span>
+                          <span className="library-cover-rule" />
+                          <span className="library-cover-lines" />
+                        </span>
+                        <div className="library-card-copy">
+                          <h3 className="library-card-name">
+                            {c.name ?? c.projectId}
+                          </h3>
+                          <p className="library-card-meta">
+                            Not on this device
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        className="library-card-open"
+                        data-testid="open-connected-project"
+                        type="button"
+                        aria-label={`Open ${c.name ?? c.projectId}`}
+                        onClick={() => onOpenConnected(c.projectId)}
+                      />
+                    </article>
+                  ))}
+                </div>
+              </section>
+            )}
           {projects.length === 0 ? (
             <p className="library-empty" data-testid="library-empty">
               Your next document starts here. Choose a template or create a

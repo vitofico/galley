@@ -58,6 +58,12 @@ describe("parseRoute", () => {
     expect(parseRoute("/join/share-xyz")).toEqual({ kind: "join", room: "share-xyz" });
   });
 
+  it("parses /c/<id> as a connected project on another device", () => {
+    expect(parseRoute("/c/proj-abc")).toEqual({ kind: "connected", id: "proj-abc" });
+    expect(parseRoute("/c")).toEqual({ kind: "home" });
+    expect(parseRoute("/c/x/y")).toEqual({ kind: "home" });
+  });
+
   it("survives a malformed percent-encoding by using the raw segment", () => {
     expect(parseRoute("/p/%E0%A4%A")).toEqual({ kind: "project", id: "%E0%A4%A" });
   });
@@ -102,6 +108,7 @@ describe("routeHref", () => {
       { kind: "join", room: "share-abc", sync: "ws://relay:9000" },
       { kind: "join", room: "share-abc", role: "viewer" },
       { kind: "join", room: "share-abc", sync: "ws://relay:9000", role: "editor" },
+      { kind: "connected", id: "proj-1" },
       { kind: "settings" },
       { kind: "whats-new" },
     ] as const;
@@ -187,6 +194,18 @@ describe("currentRoute / navigate — the browser half of the seam", () => {
       });
       navigate("/library");
       expect(pushState).toHaveBeenCalledWith(null, "", "/galley/library");
+    });
+
+    it("rewrites the current entry instead when asked to replace", () => {
+      const pushState = vi.fn();
+      const replaceState = vi.fn();
+      vi.stubGlobal("window", {
+        history: { pushState, replaceState },
+        location: { pathname: "/c/proj-1", search: "" },
+      });
+      navigate("/p/proj-1", { replace: true });
+      expect(replaceState).toHaveBeenCalledWith(null, "", "/p/proj-1");
+      expect(pushState).not.toHaveBeenCalled();
     });
 
     it("pushes exactly the app-absolute href at the default base", () => {

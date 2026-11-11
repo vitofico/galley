@@ -64,6 +64,9 @@ const UnifiedRoot = lazy(() =>
 const JoinRoot = lazy(() =>
   import("./join-root.js").then((m) => ({ default: m.JoinRoot })),
 );
+const ConnectedRoot = lazy(() =>
+  import("./connected-root.js").then((m) => ({ default: m.ConnectedRoot })),
+);
 const SettingsRoot = lazy(() =>
   import("./settings-root.js").then((m) => ({ default: m.SettingsRoot })),
 );
@@ -88,6 +91,7 @@ getControlResponderManager();
  *   `/library`     → the project library/dashboard (#12.3) — alias of `/`
  *   `/p/<id>`      → a specific persistent project (opened from the library)
  *   `/join/<room>` → share-link entry: name prompt once, then the shared room
+ *   `/c/<id>`      → one of your connected projects, opened from its server copy
  *   `/settings`    → the unified device-scoped settings surface (#19.7)
  *   `/settings/whats-new` → recent user-facing changes
  */
@@ -109,6 +113,8 @@ function RouterRoot() {
           {...(route.role ? { role: route.role } : {})}
         />
       );
+    case "connected":
+      return <ConnectedRoot key={route.id} projectId={route.id} />;
     case "settings":
       return <SettingsRoot />;
     case "whats-new":

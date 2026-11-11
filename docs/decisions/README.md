@@ -44,6 +44,7 @@ Format: lightweight [MADR](https://adr.github.io/madr/)-style. Status is one of
 | [0031](ADR-0031-document-review-aids.md)           | Deterministic review aids and explicit portable workbench content                              | Accepted                                               |
 | [0032](ADR-0032-mcp-open-switches-project.md)    | An agent's `open_project` asks first, then switches the tab                                    | Accepted                                               |
 | [0033](ADR-0033-hosted-connector.md)             | Hosted connector: a server-side agent peer that may apply                                      | Accepted                                               |
+| [0034](ADR-0034-connected-project-second-device.md) | A connected project opens on its owner's other devices                                      | Accepted                                               |
 
 ## Adding an ADR
 

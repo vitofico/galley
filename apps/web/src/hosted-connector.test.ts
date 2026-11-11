@@ -14,9 +14,11 @@ import {
   revokeConnectorToken,
   hostedConnectorEnabled,
   fetchConnectorCheckpoint,
+  connectedElsewhere,
   listConnectedProjects,
   listConnectorActivity,
   openConnectorReplica,
+  resolveConnectedEntry,
   setConnectedProjectReviewMode,
 } from "./hosted-connector.js";
 
@@ -87,6 +89,50 @@ describe("listConnectedProjects", () => {
       throw new Error("offline");
     });
     expect((await listConnectedProjects(offline)).ok).toBe(false);
+  });
+});
+
+describe("opening a connected project by id", () => {
+  const row = { roomId: ROOM, projectId: "proj-1", reviewMode: "ask", connectedAtMs: 1 };
+  const listing = () => answering(200, { ok: true, projects: [row] });
+
+  it("opens the server copy of a project this device does not hold", async () => {
+    expect(await resolveConnectedEntry("proj-1", false, true, listing())).toEqual({
+      kind: "open",
+      project: row,
+    });
+  });
+
+  it("sends a device that holds the project to its own copy, without asking the server", async () => {
+    const fetchImpl = listing();
+    expect(await resolveConnectedEntry("proj-1", true, true, fetchImpl)).toEqual({
+      kind: "local",
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("opens nothing for an id the server does not list for this person", async () => {
+    const entry = await resolveConnectedEntry("proj-other", false, true, listing());
+    expect(entry).toMatchObject({ kind: "unavailable", retry: false });
+  });
+
+  it("makes no request where the connector is off", async () => {
+    const fetchImpl = listing();
+    const entry = await resolveConnectedEntry("proj-1", false, false, fetchImpl);
+    expect(entry).toMatchObject({ kind: "unavailable", retry: false });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("lists as elsewhere only what this device does not hold", () => {
+    const connected = [{ projectId: "proj-1" }, { projectId: "proj-2" }];
+    expect(connectedElsewhere(connected, [{ id: "proj-2" }])).toEqual([
+      { projectId: "proj-1" },
+    ]);
+  });
+
+  it("offers a retry when the server did not answer", async () => {
+    const entry = await resolveConnectedEntry("proj-1", false, true, answering(500, {}));
+    expect(entry).toMatchObject({ kind: "unavailable", retry: true });
   });
 });
 
