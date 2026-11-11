@@ -1150,6 +1150,83 @@ button.brand:hover {
     width: auto;
     max-width: none;
   }
+
+  /* Phone budget: the header and banners sit above EVERY tab, so each pixel
+     they take comes out of the page. Tighten the header rows, and let the
+     banner rows use the full width (their desktop margin reserves a gutter for
+     the icon rail, which is hidden here: it squeezed a notice into six lines). */
+  .shell-top {
+    padding: 0.45rem var(--shell-pad) 0.3rem;
+    gap: 0.35rem var(--shell-gap);
+  }
+  .pill {
+    padding: 0.1rem 0.45rem;
+    min-height: 2.75rem;
+  }
+  .durability-bar,
+  .pending-review-bar {
+    margin-left: var(--shell-pad);
+  }
+  .durability-bar > .notice {
+    margin: 0;
+    align-items: center;
+  }
+  /* Finger-sized targets (44px; 40px inside the two header pills, which are
+     44px tall themselves). */
+  .pill .brand,
+  .pill .status-chip,
+  .pill .pill-btn,
+  .pill .pill-icon-btn {
+    min-height: 2.5rem;
+    min-width: 2.5rem;
+  }
+  .notice-action,
+  .durability-dismiss,
+  .pending-review-chip,
+  .diff-actions button,
+  .preview-zoom-bar button,
+  .tabbed .tab-bar .tab-bar-tab {
+    min-height: 2.75rem;
+    min-width: 2.75rem;
+  }
+  .diff-actions button {
+    padding-inline: 1rem;
+  }
+  .tabbed .tab-bar {
+    margin: 0.3rem auto 0.4rem;
+  }
+  /* Prose paragraphs are single long source lines: wrap the diff instead of
+     scrolling it sideways. */
+  .diff-body {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .preview {
+    padding: 0.6rem;
+  }
+  /* The agent tab is ONE scrolling column: the helper panels scroll away and
+     the chat gets a full panel of height. In the three-pane layout `.agent`
+     shrinks to whatever the helpers leave, which on a phone was 24px of
+     transcript with the proposal's Accept/Reject clipped out of it. */
+  .tab-pane-keep > .sidebar > .agent {
+    flex: none;
+    height: 100%;
+  }
+  /* An open review pane takes the whole space under the header: the cards are
+     the task, and the tabs come back when the pane closes or empties. */
+  .app:has(.pending-review-pane) .shell-main {
+    display: none;
+  }
+  .app:has(.pending-review-pane) .pending-review-bar {
+    flex: 1;
+    min-height: 0;
+    margin-bottom: var(--shell-pad);
+  }
+  .pending-review-bar > .pending-review-pane {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+  }
 }
 
 /* The narrow tab bar floats as a bottom pill (both shells share .tabbed). The

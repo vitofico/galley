@@ -792,7 +792,14 @@ body.panes-dragging {
   align-items: center;
 }
 .preview-page {
-  width: 100%;
+  /* Shrink-wrapped to the page and centred with auto margins, NOT the parent's
+     `align-items: center`: a zoomed page wider than the pane must start at the
+     pane's left edge (auto margins collapse to 0), where centring would hang
+     half the overflow off the left, out of the scroll range. */
+  width: fit-content;
+  max-width: 100%;
+  align-self: flex-start;
+  margin-inline: auto;
   display: flex;
   flex-direction: column;
   align-items: center;

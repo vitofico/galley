@@ -6,7 +6,7 @@
  * rendered <svg> — and its inline left/top/width/height are PERCENTAGES of the
  * SVG's viewBox (the entry rect's point coords ÷ the document's point size; see
  * Preview.tsx `docSize`). Because the SVG's `max-width: 100%` shrink AND the
- * preview-zoom transform both apply to that same frame, the percentage overlay
+ * preview zoom both apply to that same frame, the percentage overlay
  * scales 1:1 with the SVG at any pane width or zoom — no physical-px math. It is
  * purely additive: it renders only when an active source region exists, and never
  * when the opt-in props are absent, so the default preview is unchanged.
@@ -31,7 +31,7 @@
 
 /* Transparent wrapper around the injected <svg>: `display: contents` removes it
    from the box tree, so the frame tightly bounds the SVG itself and the page's
-   existing `.preview-page :where(svg)` rule and zoom transform apply unchanged. */
+   existing `.preview-page :where(svg)` rule and zoom apply unchanged. */
 .preview-svg-host {
   display: contents;
 }

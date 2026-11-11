@@ -160,6 +160,13 @@
 .agent-session-switcher li:hover .agent-session-delete {
   opacity: 1;
 }
+/* No hover on touch: the affordances would be invisible (yet tappable). */
+@media (hover: none) {
+  .agent-session-rename,
+  .agent-session-delete {
+    opacity: 1;
+  }
+}
 
 .agent-session-rename:hover {
   background: color-mix(in srgb, var(--ink, #1c140d) 8%, transparent);

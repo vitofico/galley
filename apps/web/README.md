@@ -9,7 +9,8 @@ panel, diff review, multi-file projects, collaboration, settings). See [`docs/ro
 
 The desktop workspace has resizable editor, compiled preview and writing/agent
 panes, with Files and other tools on the left rail. Narrow screens use accessible
-tabs instead of squeezing three panes into one view.
+tabs instead of squeezing three panes into one view; a touch device opens on the
+Preview tab, since a phone is for reading the page and answering proposals.
 
 ```
 ┌──────────────┬───────────────┬──────────────┐
