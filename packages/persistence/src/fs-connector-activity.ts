@@ -187,3 +187,36 @@ export class FsConnectorCheckpoints {
       : null;
   }
 }
+
+/**
+ * Erase the trail and checkpoints of every project that is no longer
+ * connected. Disconnecting promises that the server's copy goes away, and a
+ * checkpoint is a copy. `isConnected` must answer true when it cannot tell:
+ * nothing is erased on doubt.
+ */
+export async function eraseDisconnectedConnectorState(
+  root: string,
+  isConnected: (room: string) => Promise<boolean>,
+): Promise<void> {
+  const names = async (dir: string): Promise<string[]> => {
+    try {
+      return await readdir(join(root, dir));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw err;
+    }
+  };
+  const rooms = new Set([
+    ...(await names("checkpoints")),
+    ...(await names("activity"))
+      .filter((n) => n.endsWith(".jsonl"))
+      .map((n) => n.slice(0, -6)),
+  ]);
+  for (const room of rooms) {
+    if (!SAFE_ROOM.test(room) || (await isConnected(room))) continue;
+    await locks.run(`${root}:${room}`, async () => {
+      await rm(join(root, "checkpoints", room), { recursive: true, force: true });
+      await rm(join(root, "activity", `${room}.jsonl`), { force: true });
+    });
+  }
+}

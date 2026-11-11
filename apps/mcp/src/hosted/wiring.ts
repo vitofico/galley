@@ -5,6 +5,7 @@
  * mode writes (checkpoints, the activity trail) goes to a volume of its own.
  */
 import { listConnectedProjects, verifyConnectorToken } from "@galley/auth";
+import { isActiveCapabilityRoom } from "@galley/shared";
 import {
   FsCapabilityRoomRegistry,
   FsConnectorActivityLog,
@@ -12,6 +13,7 @@ import {
   FsConnectorTokenStore,
   FsSessionStore,
   KeyedMutex,
+  eraseDisconnectedConnectorState,
 } from "@galley/persistence";
 import { createHttpCompileService } from "../compile-client.js";
 import type { ConnectorAppDeps } from "./app.js";
@@ -50,5 +52,34 @@ function autoStore(stateDir: string): NonNullable<ConnectorAppDeps["auto"]> {
     checkpoints: new FsConnectorCheckpoints(stateDir),
     activity: new FsConnectorActivityLog(stateDir),
     serialize: (room, op) => locks.run(room, op),
+  };
+}
+
+/**
+ * Disconnecting a project promises that the server's copy of it goes away. The
+ * relay erases its own; this erases the connector's checkpoints and trail.
+ * Nothing is erased when the registry cannot be read or looks empty: a data
+ * volume that failed to mount must not cost anyone their way back.
+ */
+export function createStateSweep(config: HostedConfig): () => Promise<void> {
+  const { stateDir } = config;
+  if (stateDir === undefined) return async () => {};
+  const registry = new FsCapabilityRoomRegistry(config.dataDir);
+  return async () => {
+    try {
+      const records = await registry.list();
+      if (records.length === 0) return;
+      const now = Date.now();
+      const connected = new Set(
+        records
+          .filter((r) => r.kind === "connector" && isActiveCapabilityRoom(r, now))
+          .map((r) => r.roomId),
+      );
+      await eraseDisconnectedConnectorState(stateDir, async (room) =>
+        connected.has(room),
+      );
+    } catch {
+      // Try again on the next pass.
+    }
   };
 }

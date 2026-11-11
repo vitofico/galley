@@ -39,6 +39,7 @@ export { FsConnectorTokenStore } from "./fs-connector-tokens.js";
 export {
   FsConnectorActivityLog,
   FsConnectorCheckpoints,
+  eraseDisconnectedConnectorState,
 } from "./fs-connector-activity.js";
 export { KeyedMutex } from "./keyed-mutex.js";
 // Git-remote projection (ADR-0018/0019). Browser-safe core + Node-only adapters

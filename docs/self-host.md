@@ -229,7 +229,8 @@ the server needs its own copy, so connecting a project means exactly that:
   most 500 file operations or 16 MiB are applied per project per hour; past
   that, changes wait for review.
 - **Disconnect** revokes the room. The relay drops any connection to it and
-  erases the stored copy within about half a minute. The project in the
+  erases the stored copy within about half a minute; the connector erases the
+  project's checkpoints and activity trail on the same schedule. The project in the
   browser is untouched.
 - Limits: 32 connected projects per person, one room per project.
 - **Access tokens** are created in the same Settings card, one per AI client.

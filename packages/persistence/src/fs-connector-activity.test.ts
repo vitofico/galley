@@ -17,6 +17,7 @@ import {
 import {
   FsConnectorActivityLog,
   FsConnectorCheckpoints,
+  eraseDisconnectedConnectorState,
 } from "./fs-connector-activity.js";
 
 const ROOM = "share-activitytest0000000000000000";
@@ -161,6 +162,31 @@ describe("FsConnectorCheckpoints", () => {
       await expect(store.save("../escape", bytes("x"))).rejects.toThrow();
       await expect(store.list("../escape")).rejects.toThrow();
     }));
+});
+
+describe("eraseDisconnectedConnectorState", () => {
+  it("erases what a disconnected project left, and nothing of a connected one", async () => {
+    const root = await mkdtemp(join(tmpdir(), "galley-connector-erase-"));
+    try {
+      const GONE = "share-disconnected000000000000000000";
+      const log = new FsConnectorActivityLog(root);
+      const checkpoints = new FsConnectorCheckpoints(root);
+      for (const room of [ROOM, GONE]) {
+        await log.append(room, entry());
+        await checkpoints.save(room, new TextEncoder().encode("{}"));
+      }
+      await eraseDisconnectedConnectorState(root, async (room) => room === ROOM);
+      expect(await log.read(GONE)).toEqual([]);
+      expect(await checkpoints.list(GONE)).toEqual([]);
+      expect(await readdir(join(root, "checkpoints"))).toEqual([ROOM]);
+      expect(await log.read(ROOM)).toHaveLength(1);
+      expect(await checkpoints.list(ROOM)).toHaveLength(1);
+      // An empty volume is fine too.
+      await eraseDisconnectedConnectorState(join(root, "nothing-here"), async () => false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("foldConnectorActivity", () => {

@@ -8,7 +8,7 @@ import { Server as HttpServer } from "node:http";
 import { serve } from "@hono/node-server";
 import { createConnectorApp } from "./app.js";
 import { parseHostedConfig } from "./config.js";
-import { buildConnectorDeps } from "./wiring.js";
+import { buildConnectorDeps, createStateSweep } from "./wiring.js";
 
 const config = parseHostedConfig(process.env);
 const app = createConnectorApp(buildConnectorDeps(config));
@@ -23,8 +23,13 @@ if (server instanceof HttpServer) {
 }
 // The request line is never logged: with the path form it carries a token.
 console.error(
-  `@galley/mcp hosted connector listening on :${config.port}, compile: ${config.compileUrl !== undefined ? "on" : "off"}`,
+  `@galley/mcp hosted connector listening on :${config.port}, compile: ${config.compileUrl !== undefined ? "on" : "off"}, applies changes (Auto): ${config.stateDir !== undefined ? "on" : "off"}`,
 );
+
+// A disconnected project's checkpoints and trail are erased within a minute.
+const sweep = createStateSweep(config);
+void sweep();
+setInterval(() => void sweep(), 30_000).unref();
 
 const shutdown = () => {
   server.close(() => process.exit(0));

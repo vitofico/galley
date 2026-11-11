@@ -201,8 +201,8 @@ export function HostedConnectorSettings() {
       </div>
       <p className="settings-note">
         Disconnecting ends the connector&apos;s access to that project and
-        erases its server copy within a minute. The project on this device is
-        not touched.
+        erases its server copy, with any checkpoints and the record of
+        changes, within a minute. The project on this device is not touched.
       </p>
       <ConnectorTokens />
     </>

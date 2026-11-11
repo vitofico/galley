@@ -150,7 +150,8 @@ room to be **registered and active**:
   uses (text that moved means nothing is applied); leave a resolved record in
   the document. Checkpoints and the trail live on a volume only the connector
   writes; the web app serves them to the project's owner, who restores a
-  checkpoint from the project's History. A failure before anything is applied
+  checkpoint from the project's History; both are erased within a minute of
+  the project being disconnected. A failure before anything is applied
   falls back to a pending proposal. A deployment that gives the connector no
   such volume never applies on the server. So a leaked token can read
   connected projects and fill their review queue, and **can change a project

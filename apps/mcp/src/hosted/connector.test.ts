@@ -43,7 +43,7 @@ import type {
 import { createConnectorApp, type ConnectorAppDeps } from "./app.js";
 import { ProjectUnavailableError } from "./room.js";
 import { MAX_PENDING_PROPOSALS } from "./tools.js";
-import { buildConnectorDeps } from "./wiring.js";
+import { buildConnectorDeps, createStateSweep } from "./wiring.js";
 
 interface SyncHandle {
   port: number;
@@ -823,6 +823,28 @@ describe("Auto mode: the server applies, under its safeguards", () => {
     expect(res.status).toBe("pending_review");
     expect(res.message).toMatch(/already applied a lot/);
     expect(p.text("/main.typ")).toBe("one\n");
+    p.peer.close();
+    await c.close();
+  });
+
+  it("erases a project's checkpoints and trail once it is disconnected", async () => {
+    const p = await autoProject({ "/main.typ": "one\n" });
+    const c = await client(createConnectorApp(autoDeps), aliceToken);
+    await edit(c, p.projectId, "one", "two");
+    const sweep = createStateSweep({
+      port: 0,
+      dataDir,
+      syncUrl: `ws://127.0.0.1:${relay.port}`,
+      stateDir,
+    });
+    const checkpoints = new FsConnectorCheckpoints(stateDir);
+    await sweep();
+    expect(await checkpoints.list(p.room)).toHaveLength(1); // still connected
+    const registry = new FsCapabilityRoomRegistry(dataDir);
+    await registry.put({ ...(await registry.get(p.room))!, revokedAtMs: Date.now() });
+    await sweep();
+    expect(await checkpoints.list(p.room)).toEqual([]);
+    expect(await trail(p.room)).toEqual([]);
     p.peer.close();
     await c.close();
   });
