@@ -141,6 +141,13 @@ export interface RegisterCapabilityRoomInput {
 const isReviewMode = (value: unknown): value is ConnectorReviewMode =>
   CONNECTOR_REVIEW_MODES.includes(value as ConnectorReviewMode);
 
+/** A connected project's display name: short, one line, no control characters. */
+const isProjectName = (v: unknown): v is string =>
+  typeof v === "string" &&
+  v.length > 0 &&
+  v.length <= 120 &&
+  !/[\u0000-\u001f\u007f]/.test(v);
+
 /** Validated registration request, or null (one constant `invalid` for all faults). */
 function parseRegisterBody(
   body: unknown,
@@ -150,14 +157,20 @@ function parseRegisterBody(
   kind: CapabilityRoomKind;
   projectId?: string;
   reviewMode?: ConnectorReviewMode;
+  projectName?: string;
 } | null {
   if (typeof body !== "object" || body === null || Array.isArray(body))
     return null;
-  const { roomId, kind, projectId, reviewMode } = body as Record<
+  const { roomId, kind, projectId, reviewMode, projectName } = body as Record<
     string,
     unknown
   >;
   if (!isCapabilityRoomId(roomId)) return null;
+  if (
+    projectName !== undefined &&
+    (kind !== "connector" || !isProjectName(projectName))
+  )
+    return null;
   if (kind === "connector") {
     // A connector room IS a project's grant: it must name the project, and
     // its review mode defaults to the safe one.
@@ -175,7 +188,13 @@ function parseRegisterBody(
       return null;
     }
     return kind === "connector"
-      ? { roomId, kind, projectId, reviewMode: reviewMode ?? "ask" }
+      ? {
+          roomId,
+          kind,
+          projectId,
+          reviewMode: reviewMode ?? "ask",
+          ...(projectName !== undefined ? { projectName } : {}),
+        }
       : { roomId, kind, projectId };
   }
   return { roomId, kind };
@@ -262,7 +281,7 @@ export async function registerCapabilityRoom(
 ): Promise<CapabilityRoomRouteResult> {
   const parsed = parseRegisterBody(input.body, input.allowConnector === true);
   if (parsed === null) return fail(400, "invalid");
-  const { roomId, kind, projectId, reviewMode } = parsed;
+  const { roomId, kind, projectId, reviewMode, projectName } = parsed;
   const locks = locksFor(store);
 
   // HIGH-2: the whole GC + existence-check + cap-count + write sequence runs
@@ -318,6 +337,7 @@ export async function registerCapabilityRoom(
         createdAtMs: input.nowMs,
         ...(projectId !== undefined ? { projectId } : {}),
         ...(reviewMode !== undefined ? { reviewMode } : {}),
+        ...(projectName !== undefined ? { projectName } : {}),
         ...(kind === "control"
           ? { expiresAtMs: input.sessionExpiresAtMs }
           : {}),
@@ -386,6 +406,8 @@ export interface ConnectedProject {
   /** The durable room the project is synced into — the owner's own capability. */
   roomId: string;
   projectId: string;
+  /** The project's name when it was connected; absent on older records. */
+  name?: string;
   reviewMode: ConnectorReviewMode;
   connectedAtMs: number;
 }
@@ -408,6 +430,7 @@ export async function listConnectedProjects(
     out.push({
       roomId: r.roomId,
       projectId: r.projectId,
+      ...(isProjectName(r.projectName) ? { name: r.projectName } : {}),
       reviewMode: isReviewMode(r.reviewMode) ? r.reviewMode : "ask",
       connectedAtMs: r.createdAtMs,
     });

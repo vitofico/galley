@@ -106,6 +106,7 @@ All opt-in via the URL (or the in-app settings):
 | sync | `GALLEY_SYNC_AUTH=required` | gate the ws upgrade on session + project membership; reserved `share-…` capability rooms (Share / Agent Access) are instead gated on an **active registration** in the shared registry (see "Capability rooms" below). Any non-empty value other than `required`/`off` **throws at startup**. Requires the shared `GALLEY_SESSION_DIR` + `GALLEY_DATA_DIR` **and** `GALLEY_SYNC_ALLOWED_ORIGINS` or the service **refuses to start** (fail-closed — see Security notes). |
 | sync | `GALLEY_SYNC_ALLOWED_ORIGINS` | comma-separated exact browser Origins allowed to open a ws upgrade (CSWSH defense). Optional with auth off (unset = no Origin check, unchanged). **REQUIRED under `GALLEY_SYNC_AUTH=required`** — capability rooms are authorized by registration, not cookies, so the Origin wall is what stops a hostile page from driving a leaked room id; an auth-required relay without it refuses to start. Native (non-browser) clients send no Origin and pass only for an active registered capability room. |
 | sync | `GALLEY_SYNC_PERSIST_DIR`, `GALLEY_SYNC_PERSIST_ROOMS` | optional durable volume for room state. Unset = the relay keeps nothing on disk (default). `GALLEY_SYNC_PERSIST_ROOMS` chooses what is kept: `all` (default) or `connector`, only projects connected to the hosted connector (needs `GALLEY_SYNC_AUTH=required`). Any other value **throws at startup**. |
+| connector | `GALLEY_DATA_DIR`, `GALLEY_CONNECTOR_SYNC_URL`, `GALLEY_CONNECTOR_COMPILE_URL`, `PORT` | the hosted connector service (see "Hosted connector" below). The data dir and the relay address (`ws://` or `wss://`) are required; the compile address (`http://` or `https://`) is optional, and without it the `compile` tool reports `not_configured`. `PORT` defaults to 8790. A missing or malformed value **throws at startup**. |
 | web | `GALLEY_HOSTED_CONNECTOR=1` | let signed-in people connect a project to the hosted connector (see "Hosted connector" below). Default off. Requires `GALLEY_AUTH_MODE=oidc` and `GALLEY_DATA_DIR`, or the service **refuses to start**. |
 | web + sync | `GALLEY_INSECURE_COOKIES=1` | dev only: use the non-`__Host-` cookie name over plain HTTP. Never set in production. |
 | web | `GALLEY_OIDC_ALLOW_HTTP=1` | dev only: let OIDC discovery accept a plain-`http:` issuer and that issuer's plain-`http:` endpoints. Unset = https-only (default). Anyone on the network path can then forge a login as any user — never set in production. |
@@ -200,9 +201,12 @@ Access behave exactly as in the zero-config local mode.
 
 The hosted connector lets an AI chat client work on a project with no Galley
 tab open ([ADR-0033](decisions/ADR-0033-hosted-connector.md)). It is being
-built in steps. **This release has the first two: connected projects and
-access tokens.** The address a client connects to is not in this release, so a
-token can be created and revoked but not yet used.
+built in steps. **This release reads and proposes:** connected projects, access
+tokens, and an endpoint an AI client can use to list, read, search and compile
+a connected project and to propose changes to it. A proposal is stored in the
+project and waits for its owner to accept it in Galley. Applying a change on
+the server is not in this release, so a project set to Auto is reviewed like
+one set to Ask.
 
 A project lives in the browser. For the server to work on it with no tab open,
 the server needs its own copy, so connecting a project means exactly that:
@@ -213,7 +217,9 @@ the server needs its own copy, so connecting a project means exactly that:
   stores the room on disk. **The server then holds the project in plain text**,
   readable by whoever operates it, until the project is disconnected.
 - Each connected project has a review mode, **Ask** (default) or **Auto**,
-  recorded with the room. Nothing reads it yet.
+  recorded with the room. In this release both behave as Ask: a change from the
+  connector appears as a review card the next time the project is open in
+  Galley, and nothing changes until it is accepted there.
 - **Disconnect** revokes the room. The relay drops any connection to it and
   erases the stored copy within about half a minute. The project in the
   browser is untouched.
@@ -227,8 +233,17 @@ the server needs its own copy, so connecting a project means exactly that:
   request), and revoking it deletes the record. Limit: 16 live tokens per
   person.
 
-To enable it, set **both** switches. They are two halves of one feature, in two
-containers that cannot check each other:
+- **The endpoint** is a separate small service from the same image
+  (`apps/mcp/src/hosted/main.ts`), answering `POST /mcp`. A client proves who
+  it is with an access token, sent as `Authorization: Bearer gly_…` or, for
+  chat apps that accept only an address, inside the path: `/mcp/gly_…`. It
+  keeps no session. For each call it checks the token, looks up the caller's
+  connected projects, joins the project's room on the relay as one more peer,
+  answers and leaves. It reads the data volume and never writes it, and it
+  never opens the relay's stored files.
+
+To enable it, set the switches on **all three** services. They are parts of one
+feature, in containers that cannot check each other:
 
 ```
 # web
@@ -236,7 +251,21 @@ GALLEY_HOSTED_CONNECTOR=1
 # sync (a volume mounted at the persist dir)
 GALLEY_SYNC_PERSIST_DIR=/var/lib/galley/crdt
 GALLEY_SYNC_PERSIST_ROOMS=connector
+# connector (the web service's data volume, mounted read-only)
+GALLEY_DATA_DIR=/var/lib/galley/projects
+GALLEY_CONNECTOR_SYNC_URL=ws://galley-sync
+GALLEY_CONNECTOR_COMPILE_URL=http://galley-compile   # optional
 ```
+
+Route `/mcp` on the web app's own host to the connector (the Settings page
+shows `https://<your host>/mcp` as the address). On Kubernetes the
+`deploy/k8s/components/connector` component does all of this, composed in
+`overlays/auth-compile-connector`.
+
+**Keep `/mcp` out of your access logs.** With the path form the address is the
+credential, and an access log line would record it. The connector itself never
+logs a request line, and the bundled Ingress turns its access log off; do the
+same on any proxy, CDN or load balancer in front of it.
 
 With only the first, people can "connect" a project whose copy disappears when
 they close the tab. With `GALLEY_SYNC_PERSIST_ROOMS` left at its default, the

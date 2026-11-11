@@ -1,0 +1,198 @@
+# connector — the OPTIONAL hosted connector (ADR-0033): an MCP endpoint at /mcp
+# that lets an AI client read a connected project with no Galley tab open.
+#
+# What it is allowed to touch:
+#   - the shared projects volume, READ-ONLY: access-token fingerprints and the
+#     connected-project registry written by web;
+#   - the relay (as a websocket peer) and, if deployed, the compile service.
+# It reaches nothing else: no egress beyond those two Services and DNS.
+#
+# The credential is a per-client access token, sent as a bearer header or as
+# part of the URL path (/mcp/<token>) for chat clients that cannot send a
+# header. With the path form THE ADDRESS IS THE SECRET, so the Ingress below
+# turns its access log off. If your edge logs request lines somewhere else
+# (a CDN, a load balancer), turn that off for /mcp too.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: galley-crdt
+  namespace: galley
+  labels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: crdt }
+spec:
+  # The relay is the ONLY writer and runs as one replica, so RWO is enough.
+  # This volume holds connected projects in plain text: back it up with the
+  # projects volume.
+  accessModes: ["ReadWriteOnce"]
+  resources: { requests: { storage: 2Gi } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: galley-connector
+  namespace: galley
+  labels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: connector }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: connector }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: connector }
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: connector
+          image: galley-runtime:latest
+          imagePullPolicy: IfNotPresent
+          command: ["apps/mcp/node_modules/.bin/tsx", "apps/mcp/src/hosted/main.ts"]
+          env:
+            - { name: PORT, value: "8790" }
+            - { name: GALLEY_DATA_DIR, value: "/var/lib/galley/projects" }
+            # In-cluster addresses: never a client-supplied URL.
+            - { name: GALLEY_CONNECTOR_SYNC_URL, value: "ws://galley-sync" }
+            # Remove this line if you do not deploy the compile component; the
+            # `compile` tool then reports not_configured.
+            - { name: GALLEY_CONNECTOR_COMPILE_URL, value: "http://galley-compile" }
+            - { name: TMPDIR, value: "/tmp" }
+            - { name: HOME, value: "/tmp" }
+          ports:
+            - { name: http, containerPort: 8790 }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: "25m", memory: "96Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: projects, mountPath: /var/lib/galley/projects, readOnly: true }
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: "32Mi" }
+        - name: projects
+          persistentVolumeClaim: { claimName: galley-projects, readOnly: true }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: galley-connector
+  namespace: galley
+  labels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: connector }
+spec:
+  type: ClusterIP
+  selector: { app.kubernetes.io/name: galley, app.kubernetes.io/component: connector }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+# The edge may reach the connector.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-connector
+  namespace: galley
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: connector }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
+      ports:
+        - { protocol: TCP, port: 8790 }
+---
+# The connector may reach the relay and the compile service, and nothing else.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-connector-egress
+  namespace: galley
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: connector }
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: sync }
+      ports:
+        - { protocol: TCP, port: 1234 }
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: compile }
+      ports:
+        - { protocol: TCP, port: 3001 }
+---
+# ...and those two accept it (the base denies all ingress by default).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-connector-to-sync
+  namespace: galley
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: sync }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: connector }
+      ports:
+        - { protocol: TCP, port: 1234 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-connector-to-compile
+  namespace: galley
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: compile }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: connector }
+      ports:
+        - { protocol: TCP, port: 3001 }
+---
+# /mcp on the SAME host as the web app (a more specific path than web's "/").
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: galley-connector
+  namespace: galley
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    # The path may carry an access token: keep it out of the access log.
+    nginx.ingress.kubernetes.io/enable-access-log: "false"
+    # A compile can take a while; an MCP request is small.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "90"
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: ["galley.example.com"]
+      secretName: galley-web-tls
+  rules:
+    - host: galley.example.com
+      http:
+        paths:
+          - path: /mcp
+            pathType: Prefix
+            backend: { service: { name: galley-connector, port: { name: http } } }

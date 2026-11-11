@@ -36,6 +36,8 @@ import { mintShareRoom } from "./share.js";
 export interface ConnectedProject {
   roomId: string;
   projectId: string;
+  /** The project's name when it was connected (a label; absent on old grants). */
+  name?: string;
   reviewMode: ConnectorReviewMode;
   connectedAtMs: number;
 }
@@ -103,10 +105,8 @@ async function call(
 
 function parseConnected(value: unknown): ConnectedProject | null {
   if (typeof value !== "object" || value === null) return null;
-  const { roomId, projectId, reviewMode, connectedAtMs } = value as Record<
-    string,
-    unknown
-  >;
+  const { roomId, projectId, name, reviewMode, connectedAtMs } =
+    value as Record<string, unknown>;
   if (
     !isCapabilityRoomId(roomId) ||
     typeof projectId !== "string" ||
@@ -117,6 +117,7 @@ function parseConnected(value: unknown): ConnectedProject | null {
   return {
     roomId,
     projectId,
+    ...(typeof name === "string" ? { name } : {}),
     reviewMode: reviewMode as ConnectorReviewMode,
     connectedAtMs,
   };
@@ -136,12 +137,20 @@ export async function listConnectedProjects(
   };
 }
 
+/** A project name as the registry accepts it: one line, at most 120 characters. */
+const projectName = (name: string): string =>
+  name
+    .replace(/[\u0000-\u001f\u007f]+/g, " ")
+    .trim()
+    .slice(0, 120);
+
 /**
  * Connect a project: mint its room and register it as the project's grant, in
  * Ask mode. The server copy fills the next time the project is open here.
  */
 export async function connectProject(
   projectId: string,
+  name: string,
   fetchImpl: CapabilityFetch = defaultFetch(),
 ): Promise<ConnectorResult<{ project: ConnectedProject }>> {
   let roomId: string;
@@ -156,7 +165,14 @@ export async function connectProject(
   }
   const res = await call(
     "/auth/capability-rooms",
-    { roomId, kind: "connector", projectId },
+    {
+      roomId,
+      kind: "connector",
+      projectId,
+      // Sent so the connector can tell a client which project is which. The
+      // server refuses a name over 120 characters, so it is cut here.
+      ...(projectName(name) !== "" ? { projectName: projectName(name) } : {}),
+    },
     fetchImpl,
   );
   if (!res.ok) return res;
@@ -165,6 +181,7 @@ export async function connectProject(
     project: {
       roomId,
       projectId,
+      ...(projectName(name) !== "" ? { name: projectName(name) } : {}),
       reviewMode: "ask",
       connectedAtMs: Date.now(),
     },

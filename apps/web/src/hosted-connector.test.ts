@@ -85,7 +85,7 @@ describe("listConnectedProjects", () => {
 describe("connect, review mode, disconnect", () => {
   it("connect registers a fresh connector room for the project, in Ask mode", async () => {
     const fetchImpl = answering(200, { ok: true });
-    const result = await connectProject("proj-1", fetchImpl);
+    const result = await connectProject("proj-1", "  My\nnovel ", fetchImpl);
     expect(result.ok).toBe(true);
     const [path, init] = fetchImpl.mock.calls[0]!;
     expect(path).toBe("/auth/capability-rooms");
@@ -94,11 +94,13 @@ describe("connect, review mode, disconnect", () => {
       roomId: expect.stringMatching(/^share-[A-Za-z0-9_-]{16,64}$/),
       kind: "connector",
       projectId: "proj-1",
+      projectName: "My novel",
     });
     if (result.ok)
       expect(result.project).toMatchObject({
         roomId: body["roomId"],
         projectId: "proj-1",
+        name: "My novel",
         reviewMode: "ask",
       });
   });
@@ -106,6 +108,7 @@ describe("connect, review mode, disconnect", () => {
   it("names the reason a connect was refused", async () => {
     const exists = await connectProject(
       "p",
+      "P",
       answering(409, { ok: false, code: "exists" }),
     );
     expect(exists).toEqual({
@@ -114,6 +117,7 @@ describe("connect, review mode, disconnect", () => {
     });
     const cap = await connectProject(
       "p",
+      "P",
       answering(409, { ok: false, code: "cap-exceeded" }),
     );
     expect(cap).toEqual({ ok: false, error: expect.stringMatching(/limit/) });
