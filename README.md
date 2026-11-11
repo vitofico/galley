@@ -133,6 +133,7 @@ Galley uses **path-based routes** (a tiny History-API router):
 - **`/library`** — the project dashboard.
 - **`/join/<room>`** — share-link entry (joins a collaboration room; carries `?sync=` / `?role=`).
 - **`/settings`** — device-scoped settings.
+- **`/settings/whats-new`** — recent features, linked from Settings.
 
 Collaboration is an explicit **Share** action, never on by default. The only
 editor-on-home hatch is **`?seed=…`** (the seeded Einstein showcase, also the e2e entry).
@@ -184,7 +185,8 @@ claude mcp add galley -- galley-mcp \
 ```
 
 Your agent gets the live document, the file tree, query-relevant excerpts across
-files, and real Typst diagnostics. What it does **not** get is write access:
+files, and real Typst diagnostics, through the same tool list the hosted
+connector serves. What it does **not** get is write access:
 `propose_edit` and `propose_files` publish a pending review card, and a human
 clicks Accept. That gate is structural, not a preference.
 

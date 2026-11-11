@@ -52,7 +52,15 @@ import {
 } from "./control.js";
 import { joinRoom, type KernelSession } from "./session.js";
 import type { KernelBlobSession } from "./blob-session.js";
-import { registerProjectTools, jsonResult, errorResult, textResult, type KernelTools } from "./server.js";
+import {
+  registerProjectTools,
+  jsonResult,
+  errorResult,
+  textResult,
+  type KernelTools,
+  type ProjectAttachment,
+  type ToolResult,
+} from "./server.js";
 
 /**
  * Caps on what the kernel ACCEPTS from a responder (the read side of the
@@ -423,13 +431,22 @@ function mintExportTransferId(): string {
   return randomBytes(16).toString("hex");
 }
 
+/** The `project` every project-scoped tool takes, as on the hosted connector (ADR-0033 §5). */
+const projectArg = z
+  .string()
+  .min(1)
+  .max(CONTROL_TOOL_LIMITS.maxProjectIdChars)
+  .describe("The projectId of the project, as returned by list_projects.");
+
 /** Deps for {@link registerExportCompiledTool} (A1) — the control RPC + the joined session. */
 export interface ExportCompiledToolDeps {
   rpc(op: string, params: Record<string, unknown>, timeoutMs?: number): Promise<ControlRpcOutcome>;
-  /** The blob channel of the joined project room (opt-in — connected on first use). */
-  blob: KernelBlobSession;
-  /** The bound project id (echoed in the RPC; the responder must answer for it). */
-  projectId: string;
+  /**
+   * The blob channel of the room this session joined for `project` (opt-in —
+   * connected on first use), or the result to answer with when there is none.
+   * Read per call: the tool is registered before any project is open.
+   */
+  blob(project: string): KernelBlobSession | { refusal: ToolResult };
   /** Injectable caps/timeout for tests; default to the module constants. */
   maxBytes?: number;
   timeoutMs?: number;
@@ -676,13 +693,14 @@ export function registerExportCompiledTool(server: McpServer, deps: ExportCompil
         "this kernel over the secure byte channel. Read-only — it never changes the document. " +
         "Returns the artifact's { hash, size, mime } once the verified PDF has been received; the " +
         "bytes are held by the kernel keyed by that hash and can be written to local disk with " +
-        "save_artifact { hash, destPath }. Requires the project to be open and shared with Agent " +
-        "Access; fails closed (with a structured error) on a compile failure, a descriptor " +
+        "save_artifact { hash, destPath }. Requires the project to be open (open_project) and shared " +
+        "with Agent Access; fails closed (with a structured error) on a compile failure, a descriptor " +
         "mismatch, or a timeout.",
-      inputSchema: {},
+      inputSchema: { project: projectArg },
     },
-    async () => {
-      const blob = deps.blob;
+    async ({ project }) => {
+      const blob = deps.blob(project);
+      if ("refusal" in blob) return blob.refusal;
       // MINT + RESERVE before the RPC (the bytes may arrive before the response).
       const transferId = mint();
       blob.connect(); // opt-in; idempotent
@@ -708,7 +726,7 @@ export function registerExportCompiledTool(server: McpServer, deps: ExportCompil
       try {
         const outcome = await deps.rpc(
           "export_compiled",
-          { projectId: deps.projectId, transferId, maxBytes },
+          { projectId: project, transferId, maxBytes },
           timeoutMs,
         );
         if (!outcome.ok) return fail(`export_compiled: ${outcome.error}`);
@@ -772,8 +790,11 @@ export function registerExportCompiledTool(server: McpServer, deps: ExportCompil
 
 /** Deps for {@link registerSaveArtifactTool} (F11) — the joined session blob channel. */
 export interface SaveArtifactToolDeps {
-  /** The blob channel of the joined project room — holds exported PDFs keyed by hash. */
-  blob: KernelBlobSession;
+  /**
+   * The blob channel of the joined project room — holds exported PDFs keyed by
+   * hash. Undefined while no project is open: nothing can be held yet.
+   */
+  blob(): KernelBlobSession | undefined;
   /** Injectable fs writer for tests; defaults to node:fs/promises writeFile. */
   writeFile?: (path: string, data: Uint8Array) => Promise<void>;
 }
@@ -829,7 +850,8 @@ export function registerSaveArtifactTool(server: McpServer, deps: SaveArtifactTo
       },
     },
     async ({ hash, destPath }) => {
-      const artifact = deps.blob.takeBlob(hash);
+      const blob = deps.blob();
+      const artifact = blob?.takeBlob(hash);
       if (artifact === undefined) {
         return errorResult(
           "save_artifact: no held artifact with that hash — run export_compiled first (the held " +
@@ -843,7 +865,7 @@ export function registerSaveArtifactTool(server: McpServer, deps: SaveArtifactTo
         // silently discard the only copy — the agent can retry with a corrected
         // destPath. Best-effort; if re-pin fails the bytes are gone but the error
         // is still structured.
-        deps.blob.retainBlob(artifact);
+        blob!.retainBlob(artifact);
         return errorResult(
           `save_artifact: could not write to the destination path (${
             err instanceof Error ? err.message : String(err)
@@ -864,18 +886,17 @@ export function registerControlTools(server: McpServer, deps: ControlToolDeps): 
   const joinProject = deps.joinProject ?? joinRoom;
 
   /** The one project this session is bound to, once open_project succeeded. */
-  let bound: { projectId: string; room: string; mainFile: string; session: KernelSession } | undefined;
+  let bound:
+    | {
+        projectId: string;
+        room: string;
+        mainFile: string;
+        session: KernelSession;
+        attachment: ProjectAttachment;
+      }
+    | undefined;
   /** Guards CONCURRENT open_project calls — only one join may be in flight. */
   let opening = false;
-
-  /**
-   * Handles for the consent-gated CONTENT tools (#1 slice 1), so a successful
-   * open_project can RETIRE them before registering the per-project tools —
-   * the per-project mode reuses the `list_files`/`read_file` names (different,
-   * room-scoped semantics), and the SDK refuses duplicate registrations. The
-   * fake servers in tests return no handle; removal is strictly best-effort.
-   */
-  const contentToolHandles: Array<{ remove?: () => void } | undefined> = [];
 
   /** Run one consent-gated content tool over the control mailbox (#1 slice 1). */
   const runContentTool = async (
@@ -999,84 +1020,42 @@ export function registerControlTools(server: McpServer, deps: ControlToolDeps): 
     });
   };
 
-  const projectIdArg = z
-    .string()
-    .min(1)
-    .max(CONTROL_TOOL_LIMITS.maxProjectIdChars)
-    .describe(
-      "The project id as returned by list_projects. File access for that project must be " +
-        "granted in Galley (Settings → Agent Access) for this session.",
-    );
-
   const consentNote =
     " Requires the per-project file-access grant in Galley (Settings → Agent Access, " +
     "session-scoped); without it this fails with a consent-required error. Read-only.";
 
   // --- The consent-gated READ-ONLY content tools (#1 slice 1) --------------
   // Descriptions come from the shared registry specs (the same text the in-app
-  // agent sees), plus the consent note. Registered ONLY in control mode and
-  // retired when open_project binds the session to a project room.
+  // agent sees), plus the consent note. They answer through the browser for
+  // ANY granted project, whether or not this session has one open. `list_files`
+  // and `read_file` are not here: they are project tools (registered below),
+  // which fall back to this same browser route for a project that is not open.
 
-  contentToolHandles.push(
-    server.registerTool(
-      "search_project",
-      {
-        title: "Search a granted project's files",
-        description: registryDescription("search_project") + consentNote,
-        inputSchema: {
-          projectId: projectIdArg,
-          query: z
-            .string()
-            .min(1)
-            .max(CONTROL_TOOL_LIMITS.maxToolQueryChars)
-            .describe("The literal text to search for (taken verbatim, case-insensitive)."),
-        },
+  server.registerTool(
+    "search_project",
+    {
+      title: "Search a granted project's files",
+      description: registryDescription("search_project") + consentNote,
+      inputSchema: {
+        project: projectArg,
+        query: z
+          .string()
+          .min(1)
+          .max(CONTROL_TOOL_LIMITS.maxToolQueryChars)
+          .describe("The literal text to search for (taken verbatim, case-insensitive)."),
       },
-      async ({ projectId, query }) => runContentTool("search_project", projectId, { query }),
-    ) as unknown as { remove?: () => void } | undefined,
+    },
+    async ({ project, query }) => runContentTool("search_project", project, { query }),
   );
 
-  contentToolHandles.push(
-    server.registerTool(
-      "list_files",
-      {
-        title: "List a granted project's files",
-        description: registryDescription("list_files") + consentNote,
-        inputSchema: { projectId: projectIdArg },
-      },
-      async ({ projectId }) => runContentTool("list_files", projectId, {}),
-    ) as unknown as { remove?: () => void } | undefined,
-  );
-
-  contentToolHandles.push(
-    server.registerTool(
-      "read_file",
-      {
-        title: "Read a granted project's file by path",
-        description: registryDescription("read_file") + consentNote,
-        inputSchema: {
-          projectId: projectIdArg,
-          path: z
-            .string()
-            .min(1)
-            .max(CONTROL_TOOL_LIMITS.maxMainFileChars)
-            .describe("The project path of the file to read (e.g. /main.typ)."),
-        },
-      },
-      async ({ projectId, path }) => runContentTool("read_file", projectId, { path }),
-    ) as unknown as { remove?: () => void } | undefined,
-  );
-
-  contentToolHandles.push(
-    server.registerTool(
-      "list_bibliography",
-      {
-        title: "List a granted project's bibliography",
-        description: registryDescription("list_bibliography") + consentNote,
-        inputSchema: { projectId: projectIdArg },
-      },
-      async ({ projectId }) => runContentTool("list_bibliography", projectId, {}),
-    ) as unknown as { remove?: () => void } | undefined,
+  server.registerTool(
+    "list_bibliography",
+    {
+      title: "List a granted project's bibliography",
+      description: registryDescription("list_bibliography") + consentNote,
+      inputSchema: { project: projectArg },
+    },
+    async ({ project }) => runContentTool("list_bibliography", project, {}),
   );
 
   // --- The consent-gated READ-ONLY version-file tools (B4) -----------------
@@ -1091,46 +1070,42 @@ export function registerControlTools(server: McpServer, deps: ControlToolDeps): 
     .max(CONTROL_TOOL_LIMITS.maxProjectIdChars)
     .describe("The version id as returned by list_versions (the `id` field).");
 
-  contentToolHandles.push(
-    server.registerTool(
-      "list_version_files",
-      {
-        title: "List the files captured in a project's named version",
-        description:
-          "Asks the browser for the file paths (and their sizes, in characters) captured in ONE " +
-          "named version of a project — never the file contents. Use read_version_file to read a " +
-          "file's text at that version." +
-          consentNote,
-        inputSchema: { projectId: projectIdArg, versionId: versionIdArg },
-      },
-      async ({ projectId, versionId }) =>
-        runVersionFileTool("list_version_files", projectId, { versionId }),
-    ) as unknown as { remove?: () => void } | undefined,
+  server.registerTool(
+    "list_version_files",
+    {
+      title: "List the files captured in a project's named version",
+      description:
+        "Asks the browser for the file paths (and their sizes, in characters) captured in ONE " +
+        "named version of a project — never the file contents. Use read_version_file to read a " +
+        "file's text at that version." +
+        consentNote,
+      inputSchema: { project: projectArg, versionId: versionIdArg },
+    },
+    async ({ project, versionId }) =>
+      runVersionFileTool("list_version_files", project, { versionId }),
   );
 
-  contentToolHandles.push(
-    server.registerTool(
-      "read_version_file",
-      {
-        title: "Read a file's contents at a named version",
-        description:
-          "Asks the browser for the TEXT of one file AS IT WAS in a named version of a project " +
-          "(read-only — this never restores or changes anything). Oversized or binary files are " +
-          "refused with a structured error rather than returned." +
-          consentNote,
-        inputSchema: {
-          projectId: projectIdArg,
-          versionId: versionIdArg,
-          path: z
-            .string()
-            .min(1)
-            .max(CONTROL_TOOL_LIMITS.maxMainFileChars)
-            .describe("The project path of the file to read (e.g. /main.typ)."),
-        },
+  server.registerTool(
+    "read_version_file",
+    {
+      title: "Read a file's contents at a named version",
+      description:
+        "Asks the browser for the TEXT of one file AS IT WAS in a named version of a project " +
+        "(read-only — this never restores or changes anything). Oversized or binary files are " +
+        "refused with a structured error rather than returned." +
+        consentNote,
+      inputSchema: {
+        project: projectArg,
+        versionId: versionIdArg,
+        path: z
+          .string()
+          .min(1)
+          .max(CONTROL_TOOL_LIMITS.maxMainFileChars)
+          .describe("The project path of the file to read (e.g. /main.typ)."),
       },
-      async ({ projectId, versionId, path }) =>
-        runVersionFileTool("read_version_file", projectId, { versionId, path }),
-    ) as unknown as { remove?: () => void } | undefined,
+    },
+    async ({ project, versionId, path }) =>
+      runVersionFileTool("read_version_file", project, { versionId, path }),
   );
 
   // --- The consent-gated RESTORE-REQUEST tool (B3) -------------------------
@@ -1139,39 +1114,69 @@ export function registerControlTools(server: McpServer, deps: ControlToolDeps): 
   // version) and PUBLISHES it as a normal file proposal for the human's explicit
   // Accept (the compare/review card). The kernel only TRIGGERS the proposal and
   // relays the structured outcome. Same per-project file-access grant as the other
-  // content tools; retired on open_project bind.
+  // content tools.
 
-  contentToolHandles.push(
-    server.registerTool(
-      "request_restore_version",
-      {
-        title: "Request restoring a project to a named version",
-        description:
-          "Asks Galley to RESTORE a project to one of its past named versions. This NEVER changes " +
-          "anything directly: the browser computes the difference between the project's current " +
-          "files and the version's files and publishes it as a normal proposal that a human must " +
-          "review and Accept (the compare card). Returns { status: 'restore_proposed', proposalId } " +
-          "when a proposal was created, or { status: 'no_changes' } when the project already matches " +
-          "the version. The project must be OPEN in Galley and file access granted for it." +
-          consentNote,
-        inputSchema: { projectId: projectIdArg, versionId: versionIdArg },
-      },
-      async ({ projectId, versionId }) => runRestoreVersionTool(projectId, versionId),
-    ) as unknown as { remove?: () => void } | undefined,
+  server.registerTool(
+    "request_restore_version",
+    {
+      title: "Request restoring a project to a named version",
+      description:
+        "Asks Galley to RESTORE a project to one of its past named versions. This NEVER changes " +
+        "anything directly: the browser computes the difference between the project's current " +
+        "files and the version's files and publishes it as a normal proposal that a human must " +
+        "review and Accept (the compare card). Returns { status: 'restore_proposed', proposalId } " +
+        "when a proposal was created, or { status: 'no_changes' } when the project already matches " +
+        "the version. The project must be OPEN in Galley and file access granted for it." +
+        consentNote,
+      inputSchema: { project: projectArg, versionId: versionIdArg },
+    },
+    async ({ project, versionId }) => runRestoreVersionTool(project, versionId),
   );
 
-  /** Retire the content tools (idempotent, best-effort) before a project bind. */
-  const removeContentTools = (): void => {
-    for (const handle of contentToolHandles) {
-      try {
-        handle?.remove?.();
-      } catch {
-        // best-effort: a failed removal surfaces as the SDK's duplicate-name
-        // error on the project bind, never as silent misbehavior.
-      }
-    }
-    contentToolHandles.length = 0;
-  };
+  // --- The project tools: ONE static list (ADR-0033 §5) ----------------------
+  // Same names and input shapes as the hosted connector's. They are registered
+  // once, here, and `bound` decides per call what they answer: the attached
+  // session for the open project, a structured refusal otherwise.
+  const notOpen = (project: string): { refusal: ToolResult } => ({
+    refusal: jsonResult(
+      bound === undefined
+        ? {
+            status: "no_project_attached",
+            message:
+              "Call open_project with this project first; a person approves it in Galley.",
+          }
+        : {
+            status: "already_open",
+            projectId: bound.projectId,
+            message:
+              "this kernel session is already bound to another project — restart the kernel to " +
+              "work on a different one",
+          },
+    ),
+  });
+  registerProjectTools(
+    server,
+    (project) => (bound?.projectId === project ? bound.attachment : notOpen(project)),
+    // A project that is not open here can still be READ through the browser,
+    // under its per-project file-access grant.
+    { readElsewhere: (tool, project, params) => runContentTool(tool, project, params) },
+  );
+  // A1 export channel: needs the open project's blob channel (the real ws join
+  // always mints one; a sync-only test injection may not).
+  registerExportCompiledTool(server, {
+    rpc: deps.rpc,
+    blob: (project) => {
+      if (bound?.projectId !== project) return notOpen(project);
+      return (
+        bound.session.blob ?? {
+          refusal: errorResult("export_compiled: this session has no secure byte channel"),
+        }
+      );
+    },
+  });
+  // F11: save_artifact writes an export_compiled artifact (held by hash on the
+  // same blob channel) to the kernel host's local disk.
+  registerSaveArtifactTool(server, { blob: () => bound?.session.blob });
 
   server.registerTool(
     "list_projects",
@@ -1213,9 +1218,8 @@ export function registerControlTools(server: McpServer, deps: ControlToolDeps): 
   // create_project (F1) is a CONTROL-mode tool (sibling of list_projects):
   // available before any open_project bind, gated ONLY by the Agent Access
   // pairing — there is no pre-existing project to grant per-project content
-  // consent on. It is NOT in the `contentToolHandles` retire-on-bind set (it has
-  // no per-project scope and never collides with the per-project tool names). The
-  // browser is the project-library authority; the kernel only relays + validates.
+  // consent on. The browser is the project-library authority; the kernel only
+  // relays + validates.
   server.registerTool(
     "create_project",
     {
@@ -1263,15 +1267,9 @@ export function registerControlTools(server: McpServer, deps: ControlToolDeps): 
         "Asks the browser for one project's named-version METADATA (id, name, message, " +
         "createdAt) — never file contents. Use list_version_files / read_version_file to read " +
         "a file at a named version. Read-only.",
-      inputSchema: {
-        projectId: z
-          .string()
-          .min(1)
-          .max(CONTROL_TOOL_LIMITS.maxProjectIdChars)
-          .describe("The project id as returned by list_projects."),
-      },
+      inputSchema: { project: projectArg },
     },
-    async ({ projectId }) => {
+    async ({ project: projectId }) => {
       const outcome = await deps.rpc("list_versions", { projectId });
       if (!outcome.ok) return errorResult(`list_versions: ${outcome.error}`);
       const parsed = versionListSchema.safeParse(outcome.result);
@@ -1305,19 +1303,13 @@ export function registerControlTools(server: McpServer, deps: ControlToolDeps): 
       description:
         "Asks the browser to OPEN a project. The paired Galley tab shows the person one approval " +
         "dialog; if the project is not the one on screen, approving also switches the tab to it. " +
-        "The browser then mints a fresh share room and this kernel joins it — after which the per-project " +
-        "tools (read_document, list_files, read_file, project_context, propose_edit, propose_files, compile) " +
-        "become available, scoped to the project's main file. ONE project per kernel session: " +
+        "The browser then mints a fresh share room and this kernel joins it — after which the project " +
+        "tools (list_files, read_file, project_context, propose_edit, propose_files, compile, " +
+        "export_compiled) answer for that project. ONE project per kernel session: " +
         "reopening the same project reuses its approved access; restart the kernel to switch projects.",
-      inputSchema: {
-        projectId: z
-          .string()
-          .min(1)
-          .max(CONTROL_TOOL_LIMITS.maxProjectIdChars)
-          .describe("The project id as returned by list_projects."),
-      },
+      inputSchema: { project: projectArg },
     },
-    async ({ projectId }) => {
+    async ({ project: projectId }) => {
       if (bound !== undefined) {
         if (bound.projectId === projectId) {
           return jsonResult({
@@ -1425,11 +1417,7 @@ export function registerControlTools(server: McpServer, deps: ControlToolDeps): 
               "file never replicated) — make sure the project stayed open in Galley, then retry",
           );
         }
-        // The session is binding to ONE project room: retire the control-mode
-        // content tools first (their `list_files`/`read_file` names belong to
-        // the per-project tools from here on; #1 slice 1).
-        removeContentTools();
-        registerProjectTools(server, {
+        const attachment: ProjectAttachment = {
           surface: session.surface,
           // ADR-0024 §1: per-project results carry honest room-derived liveness.
           liveness: () => session.liveness(),
@@ -1460,29 +1448,16 @@ export function registerControlTools(server: McpServer, deps: ControlToolDeps): 
                 releaseBinary: buildBinaryReleaser({ rpc: deps.rpc, projectId }),
               }
             : {}),
-        });
-        // A1 export channel: register export_compiled ONLY when this join minted a
-        // blob channel (the real ws path always does; a sync-only test injection may
-        // not). It reaches BOTH the control RPC (deps.rpc) and the joined session's
-        // blob channel here — the one place both are in scope.
-        if (session.blob !== undefined) {
-          registerExportCompiledTool(server, {
-            rpc: deps.rpc,
-            blob: session.blob,
-            projectId,
-          });
-          // F11: save_artifact writes an export_compiled artifact (held by hash on
-          // the same blob channel) to the kernel host's local disk.
-          registerSaveArtifactTool(server, { blob: session.blob });
-        }
-        bound = { projectId, room: handoff.room, mainFile, session };
+        };
+        // From here on the project tools (registered once, above) answer for it.
+        bound = { projectId, room: handoff.room, mainFile, session, attachment };
         return jsonResult({
           status: "opened",
           projectId,
           mainFile,
           message:
-            "project opened — the per-project tools (read_document, list_files, read_file, " +
-            "project_context, propose_edit, propose_files, compile, export_compiled, save_artifact) are now available in this session",
+            "project opened — list_files, read_file, project_context, propose_edit, propose_files, " +
+            "compile and export_compiled now answer for it; pass this projectId as `project`",
         });
       } finally {
         opening = false;

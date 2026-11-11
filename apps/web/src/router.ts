@@ -7,6 +7,7 @@
  *   `/p/<id>`       → a specific project
  *   `/join/<room>`  → share-link entry (joins the sync room; `?sync=` override)
  *   `/settings`     → the unified device-scoped settings surface (#19.7)
+ *   `/settings/whats-new` → recent user-facing changes
  *
  * Deliberately tiny and framework-free: the PURE part (route parsing) is plain
  * string functions so they unit-test in the Node gate, and the browser part is a
@@ -21,7 +22,8 @@ export type Route =
   | { kind: "library" }
   | { kind: "project"; id: string }
   | { kind: "join"; room: string; sync?: string; role?: ShareRole }
-  | { kind: "settings" };
+  | { kind: "settings" }
+  | { kind: "whats-new" };
 
 /** Parse a location into a `Route`. Unknown paths fall back to the default project. */
 export function parseRoute(pathname: string, search = ""): Route {
@@ -29,6 +31,9 @@ export function parseRoute(pathname: string, search = ""): Route {
   if (segments.length === 0) return { kind: "home" };
   if (segments.length === 1 && segments[0] === "library") return { kind: "library" };
   if (segments.length === 1 && segments[0] === "settings") return { kind: "settings" };
+  if (segments.length === 2 && segments[0] === "settings" && segments[1] === "whats-new") {
+    return { kind: "whats-new" };
+  }
   if (segments.length === 2 && segments[0] === "p" && segments[1]) {
     return { kind: "project", id: decodeSegment(segments[1]!) };
   }
@@ -67,6 +72,8 @@ export function routeHref(route: Route): string {
     }
     case "settings":
       return "/settings";
+    case "whats-new":
+      return "/settings/whats-new";
   }
 }
 

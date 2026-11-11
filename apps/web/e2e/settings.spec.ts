@@ -75,6 +75,39 @@ test("Compile: the not-configured branch gives a self-hoster an actionable enabl
   await expect(hint).toContainText("http://127.0.0.1:3001/compile");
 });
 
+test("What’s new is discoverable, remembers reads, and links to Appearance", async ({
+  page,
+}) => {
+  const settingsUrl = "/settings?from=%2Fp%2Fexample";
+  await page.goto(settingsUrl);
+  const unread = page.getByRole("link", { name: "What’s new, unread updates" });
+  await expect(unread).toBeVisible();
+  await unread.press("Enter");
+  await expect(page.getByRole("heading", { name: "What’s new" })).toBeFocused();
+  await expect(
+    page.getByRole("heading", { name: "Switch between Studio and Press" }),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page).toHaveURL(settingsUrl);
+  await expect(page.getByRole("link", { name: "What’s new", exact: true })).toBeFocused();
+  await page.reload();
+  await expect(unread).toHaveCount(0);
+
+  await page.evaluate(() =>
+    localStorage.setItem("galley.whatsNew.seenUpdate", "older-update"),
+  );
+  await page.reload();
+  await expect(unread).toBeVisible();
+  await unread.click();
+  await page.reload();
+  await page.getByRole("link", { name: "Open Appearance" }).click();
+  await expect(page).toHaveURL(`${settingsUrl}#appearance`);
+  const appearance = page.getByTestId("settings-section-appearance");
+  await expect(appearance).toBeInViewport();
+  await expect(appearance).toBeFocused();
+});
+
 test("Mod-, opens /settings from the editor; browser back returns", async ({ page }) => {
   await gotoEditor(page);
   await expectProjectShell(page);

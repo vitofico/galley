@@ -53,14 +53,14 @@ project, use **control mode**.
 ## Per-project mode (the primary flow)
 
 The kernel joins **one shared project room**. Reads span the whole project; the
-agent's writes are proposals — `propose_edit` (the session's bound file) or
+agent's writes are proposals — `propose_edit` (one file, named by `path`) or
 `propose_files` (a multi-file create + edit change set). A proposal never edits
 the document directly: it is **published for review** as a card in Galley (a
 multi-file set lands all-or-nothing). By default it waits for a human **Accept**;
 when **auto-accept** is armed (see below) a signed proposal applies automatically.
 The tool **response reports the honest disposition** — `status:"applied"` once the
 change has landed, `"rejected"` if a human rejected it, or `"pending_review"` when
-no verdict has arrived yet (re-read with `read_document` / `list_files` to confirm)
+no verdict has arrived yet (re-read with `read_file` / `list_files` to confirm)
 — rather than assuming every proposal waits for a click.
 
 ### 1. Share the project to mint a room id
@@ -113,7 +113,9 @@ pnpm --filter @galley/mcp start -- \
 
 - `--sync` — the sync relay WebSocket URL (`ws://` or `wss://`).
 - `--room` — the room id you extracted from the Share link.
-- `--file` — the one file this session is scoped to (leading slash).
+- `--file` — the project's main file (leading slash). The kernel waits for it
+  to replicate before answering, and compiles it alone when the project has
+  no valid multi-file input.
 - `--compile-url` — **optional**; enables the `compile` tool by POSTing the
   document to a **loopback-only** compile service (default `http://localhost:3001`,
   see [`server-side-compile.md`](server-side-compile.md)). The kernel **refuses**
@@ -185,17 +187,21 @@ the app.
 > goes to stderr — so your client can launch the kernel directly without log
 > noise corrupting the stream.
 
-### 5. The per-project tools
+### 5. The project tools
 
-Once connected, the agent has these tools (all scoped to the shared project):
+Once connected, the agent has these tools. They carry the same names and
+inputs as the hosted connector's
+([ADR-0033](decisions/ADR-0033-hosted-connector.md) §5): every one except
+`list_projects` takes a `project`, the `projectId` that `list_projects`
+returned. In this mode there is exactly one, `current`.
 
 | Tool | What it does |
 | --- | --- |
-| `read_document` | Read the live text of the scoped file. |
+| `list_projects` | The one project this kernel was started on: `{ projectId: "current", mainFile }`. |
 | `list_files` | List the project's files. |
 | `read_file` | Read any project file by exact path (read-only). |
 | `project_context` | Query-relevant excerpts across all files, with provenance. |
-| `propose_edit` | Publish a **pending** search/replace proposal for the scoped file (never writes). |
+| `propose_edit` | Publish a **pending** search/replace proposal for one existing file, named by `path` (never writes). |
 | `propose_files` | Publish a **pending** multi-file change set — create new files and/or edit existing ones, applied all-or-nothing (never writes). |
 | `compile` | Type-check via the loopback compile service (needs `--compile-url`). |
 
@@ -222,8 +228,8 @@ Control mode joins the browser's **Agent Access** control room and lets the
 agent ask the browser to *list* projects/versions (metadata only), *read* the
 files of projects you've **explicitly granted file access** (per-project,
 session-scoped — see step 4), and *open* a chosen project (with your explicit
-per-request approval). Opening a project hands the session over to the
-per-project machinery above.
+per-request approval). Opening a project attaches the session to its room, and
+the project tools above then answer for it.
 
 ### 1. Enable Agent Access in the browser
 
@@ -288,7 +294,10 @@ galley mcp kernel listening on stdio (control room configured: …, compile …)
 ### 3. Connect your MCP client and use the control tools
 
 Connect exactly as in per-project step 4, but with `--control-room` instead of
-`--room`/`--file`. The control tools are:
+`--room`/`--file`. The tool list is **static**: every tool below, and every
+project tool from per-project step 5, is listed from the start and stays
+listed. Each project-scoped tool takes a `project`, the `projectId` from
+`list_projects`. The control tools are:
 
 | Tool | What it does |
 | --- | --- |
@@ -297,8 +306,8 @@ Connect exactly as in per-project step 4, but with `--control-room` instead of
 | `list_versions` | One project's named-version metadata (no file contents). |
 | `open_project` | Asks the browser to open a project. The person approves in one dialog; if the project is not on screen, approving also switches the tab to it. The browser then mints a share room (plus a per-grant `grantId` for proposal provenance) and the kernel joins it. |
 | `search_project` | Searches a **file-access-granted** project's files for literal text (see step 4). |
-| `list_files` | Lists a **granted** project's file paths. |
-| `read_file` | Reads one file of a **granted** project by path (read-only, line-numbered). |
+| `list_files`, `read_file` | For the open project they answer from the kernel's own replica, as in per-project mode. For any other **granted** project they answer through the browser (file paths; one file's text, line-numbered). |
+| `export_compiled`, `save_artifact` | Ask the browser for the open project's compiled PDF, then write it to local disk. |
 | `list_bibliography` | Lists a **granted** project's bibliography — every `.bib` file, de-duplicated, as compact one-line entries (read-only). Prefer it over `read_file` for a bibliography, which is often too large to read whole. Only BibTeX `.bib`, **not** Hayagriva `.yml`. |
 
 **Approve project access once.** The first `open_project` for a new access scope shows one dialog
@@ -315,17 +324,14 @@ leaves it where it was ([ADR-0032](./decisions/ADR-0032-mcp-open-switches-projec
 `status: "open_required"` with a `projectPath` remains only as the fallback for
 when Galley could not make the switch itself.
 
-It's limited to one project per kernel run: after a successful
-`open_project`, the per-project tools (`read_document`, `list_files`,
-`read_file`, `project_context`, `propose_edit`, `propose_files`, `compile`) become available
-scoped to that project's main file. Reopening the same project returns
+It's limited to one open project per kernel run. Before `open_project`
+succeeds, `project_context`, `propose_edit`, `propose_files`, `compile` and
+`export_compiled` answer `status: "no_project_attached"`; afterwards they
+answer for that project, and for any other project they answer
+`status: "already_open"`. Reopening the same project returns
 `status: "opened", reused: true`; switching projects requires a new kernel.
-(The control-mode `search_project`/`list_files`/
-`read_file`/`list_bibliography` tools above are retired at that point — the
-per-project versions of `list_files`/`read_file` take over. There is **no**
-per-project `list_bibliography`: after `open_project` that tool is gone until you
-restart the kernel — read a `.bib` with `read_file`, or take the compact list
-before opening. This asymmetry is deliberate.)
+Nothing is retired when a project opens: `search_project`, `list_bibliography`
+and the version tools keep answering for every granted project.
 
 **Opt-in auto-accept (off by default).** Each `open_project` mints a per-grant
 `grantId` that binds proposal **provenance**: the kernel HMAC-signs every proposal
@@ -342,14 +348,14 @@ is never silently stranded. See
 
 Pairing alone is **metadata-only**: `search_project`, `list_files`, and
 `read_file` answer **only for projects you explicitly granted file access**,
-and every call must name a `projectId` from `list_projects`. Granting happens
+and every call must name a `project`, a `projectId` from `list_projects`. Granting happens
 in the browser, never from the agent side:
 
 1. In **Settings → Agent Access** (while enabled), each local project is listed
    with an **"Allow file access (this session)"** button.
 2. Clicking it grants the paired agent **read access to every file in that
    project** for this browser session. The agent still cannot edit anything —
-   edits always go through the per-project `propose_edit` + your Accept review.
+   edits always go through `propose_edit` / `propose_files` + your Accept review.
 3. Grants are **session-scoped and revocable**: revoke a single project's grant
    in the same list, or click **Revoke** on Agent Access to clear the pairing
    *and* every grant at once. Closing the tab clears them too. The default is
@@ -367,7 +373,7 @@ For exactness: behind the grant, the **browser responder** answers every
 `list_files`, `read_file`, `list_bibliography`, plus `read_document` (mapped to
 the granted project's **main file**) and `compile` (always refused: no compiler
 exists on this surface — it fails closed with a generic error). The kernel only
-*registers* the first four as MCP tools; the other two are reachable only by
+*routes* the first four to it as MCP tools; the other two are reachable only by
 a client speaking the mailbox protocol directly, carry the same consent gate,
 and expose nothing beyond what the grant already covers. Mutating ops
 (`propose_edit`) are refused outright on this surface.
@@ -405,7 +411,7 @@ The browser declined the request — e.g. you rejected the `open_project`
 confirmation, or asked for a project that isn't in the library. The kernel
 deliberately reports every refusal with this one generic line (responder text is
 never relayed to the MCP client); the browser side shows the specifics. Re-run
-with a valid `projectId` from `list_projects`, and approve the confirmation.
+with a valid `project` from `list_projects`, and approve the confirmation.
 
 **The kernel times out even though Galley is open and enabled** (control mode)
 Responses without a valid `--response-key` signature are ignored. If you clicked

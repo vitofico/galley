@@ -602,6 +602,17 @@ describe("connector rooms (ADR-0033)", () => {
     expect((await connect(store, { roomId: room(2), projectId: "p1" })).status).toBe(200);
   });
 
+  it("lists projects connected at the same instant in a fixed order", async () => {
+    const store = new MemStore();
+    // Inserted high-to-low: the listing must not follow the store's order.
+    for (const n of [3, 1, 2]) await connect(store, { roomId: room(n), projectId: `p${n}` });
+    expect((await listConnectedProjects(store, "alice", NOW)).map((p) => p.roomId)).toEqual([
+      room(1),
+      room(2),
+      room(3),
+    ]);
+  });
+
   it("keeps the project's name as a label, on connector rooms only", async () => {
     const store = new MemStore();
     await connect(store, { roomId: room(1), projectId: "p1", projectName: "My novel" });

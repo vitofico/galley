@@ -181,8 +181,14 @@ beforeAll(async () => {
   const issued = await issue("alice");
   aliceToken = issued.token;
   aliceTokenId = issued.tokenId;
-  await connectRoom(NOVEL, "proj-novel", "alice", { projectName: "My novel" });
-  await connectRoom(EMPTY, "proj-empty", "alice");
+  // Listed oldest first: give the two distinct times, or a same-millisecond
+  // pair would be ordered by room id.
+  const t0 = Date.now();
+  await connectRoom(NOVEL, "proj-novel", "alice", {
+    projectName: "My novel",
+    createdAtMs: t0 - 1,
+  });
+  await connectRoom(EMPTY, "proj-empty", "alice", { createdAtMs: t0 });
   await connectRoom(BOBS, "proj-bob", "bob", { reviewMode: "auto" });
   // A peer stays in the room so the open test relay keeps its state; on a
   // real deployment the relay's disk copy plays this part (apps/sync tests).
