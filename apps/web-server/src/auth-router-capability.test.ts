@@ -12,6 +12,7 @@ import type { Hono } from "hono";
 import type {
   CapabilityRoomRecord,
   CapabilityRoomStore,
+  ConnectorActivityEntry,
   ConnectorTokenRecord,
   ConnectorTokenStore,
   OidcProviderConfig,
@@ -22,7 +23,11 @@ import {
   InMemoryOidcLoginStateStore,
   type JwksGetter,
 } from "@galley/auth";
-import { createAuthRouter, MAX_CAPABILITY_BODY_BYTES } from "./auth-router.js";
+import {
+  createAuthRouter,
+  MAX_CAPABILITY_BODY_BYTES,
+  type ConnectorHistoryReader,
+} from "./auth-router.js";
 
 const ORIGIN = "https://galley.example.com";
 const NOW = 1_700_000_000_000;
@@ -71,7 +76,11 @@ class MemTokens implements ConnectorTokenStore {
   }
 }
 
-async function setup(withStore = true, hostedConnector = false) {
+async function setup(
+  withStore = true,
+  hostedConnector = false,
+  history?: ConnectorHistoryReader,
+) {
   const sessionStore = new InMemorySessionStore(
     () => `sid${Math.random().toString(36).slice(2)}`,
   );
@@ -89,7 +98,14 @@ async function setup(withStore = true, hostedConnector = false) {
       ? {
           capabilityRooms: {
             store,
-            ...(hostedConnector ? { hostedConnector: { tokens } } : {}),
+            ...(hostedConnector
+              ? {
+                  hostedConnector: {
+                    tokens,
+                    ...(history ? { history } : {}),
+                  },
+                }
+              : {}),
           },
         }
       : {}),
@@ -386,6 +402,7 @@ describe("connected projects (ADR-0033)", () => {
       projects: [
         { roomId: ROOM, projectId: "proj-1", reviewMode: "ask", connectedAtMs: NOW },
       ],
+      appliesChanges: false,
     });
 
     const mode = await post(app, `/connector/projects/${ROOM}/review-mode`, {
@@ -396,7 +413,11 @@ describe("connected projects (ADR-0033)", () => {
     expect(store.map.get(ROOM)?.reviewMode).toBe("auto");
 
     await post(app, `/capability-rooms/${ROOM}/revoke`, { cookie });
-    expect(await (await list(app, cookie)).json()).toEqual({ ok: true, projects: [] });
+    expect(await (await list(app, cookie)).json()).toEqual({
+      ok: true,
+      projects: [],
+      appliesChanges: false,
+    });
   });
 
   it("requires a session to list, and the same-origin gate to switch mode", async () => {
@@ -407,6 +428,115 @@ describe("connected projects (ADR-0033)", () => {
     expect((await post(app, path, { cookie: cookieFor(sid), body, origin: "https://evil.example" })).status).toBe(403);
     expect((await post(app, path, { body })).status).toBe(401);
     expect((await post(app, path, { cookie: cookieFor(sid), body, contentLength: null })).status).toBe(411);
+  });
+});
+
+describe("what the connector applied (ADR-0033 §4)", () => {
+  const CHECKPOINT = `${"0".repeat(13)}-${"a".repeat(64)}`;
+  const GONE = `${"0".repeat(13)}-${"b".repeat(64)}`;
+  const change = (
+    over: Partial<ConnectorActivityEntry>,
+  ): ConnectorActivityEntry => ({
+    version: 1,
+    changeId: "c1",
+    state: "started",
+    atMs: 1,
+    tokenId: "aaaaaaaaaaaaaaaa",
+    request: "Fix a typo",
+    files: ["/main.typ"],
+    ops: 1,
+    bytes: 3,
+    checkpointId: CHECKPOINT,
+    ...over,
+  });
+  const history: ConnectorHistoryReader = {
+    activity: {
+      read: async (room) =>
+        room === ROOM
+          ? [
+              change({}),
+              change({ state: "applied", atMs: 2 }),
+              change({ changeId: "c2", atMs: 3, checkpointId: GONE }),
+            ]
+          : [],
+    },
+    checkpoints: {
+      list: async () => [CHECKPOINT],
+      read: async (room, id) =>
+        room === ROOM && id === CHECKPOINT
+          ? new TextEncoder().encode('{"version":1,"files":[],"binaryFiles":[]}')
+          : null,
+    },
+  };
+  const connect = async (app: Hono, cookie: string) =>
+    post(app, "/capability-rooms", {
+      cookie,
+      body: JSON.stringify({ roomId: ROOM, kind: "connector", projectId: "proj-1" }),
+    });
+  const get = (app: Hono, path: string, cookie?: string) =>
+    Promise.resolve(app.request(path, { headers: cookie ? { cookie } : {} }));
+
+  it("shows the owner each change once, and whether its checkpoint is still kept", async () => {
+    const { app, sid } = await setup(true, true, history);
+    const cookie = cookieFor(sid);
+    await connect(app, cookie);
+    expect(
+      await (await get(app, "/connector/projects", cookie)).json(),
+    ).toMatchObject({ appliesChanges: true });
+    const res = await get(app, `/connector/projects/${ROOM}/activity`, cookie);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(await res.json()).toEqual({
+      ok: true,
+      changes: [
+        { ...change({ changeId: "c2", atMs: 3, checkpointId: GONE }), restorable: false },
+        { ...change({ state: "applied", atMs: 2 }), restorable: true },
+      ],
+    });
+  });
+
+  it("serves a kept checkpoint, and nothing for one that is gone or malformed", async () => {
+    const { app, sid } = await setup(true, true, history);
+    const cookie = cookieFor(sid);
+    await connect(app, cookie);
+    const base = `/connector/projects/${ROOM}/checkpoints`;
+    const ok = await get(app, `${base}/${CHECKPOINT}`, cookie);
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get("cache-control")).toBe("no-store");
+    expect(await ok.json()).toEqual({ version: 1, files: [], binaryFiles: [] });
+    expect((await get(app, `${base}/${GONE}`, cookie)).status).toBe(404);
+    expect((await get(app, `${base}/..%2F..%2Fetc`, cookie)).status).toBe(404);
+  });
+
+  it("answers only the project's owner, and only for a connected project", async () => {
+    const { app, sid, sessionStore } = await setup(true, true, history);
+    await connect(app, cookieFor(sid));
+    const paths = [
+      `/connector/projects/${ROOM}/activity`,
+      `/connector/projects/${ROOM}/checkpoints/${CHECKPOINT}`,
+    ];
+    const bob = await sessionStore.create({
+      userId: "bob",
+      createdAtMs: NOW - 1000,
+      expiresAtMs: NOW + SESSION_TTL,
+    });
+    for (const path of paths) {
+      expect((await get(app, path)).status).toBe(401);
+      expect((await get(app, path, cookieFor(bob.id))).status).toBe(404);
+    }
+    await post(app, `/capability-rooms/${ROOM}/revoke`, { cookie: cookieFor(sid) });
+    for (const path of paths)
+      expect((await get(app, path, cookieFor(sid))).status).toBe(404);
+  });
+
+  it("has an empty trail when the server does not apply changes itself", async () => {
+    const { app, sid } = await setup(true, true);
+    const cookie = cookieFor(sid);
+    await connect(app, cookie);
+    const res = await get(app, `/connector/projects/${ROOM}/activity`, cookie);
+    expect(await res.json()).toEqual({ ok: true, changes: [] });
+    expect(
+      (await get(app, `/connector/projects/${ROOM}/checkpoints/${CHECKPOINT}`, cookie)).status,
+    ).toBe(404);
   });
 });
 

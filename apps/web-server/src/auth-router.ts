@@ -13,6 +13,11 @@
 import { Hono } from "hono";
 import { OwnedProjectLimitError } from "@galley/persistence";
 import type { Context } from "hono";
+import {
+  foldConnectorActivity,
+  isConnectorCheckpointId,
+  type ConnectorActivityEntry,
+} from "@galley/shared";
 import type {
   CapabilityRoomStore,
   ConnectorTokenStore,
@@ -71,10 +76,32 @@ export interface AuthRouterDeps {
      * (`GET /connector/projects`, `POST /connector/projects/:roomId/review-mode`)
      * and token routes (`GET|POST /connector/tokens`,
      * `POST /connector/tokens/:tokenId/revoke`) are mounted.
+     *
+     * `history` is the connector service's own volume, read-only here: the
+     * activity trail and checkpoints of changes it applied in Auto mode
+     * (`GET /connector/projects/:roomId/activity`,
+     * `GET /connector/projects/:roomId/checkpoints/:id`). Absent → the
+     * deployment does not apply changes on the server, and the project list
+     * says so.
      */
-    hostedConnector?: { tokens: ConnectorTokenStore };
+    hostedConnector?: {
+      tokens: ConnectorTokenStore;
+      history?: ConnectorHistoryReader;
+    };
   };
 }
+
+/** What the web app reads of the connector's Auto-mode records. It never writes them. */
+export interface ConnectorHistoryReader {
+  activity: { read(room: string): Promise<ConnectorActivityEntry[]> };
+  checkpoints: {
+    list(room: string): Promise<string[]>;
+    read(room: string, id: string): Promise<Uint8Array | null>;
+  };
+}
+
+/** Changes shown per project; the trail itself keeps more. */
+const MAX_ACTIVITY_SHOWN = 100;
 
 /** Max accepted body for the capability-room routes ({roomId, kind, projectId?}). */
 export const MAX_CAPABILITY_BODY_BYTES = 4096;
@@ -437,6 +464,7 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
     // caller's OWN capabilities, read with their session cookie, and the
     // browser needs them to keep each connected project synced.
     const tokens = deps.capabilityRooms.hostedConnector?.tokens;
+    const history = deps.capabilityRooms.hostedConnector?.history;
     if (tokens !== undefined) {
       app.get("/connector/projects", async (c) => {
         c.header("cache-control", "no-store");
@@ -445,6 +473,52 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
         return c.json({
           ok: true,
           projects: await listConnectedProjects(store, session.userId, now()),
+          // Whether Auto really applies here, so the page can word it honestly.
+          appliesChanges: history !== undefined,
+        });
+      });
+
+      // What the connector applied on its own (ADR-0033 §4), for the project's
+      // owner only. A room that is not the caller's connected project answers
+      // like one that does not exist.
+      const ownRoom = async (c: Context): Promise<string | Response> => {
+        c.header("cache-control", "no-store");
+        const session = await sessionOf(c);
+        if (!session) return c.json({ ok: false, code: "unauthenticated" }, 401);
+        const roomId = c.req.param("roomId");
+        const mine = (
+          await listConnectedProjects(store, session.userId, now())
+        ).some((p) => p.roomId === roomId);
+        return mine && roomId !== undefined
+          ? roomId
+          : c.json({ ok: false, code: "not_found" }, 404);
+      };
+
+      app.get("/connector/projects/:roomId/activity", async (c) => {
+        const room = await ownRoom(c);
+        if (typeof room !== "string") return room;
+        if (history === undefined) return c.json({ ok: true, changes: [] });
+        const kept = new Set(await history.checkpoints.list(room));
+        return c.json({
+          ok: true,
+          changes: foldConnectorActivity(await history.activity.read(room))
+            .slice(0, MAX_ACTIVITY_SHOWN)
+            .map((e) => ({ ...e, restorable: kept.has(e.checkpointId) })),
+        });
+      });
+
+      app.get("/connector/projects/:roomId/checkpoints/:id", async (c) => {
+        const room = await ownRoom(c);
+        if (typeof room !== "string") return room;
+        const id = c.req.param("id");
+        const bytes =
+          history !== undefined && isConnectorCheckpointId(id)
+            ? await history.checkpoints.read(room, id)
+            : null;
+        if (bytes === null) return c.json({ ok: false, code: "not_found" }, 404);
+        // Stored by the connector as JSON; served as it was stored.
+        return c.body(new TextDecoder().decode(bytes), 200, {
+          "content-type": "application/json",
         });
       });
 
