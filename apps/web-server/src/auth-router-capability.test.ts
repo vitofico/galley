@@ -12,6 +12,8 @@ import type { Hono } from "hono";
 import type {
   CapabilityRoomRecord,
   CapabilityRoomStore,
+  ConnectorTokenRecord,
+  ConnectorTokenStore,
   OidcProviderConfig,
 } from "@galley/shared";
 import { isCapabilityRoomId } from "@galley/shared";
@@ -53,11 +55,28 @@ class MemStore implements CapabilityRoomStore {
   }
 }
 
+class MemTokens implements ConnectorTokenStore {
+  readonly map = new Map<string, ConnectorTokenRecord>();
+  async get(hash: string) {
+    return this.map.get(hash) ?? null;
+  }
+  async put(record: ConnectorTokenRecord) {
+    this.map.set(record.hash, record);
+  }
+  async list() {
+    return [...this.map.values()];
+  }
+  async remove(hash: string) {
+    this.map.delete(hash);
+  }
+}
+
 async function setup(withStore = true, hostedConnector = false) {
   const sessionStore = new InMemorySessionStore(
     () => `sid${Math.random().toString(36).slice(2)}`,
   );
   const store = new MemStore();
+  const tokens = new MemTokens();
   const app = createAuthRouter({
     config,
     sessionStore,
@@ -66,14 +85,21 @@ async function setup(withStore = true, hostedConnector = false) {
       throw new Error("jwks never used by these routes");
     }) as unknown as JwksGetter,
     now: () => NOW,
-    ...(withStore ? { capabilityRooms: { store, hostedConnector } } : {}),
+    ...(withStore
+      ? {
+          capabilityRooms: {
+            store,
+            ...(hostedConnector ? { hostedConnector: { tokens } } : {}),
+          },
+        }
+      : {}),
   });
   const { id } = await sessionStore.create({
     userId: "alice",
     createdAtMs: NOW - 1000,
     expiresAtMs: NOW + SESSION_TTL,
   });
-  return { app, store, sessionStore, sid: id };
+  return { app, store, tokens, sessionStore, sid: id };
 }
 
 function post(
@@ -381,5 +407,67 @@ describe("connected projects (ADR-0033)", () => {
     expect((await post(app, path, { cookie: cookieFor(sid), body, origin: "https://evil.example" })).status).toBe(403);
     expect((await post(app, path, { body })).status).toBe(401);
     expect((await post(app, path, { cookie: cookieFor(sid), body, contentLength: null })).status).toBe(411);
+  });
+});
+
+describe("connector tokens (ADR-0033 §3)", () => {
+  const get = (app: Hono, cookie?: string) =>
+    Promise.resolve(
+      app.request("/connector/tokens", { headers: cookie ? { cookie } : {} }),
+    );
+
+  it("are not mounted unless the connector is enabled", async () => {
+    const { app, sid } = await setup();
+    expect((await get(app, cookieFor(sid))).status).toBe(404);
+    const made = await post(app, "/connector/tokens", {
+      cookie: cookieFor(sid),
+      body: JSON.stringify({ name: "Claude chat" }),
+    });
+    expect(made.status).toBe(404);
+  });
+
+  it("creates a token shown once, lists it without the secret, and revokes it", async () => {
+    const { app, tokens, sid } = await setup(true, true);
+    const cookie = cookieFor(sid);
+    const made = await post(app, "/connector/tokens", {
+      cookie,
+      body: JSON.stringify({ name: "Claude chat", expiresInDays: 30 }),
+    });
+    expect(made.status).toBe(200);
+    expect(made.headers.get("cache-control")).toBe("no-store");
+    const created = (await made.json()) as { token: string; tokenId: string };
+    expect(created.token).toMatch(/^gly_[A-Za-z0-9_-]{43}$/);
+    // The store holds a hash, not the token.
+    expect(JSON.stringify([...tokens.map.values()])).not.toContain(created.token);
+
+    const listed = await get(app, cookie);
+    expect(listed.headers.get("cache-control")).toBe("no-store");
+    const body = (await listed.json()) as { tokens: Record<string, unknown>[] };
+    expect(body.tokens).toEqual([
+      {
+        tokenId: created.tokenId,
+        name: "Claude chat",
+        createdAtMs: NOW,
+        expiresAtMs: NOW + 30 * 24 * 60 * 60 * 1000,
+      },
+    ]);
+
+    const revoked = await post(app, `/connector/tokens/${created.tokenId}/revoke`, { cookie });
+    expect(revoked.status).toBe(200);
+    expect(tokens.map.size).toBe(0);
+  });
+
+  it("guards every token route with the session, and writes with the same-origin gate", async () => {
+    const { app, sid } = await setup(true, true);
+    const body = JSON.stringify({ name: "x" });
+    expect((await get(app)).status).toBe(401);
+    expect((await post(app, "/connector/tokens", { body })).status).toBe(401);
+    expect(
+      (await post(app, "/connector/tokens", { cookie: cookieFor(sid), body, origin: "https://evil.example" })).status,
+    ).toBe(403);
+    expect(
+      (await post(app, "/connector/tokens/0123456789abcdef/revoke", { cookie: cookieFor(sid), origin: null })).status,
+    ).toBe(403);
+    expect((await post(app, "/connector/tokens/0123456789abcdef/revoke", {})).status).toBe(401);
   });
 });

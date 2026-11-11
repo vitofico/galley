@@ -8,7 +8,10 @@ import { CollabDocument } from "@galley/collab";
 import type { CapabilityFetch } from "./capability-rooms-client.js";
 import {
   connectProject,
+  createConnectorToken,
   disconnectProject,
+  listConnectorTokens,
+  revokeConnectorToken,
   hostedConnectorEnabled,
   listConnectedProjects,
   openConnectorReplica,
@@ -161,5 +164,58 @@ describe("openConnectorReplica", () => {
     );
     expect(urls).toEqual([`wss://galley.test/sync/${ROOM}`]);
     replica.destroy();
+  });
+});
+
+describe("tokens", () => {
+  const listed = {
+    tokenId: "aaaaaaaaaaaaaaaa",
+    name: "Claude chat",
+    createdAtMs: 1,
+    expiresAtMs: 2,
+  };
+
+  it("create returns the secret once, alongside what will be listed", async () => {
+    const fetchImpl = answering(200, {
+      ok: true,
+      token: "gly_secret",
+      ...listed,
+    });
+    expect(await createConnectorToken("Claude chat", 90, fetchImpl)).toEqual({
+      ok: true,
+      secret: "gly_secret",
+      token: listed,
+    });
+    const [path, init] = fetchImpl.mock.calls[0]!;
+    expect(path).toBe("/auth/connector/tokens");
+    expect(JSON.parse(init!.body!)).toEqual({
+      name: "Claude chat",
+      expiresInDays: 90,
+    });
+    // An answer without a secret is a failure, not an empty token.
+    expect(
+      (
+        await createConnectorToken(
+          "x",
+          90,
+          answering(200, { ok: true, ...listed }),
+        )
+      ).ok,
+    ).toBe(false);
+  });
+
+  it("lists well-formed tokens and revokes by id", async () => {
+    const list = answering(200, { ok: true, tokens: [listed, { tokenId: 7 }] });
+    expect(await listConnectorTokens(list)).toEqual({
+      ok: true,
+      tokens: [listed],
+    });
+    const revoke = answering(200, { ok: true });
+    expect(await revokeConnectorToken(listed.tokenId, revoke)).toEqual({
+      ok: true,
+    });
+    expect(revoke.mock.calls[0]![0]).toBe(
+      `/auth/connector/tokens/${listed.tokenId}/revoke`,
+    );
   });
 });

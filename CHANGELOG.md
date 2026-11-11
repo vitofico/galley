@@ -53,8 +53,9 @@ The first public cut. Everything below is built, tested (2300+ unit tests,
   deployment whose operator enabled it, a project can be connected in
   Settings: the relay then keeps a server copy of it, and only of it, so an AI
   client will be able to work on it with no tab open
-  ([ADR-0033](docs/decisions/ADR-0033-hosted-connector.md)). The endpoint and
-  tokens follow.
+  ([ADR-0033](docs/decisions/ADR-0033-hosted-connector.md)). The same card
+  issues per-client access tokens, shown once and stored only as a
+  fingerprint. The endpoint follows.
 
 ### Security & robustness
 

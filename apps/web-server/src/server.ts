@@ -84,6 +84,7 @@ import {
 } from "@galley/auth";
 import {
   FsCapabilityRoomRegistry,
+  FsConnectorTokenStore,
   FsProjectStore,
   FsGroupStore,
 } from "@galley/persistence";
@@ -244,7 +245,9 @@ async function buildAuthRouter(): Promise<Hono | null> {
                 ? async (subject) => (await policy(subject)).maxOwnedProjects
                 : undefined,
             ),
-            hostedConnector,
+            ...(hostedConnector
+              ? { hostedConnector: { tokens: new FsConnectorTokenStore(dataDir) } }
+              : {}),
           },
         }
       : {}),

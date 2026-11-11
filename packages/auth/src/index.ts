@@ -74,6 +74,22 @@ export type {
   SetConnectorReviewModeInput,
 } from "./capability-rooms.js";
 export {
+  createConnectorToken,
+  listConnectorTokens,
+  revokeConnectorToken,
+  verifyConnectorToken,
+  hashConnectorToken,
+  MAX_ACTIVE_CONNECTOR_TOKENS_PER_USER,
+  CONNECTOR_TOKEN_LIFETIMES_DAYS,
+} from "./connector-tokens.js";
+export type {
+  ConnectorTokenInfo,
+  ConnectorTokenErrorCode,
+  CreateConnectorTokenInput,
+  CreateConnectorTokenResult,
+  RevokeConnectorTokenResult,
+} from "./connector-tokens.js";
+export {
   createAccountResourcePolicyReader,
   type AccountResourcePolicy,
 } from "./account-resource-policy.js";

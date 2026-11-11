@@ -2,11 +2,15 @@ import { useEffect, useState } from "react";
 import type { ConnectorReviewMode } from "@galley/shared";
 import {
   connectProject,
+  createConnectorToken,
   disconnectProject,
   listConnectedProjects,
+  listConnectorTokens,
+  revokeConnectorToken,
   setConnectedProjectReviewMode,
   type ConnectedProject,
   type ConnectorResult,
+  type ConnectorToken,
 } from "../hosted-connector.js";
 import { IdbProjectStore } from "../idb-project-store.js";
 import { loadLocalProfile } from "../local-profile.js";
@@ -87,8 +91,9 @@ export function HostedConnectorSettings() {
         connect one here.
       </p>
       <p className="settings-note" data-testid="hosted-connector-status-note">
-        This release keeps the server copy only. The address an AI client
-        connects to, and its access tokens, arrive in a following release.
+        This release keeps the server copy and issues access tokens. The address
+        an AI client connects to arrives in a following release, so a token
+        cannot be used yet.
       </p>
       <p className="settings-note">
         <strong>Ask</strong>: a change from the connector waits for you to
@@ -175,6 +180,181 @@ export function HostedConnectorSettings() {
         erases its server copy within a minute. The project on this device is
         not touched.
       </p>
+      <ConnectorTokens />
+    </>
+  );
+}
+
+/** The lifetimes the server accepts, default first. */
+const LIFETIMES = [
+  { days: 90, label: "90 days" },
+  { days: 30, label: "30 days" },
+  { days: 365, label: "1 year" },
+];
+
+/**
+ * Access tokens (ADR-0033 §3): one per client. A token reaches every project
+ * connected above, so the wording treats it as what it is, a password. It is
+ * shown once, here, and never again: the server keeps only its fingerprint.
+ */
+function ConnectorTokens() {
+  const [tokens, setTokens] = useState<ConnectorToken[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [name, setName] = useState("");
+  const [days, setDays] = useState(LIFETIMES[0]!.days);
+  // The secret of the token just created. Lives only in this component.
+  const [secret, setSecret] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const refresh = async () => {
+    const listed = await listConnectorTokens();
+    if (listed.ok) setTokens(listed.tokens);
+    else setError(listed.error);
+  };
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  const run = async (action: () => Promise<ConnectorResult>) => {
+    setBusy(true);
+    setError(null);
+    const result = await action();
+    if (!result.ok) setError(result.error);
+    await refresh();
+    setBusy(false);
+  };
+
+  const create = async () => {
+    setSecret(null);
+    setCopied(false);
+    setBusy(true);
+    setError(null);
+    const result = await createConnectorToken(name.trim(), days);
+    if (result.ok) {
+      setSecret(result.secret);
+      setName("");
+    } else setError(result.error);
+    await refresh();
+    setBusy(false);
+  };
+
+  const copy = async () => {
+    if (secret === null) return;
+    try {
+      await navigator.clipboard.writeText(secret);
+      setCopied(true);
+    } catch {
+      // Clipboard can be blocked; the token stays selectable in the field.
+    }
+  };
+
+  return (
+    <>
+      <p className="settings-note">
+        <strong>Access tokens.</strong> A token lets one AI client act as you on{" "}
+        <strong>every project connected above</strong>, and on nothing else.
+        Create one per client, so each can be revoked on its own. Treat it like
+        a password: anyone holding it can read those projects, and change them
+        where a project is set to Auto.
+      </p>
+      {error !== null && (
+        <p
+          className="settings-note"
+          role="alert"
+          data-testid="connector-token-error"
+        >
+          {error}
+        </p>
+      )}
+      <div data-testid="connector-tokens">
+        {(tokens ?? []).map((t) => (
+          <div
+            className="settings-identity-row"
+            key={t.tokenId}
+            data-token-id={t.tokenId}
+          >
+            <input
+              type="text"
+              readOnly
+              aria-label="Token name"
+              value={`${t.name} (expires ${new Date(t.expiresAtMs).toLocaleDateString()})`}
+            />
+            <button
+              type="button"
+              className="settings-back"
+              data-testid="connector-token-revoke"
+              disabled={busy}
+              onClick={() => void run(() => revokeConnectorToken(t.tokenId))}
+            >
+              Revoke
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="settings-identity-row">
+        <input
+          type="text"
+          aria-label="New token name"
+          data-testid="connector-token-name"
+          placeholder="Which client is it for? (e.g. Claude chat)"
+          maxLength={64}
+          value={name}
+          onChange={(e) => setName(e.currentTarget.value)}
+        />
+        <select
+          aria-label="Token lifetime"
+          data-testid="connector-token-lifetime"
+          value={days}
+          onChange={(e) => setDays(Number(e.currentTarget.value))}
+        >
+          {LIFETIMES.map((l) => (
+            <option key={l.days} value={l.days}>
+              {l.label}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className="settings-primary"
+          data-testid="connector-token-create"
+          disabled={busy || name.trim().length === 0}
+          onClick={() => void create()}
+        >
+          Create token
+        </button>
+      </div>
+      {secret !== null && (
+        <>
+          <div
+            className="settings-saved-note"
+            role="status"
+            data-testid="connector-token-created"
+          >
+            Copy this token now. It is shown only this once: Galley keeps a
+            fingerprint of it, not the token, and cannot show it again.
+          </div>
+          <div className="settings-identity-row">
+            <input
+              type="text"
+              readOnly
+              autoComplete="off"
+              aria-label="New access token"
+              data-testid="connector-token-secret"
+              value={secret}
+              onFocus={(e) => e.currentTarget.select()}
+            />
+            <button
+              type="button"
+              className="settings-primary"
+              data-testid="connector-token-copy"
+              onClick={() => void copy()}
+            >
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+        </>
+      )}
     </>
   );
 }

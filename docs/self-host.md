@@ -200,8 +200,9 @@ Access behave exactly as in the zero-config local mode.
 
 The hosted connector lets an AI chat client work on a project with no Galley
 tab open ([ADR-0033](decisions/ADR-0033-hosted-connector.md)). It is being
-built in steps. **This release has the first one: connected projects.** The
-address a client connects to, and its access tokens, are not in this release.
+built in steps. **This release has the first two: connected projects and
+access tokens.** The address a client connects to is not in this release, so a
+token can be created and revoked but not yet used.
 
 A project lives in the browser. For the server to work on it with no tab open,
 the server needs its own copy, so connecting a project means exactly that:
@@ -217,6 +218,14 @@ the server needs its own copy, so connecting a project means exactly that:
   erases the stored copy within about half a minute. The project in the
   browser is untouched.
 - Limits: 32 connected projects per person, one room per project.
+- **Access tokens** are created in the same Settings card, one per AI client.
+  A token (`gly_…`) acts as the person who created it, on every project they
+  have connected and on nothing else. It is shown once, at creation; the server
+  stores only its SHA-256 fingerprint, under
+  `$GALLEY_DATA_DIR/connector-tokens/`, so a leaked data volume or backup does
+  not yield usable tokens. A token lasts 90 days by default (30 or 365 on
+  request), and revoking it deletes the record. Limit: 16 live tokens per
+  person.
 
 To enable it, set **both** switches. They are two halves of one feature, in two
 containers that cannot check each other:

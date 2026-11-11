@@ -18,6 +18,7 @@ export * from "./persistence.js";
 export * from "./groups.js";
 export * from "./auth.js";
 export * from "./capability-rooms.js";
+export * from "./connector-tokens.js";
 
 /** Default cap on agent self-correction iterations (see docs/agent-loop.md). */
 export const DEFAULT_MAX_ITERS = 5;
