@@ -15,7 +15,7 @@ import { gotoEditor, suppressCoachOverlay } from "./app-helpers.js";
  * A connected project on a second device (ADR-0034), over the REAL sync relay.
  *
  * The first context holds the project and keeps its server copy current. The
- * second starts with empty storage, as a phone does: it finds the project in
+ * second is a phone (390px, touch) with empty storage: it finds the project in
  * its library because it is signed in, opens it from the server copy, and
  * accepts a proposal there. The room id reaches it only through the signed-in
  * listing and must not end up in its address or its storage.
@@ -79,7 +79,10 @@ test("a second device opens a connected project from the library and accepts a p
   const room = "share-e2eseconddevice000000000000000";
   const listing = [{ roomId: room, projectId, name: "My novel" }];
   const desktopCtx = await browser.newContext();
-  const phoneCtx = await browser.newContext();
+  const phoneCtx = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+  });
   const connectorProject = new CollabProject();
   const connector = new CollabConnection(
     connectorProject,
@@ -110,12 +113,15 @@ test("a second device opens a connected project from the library and accepts a p
     await expect(card).toContainText("My novel");
     await phone.getByTestId("open-connected-project").click();
 
-    // It opens from the server copy, under the project's id.
+    // It opens from the server copy, under the project's id, on the typeset page.
     await expect(phone).toHaveURL(new RegExp(`/c/${projectId}$`));
-    const phoneEditor = phone.locator('[data-testid="editor"] .cm-content');
-    await expect(phoneEditor).toContainText(main.text.split("\n")[0]!, {
-      timeout: 30_000,
-    });
+    await expect(
+      phone.locator('[data-testid="preview"] svg').first(),
+    ).toBeVisible({ timeout: 60_000 });
+    await phone.locator('[data-testid="tab"][data-tab="editor"]').click();
+    await expect(
+      phone.locator('[data-testid="editor"] .cm-content'),
+    ).toContainText(main.text.split("\n")[0]!);
     await expect(phone.getByTestId("collab-indicator")).toHaveText(
       "Server copy",
     );
