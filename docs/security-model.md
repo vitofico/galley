@@ -136,14 +136,27 @@ room to be **registered and active**:
   addresses it dials are the operator-configured relay and compile service;
   request bodies are capped at 1 MiB and concurrent calls at 8; it logs no
   request line, since the path may be a token, and no document text. Its two
-  write tools publish a **pending proposal** into the project's room and
-  nothing more: the proposed text is computed on the server from the live
-  file (never taken whole from the model), text files only, under the same
-  size limits as the local bridge, and at most 20 proposals may wait per
-  project. The record is unsigned, so no browser auto-applies it; it lands
-  only through the browser's Accept gate. A leaked token can therefore read
-  connected projects and fill their review queue, and cannot change a
-  document. Server-side apply (Auto) is not in this release.
+  write tools compute the proposed text on the server from the live file
+  (never taken whole from the model), text files only, under the same size
+  limits as the local bridge. What happens next is the project's review mode.
+  In **Ask** they publish a pending proposal into the project's room and
+  nothing more; the record is unsigned, so no browser auto-applies it, it
+  lands only through the browser's Accept gate, and at most 20 may wait per
+  project. In **Auto** the connector applies the change itself, in a fixed
+  order where the first failure stops the rest: check the token and the grant
+  again; stay under 500 file operations and 16 MiB per project per hour; save
+  a checkpoint of the whole project; write a `started` entry naming the token
+  and the checkpoint; apply with the conflict-aware code the browser's Accept
+  uses (text that moved means nothing is applied); leave a resolved record in
+  the document. Checkpoints and the trail live on a volume only the connector
+  writes; the web app serves them to the project's owner, who restores a
+  checkpoint from the project's History; both are erased within a minute of
+  the project being disconnected. A failure before anything is applied
+  falls back to a pending proposal. A deployment that gives the connector no
+  such volume never applies on the server. So a leaked token can read
+  connected projects and fill their review queue, and **can change a project
+  set to Auto** until it is revoked: each such change is recorded and can be
+  undone, not prevented.
 - **Authorization at the upgrade, never per message** — the relay's order is:
   parse room → Origin policy (an absent Origin proceeds only for a capability
   room, preserving the cookie-less Node kernel; browsers always send Origin

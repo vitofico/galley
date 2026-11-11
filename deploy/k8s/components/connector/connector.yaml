@@ -4,7 +4,10 @@
 # What it is allowed to touch:
 #   - the shared projects volume, READ-ONLY: access-token fingerprints and the
 #     connected-project registry written by web;
-#   - the relay (as a websocket peer) and, if deployed, the compile service.
+#   - the relay (as a websocket peer) and, if deployed, the compile service;
+#   - a volume of its own (galley-connector-state), READ-WRITE: the checkpoints
+#     and activity trail of changes it applies to a project in Auto mode. Web
+#     mounts the same volume read-only to show them to the project's owner.
 # It reaches nothing else: no egress beyond those two Services and DNS.
 #
 # The credential is a per-client access token, sent as a bearer header or as
@@ -26,6 +29,19 @@ spec:
   accessModes: ["ReadWriteOnce"]
   resources: { requests: { storage: 2Gi } }
 ---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: galley-connector-state
+  namespace: galley
+  labels: { app.kubernetes.io/name: galley, app.kubernetes.io/component: connector-state }
+spec:
+  # The connector writes, web reads: two Deployments share it, hence RWX.
+  # It holds checkpoints of connected projects in plain text: back it up with
+  # the other two.
+  accessModes: ["ReadWriteMany"]
+  resources: { requests: { storage: 2Gi } }
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -45,6 +61,7 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         runAsGroup: 1000
+        fsGroup: 1000
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: connector
@@ -59,6 +76,9 @@ spec:
             # Remove this line if you do not deploy the compile component; the
             # `compile` tool then reports not_configured.
             - { name: GALLEY_CONNECTOR_COMPILE_URL, value: "http://galley-compile" }
+            # Remove this line (and the state volume) to never apply on the
+            # server: a project set to Auto is then reviewed like one set to Ask.
+            - { name: GALLEY_CONNECTOR_STATE_DIR, value: "/var/lib/galley/connector" }
             - { name: TMPDIR, value: "/tmp" }
             - { name: HOME, value: "/tmp" }
           ports:
@@ -81,11 +101,14 @@ spec:
           volumeMounts:
             - { name: tmp, mountPath: /tmp }
             - { name: projects, mountPath: /var/lib/galley/projects, readOnly: true }
+            - { name: state, mountPath: /var/lib/galley/connector }
       volumes:
         - name: tmp
           emptyDir: { sizeLimit: "32Mi" }
         - name: projects
           persistentVolumeClaim: { claimName: galley-projects, readOnly: true }
+        - name: state
+          persistentVolumeClaim: { claimName: galley-connector-state }
 ---
 apiVersion: v1
 kind: Service

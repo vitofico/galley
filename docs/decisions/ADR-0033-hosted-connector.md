@@ -94,6 +94,20 @@ step that fails:
 5. Leave a resolved proposal record in the document, so the change appears in
    Galley's own history with its origin.
 
+**Amendment, 2026-11-11 (as built).** Step 2 said "in the relay's server-side
+history". The checkpoint is instead kept by the connector, on a volume only it
+writes and the web app reads for the project's owner. The relay's history
+exists only with hosted storage configured and its route answers browsers, so
+using it would have changed the relay for a job the connector can do alone. A
+checkpoint is the project's file tree (text, plus binary files by content
+address), and the browser restores it like any version: as the person's own
+edits, from the project's History. Two orderings are stricter than written
+above. The audit entry is written in two parts, `started` before the apply and
+the outcome after, so a crash in between leaves a trace and a way back. And a
+failure before anything is applied (no checkpoint, no audit entry, the volume
+cap) does not drop the client's work: the change is published for review, as
+in Ask mode.
+
 The volume cap and size limits of ADR-0023 apply unchanged. What replaces the
 proposal signature is the server's own check of the token: a signature exists so
 a browser can trust a record written into a room any peer can write to, and here

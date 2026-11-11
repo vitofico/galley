@@ -57,8 +57,10 @@ The first public cut. Everything below is built, tested (2300+ unit tests,
   issues per-client access tokens, shown once and stored only as a
   fingerprint. A new connector service answers at `/mcp` and lets a client
   holding a token list, read, search and compile a connected project, and
-  propose changes that wait for the owner's Accept in Galley. Applying on the
-  server (Auto) follows.
+  change it. In Ask mode a change waits for the owner's Accept in Galley. In
+  Auto mode the server applies it with no tab open: it saves a checkpoint of
+  the whole project first and records the change, the owner sees the record
+  in Settings and can return to the checkpoint from the project's History.
 
 ### Security & robustness
 

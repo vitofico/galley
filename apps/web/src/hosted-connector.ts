@@ -22,6 +22,10 @@ import {
 import {
   CONNECTOR_REVIEW_MODES,
   isCapabilityRoomId,
+  isConnectorCheckpointId,
+  parseConnectorActivityEntry,
+  type ConnectorActivityEntry,
+  type ConnectorCheckpoint,
   type ConnectorReviewMode,
 } from "@galley/shared";
 import { isAuthEnabled } from "./auth-gate.js";
@@ -123,18 +127,99 @@ function parseConnected(value: unknown): ConnectedProject | null {
   };
 }
 
-/** The signed-in person's connected projects. Malformed rows are dropped. */
+/**
+ * The signed-in person's connected projects. Malformed rows are dropped.
+ * `appliesChanges` says whether this server applies an Auto project's changes
+ * itself; when it does not, they wait for review like any other.
+ */
 export async function listConnectedProjects(
   fetchImpl: CapabilityFetch = defaultFetch(),
-): Promise<ConnectorResult<{ projects: ConnectedProject[] }>> {
+): Promise<
+  ConnectorResult<{ projects: ConnectedProject[]; appliesChanges: boolean }>
+> {
   const res = await call("/auth/connector/projects", undefined, fetchImpl);
   if (!res.ok) return res;
-  const rows = (res.json as { projects?: unknown } | undefined)?.projects;
+  const body = res.json as
+    | { projects?: unknown; appliesChanges?: unknown }
+    | undefined;
+  if (!Array.isArray(body?.projects)) return { ok: false, error: ERROR_GENERIC };
+  return {
+    ok: true,
+    projects: body.projects.flatMap((row) => parseConnected(row) ?? []),
+    appliesChanges: body.appliesChanges === true,
+  };
+}
+
+/** One change the connector applied on the server, as its owner sees it. */
+export interface ConnectorChange extends ConnectorActivityEntry {
+  /** Its checkpoint is still kept, so the project can be put back to it. */
+  restorable: boolean;
+}
+
+/** What the connector applied to a connected project, newest first. */
+export async function listConnectorActivity(
+  roomId: string,
+  fetchImpl: CapabilityFetch = defaultFetch(),
+): Promise<ConnectorResult<{ changes: ConnectorChange[] }>> {
+  const res = await call(
+    `/auth/connector/projects/${encodeURIComponent(roomId)}/activity`,
+    undefined,
+    fetchImpl,
+  );
+  if (!res.ok) return res;
+  const rows = (res.json as { changes?: unknown } | undefined)?.changes;
   if (!Array.isArray(rows)) return { ok: false, error: ERROR_GENERIC };
   return {
     ok: true,
-    projects: rows.flatMap((row) => parseConnected(row) ?? []),
+    changes: rows.flatMap((row) => {
+      const entry = parseConnectorActivityEntry(row);
+      return entry === null
+        ? []
+        : [
+            {
+              ...entry,
+              restorable: (row as { restorable?: unknown }).restorable === true,
+            },
+          ];
+    }),
   };
+}
+
+/** Files a checkpoint may hold before the browser refuses to read it. */
+const MAX_CHECKPOINT_FILES = 5000;
+
+/** A checkpoint's content, or null when it is gone or not what it should be. */
+export async function fetchConnectorCheckpoint(
+  roomId: string,
+  checkpointId: string,
+  fetchImpl: CapabilityFetch = defaultFetch(),
+): Promise<ConnectorCheckpoint | null> {
+  if (!isConnectorCheckpointId(checkpointId)) return null;
+  const res = await call(
+    `/auth/connector/projects/${encodeURIComponent(roomId)}/checkpoints/${checkpointId}`,
+    undefined,
+    fetchImpl,
+  );
+  if (!res.ok) return null;
+  const v = res.json as Partial<ConnectorCheckpoint> | undefined;
+  if (
+    v?.version !== 1 ||
+    !Array.isArray(v.files) ||
+    !Array.isArray(v.binaryFiles) ||
+    v.files.length + v.binaryFiles.length > MAX_CHECKPOINT_FILES ||
+    !v.files.every(
+      (f) => typeof f?.path === "string" && typeof f.text === "string",
+    ) ||
+    !v.binaryFiles.every(
+      (f) =>
+        typeof f?.path === "string" &&
+        typeof f.hash === "string" &&
+        typeof f.size === "number" &&
+        typeof f.mime === "string",
+    )
+  )
+    return null;
+  return { version: 1, files: v.files, binaryFiles: v.binaryFiles };
 }
 
 /** A project name as the registry accepts it: one line, at most 120 characters. */

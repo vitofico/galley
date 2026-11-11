@@ -50,6 +50,11 @@
  *                                      the hosted connector (ADR-0033). Default
  *                                      OFF. Needs OIDC and `GALLEY_DATA_DIR`, and
  *                                      a relay that persists (apps/sync).
+ *   - `GALLEY_CONNECTOR_STATE_DIR`   — the connector service's own volume, mounted
+ *                                      READ-ONLY here: the activity trail and
+ *                                      checkpoints of changes it applied in Auto
+ *                                      mode, shown to the project's owner. Unset →
+ *                                      the page says Auto changes wait for review.
  *   - `GALLEY_DATA_DIR`              — the shared data volume (#1 slice 2). Under
  *                                      OIDC it additionally hosts the capability-room
  *                                      registry the Share/Agent-Access routes write
@@ -84,6 +89,8 @@ import {
 } from "@galley/auth";
 import {
   FsCapabilityRoomRegistry,
+  FsConnectorActivityLog,
+  FsConnectorCheckpoints,
   FsConnectorTokenStore,
   FsProjectStore,
   FsGroupStore,
@@ -215,6 +222,8 @@ async function buildAuthRouter(): Promise<Hono | null> {
     );
   }
 
+  const connectorStateDir = process.env.GALLEY_CONNECTOR_STATE_DIR?.trim();
+
   const policyUrl = process.env.GALLEY_STORAGE_POLICY_URL?.trim();
   const policy = policyUrl
     ? createAccountResourcePolicyReader({
@@ -246,7 +255,19 @@ async function buildAuthRouter(): Promise<Hono | null> {
                 : undefined,
             ),
             ...(hostedConnector
-              ? { hostedConnector: { tokens: new FsConnectorTokenStore(dataDir) } }
+              ? {
+                  hostedConnector: {
+                    tokens: new FsConnectorTokenStore(dataDir),
+                    ...(connectorStateDir
+                      ? {
+                          history: {
+                            activity: new FsConnectorActivityLog(connectorStateDir),
+                            checkpoints: new FsConnectorCheckpoints(connectorStateDir),
+                          },
+                        }
+                      : {}),
+                  },
+                }
               : {}),
           },
         }

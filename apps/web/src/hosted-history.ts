@@ -239,48 +239,64 @@ export async function restoreHostedHistoryVersion(
         .files.filter((f) => !f.deleted)
         .map((f) => f.path),
     );
-    for (const f of binaries) {
-      if (
-        !isSafeProjectPath(f.path) ||
-        !isValidHash(f.hash) ||
-        !isValidMime(f.mime) ||
-        !Number.isSafeInteger(f.size) ||
-        f.size < 0 ||
-        f.size > BLOB_MAX_TRANSFER_BYTES ||
-        paths.has(f.path)
-      )
-        throw new Error("Unsafe hosted binary checkpoint");
-      paths.add(f.path);
-    }
-    // All validation happens before the first live write. Never apply old Yjs items into live state.
-    restoreProjectFromTree(project, files, author);
-    const current = project.snapshot().binaryFiles ?? [];
-    const keep = new Set<string>();
-    for (const f of binaries) {
-      const existing = current.find(
-        (c) =>
-          c.path === f.path &&
-          c.hash === f.hash &&
-          c.size === f.size &&
-          c.mime === f.mime,
-      );
-      if (existing) {
-        project.restoreBinary(existing.fileId, author);
-        keep.add(existing.fileId);
-      } else
-        keep.add(
-          project.createBinary(
-            f.path,
-            { type: "binary", hash: f.hash, size: f.size, mime: f.mime },
-            author,
-          ),
-        );
-    }
-    for (const f of current)
-      if (!f.deleted && !keep.has(f.fileId))
-        project.deleteBinary(f.fileId, author);
+    restoreTreeAndBinaries(project, files, binaries, paths, author);
     return true;
   } finally {
     saved.doc.destroy();
   }
+}
+
+/**
+ * Put a project back to a saved tree and its binary pointers. Everything is
+ * validated before the first live write: an unsafe binary entry throws and
+ * changes nothing. `textPaths` are the saved text files' project paths, so a
+ * binary cannot claim one of them.
+ */
+export function restoreTreeAndBinaries(
+  project: CollabProject,
+  files: VersionedFile[],
+  binaries: readonly { path: string; hash: string; size: number; mime: string }[],
+  textPaths: Iterable<string>,
+  author: Author,
+): void {
+  const paths = new Set(textPaths);
+  for (const f of binaries) {
+    if (
+      !isSafeProjectPath(f.path) ||
+      !isValidHash(f.hash) ||
+      !isValidMime(f.mime) ||
+      !Number.isSafeInteger(f.size) ||
+      f.size < 0 ||
+      f.size > BLOB_MAX_TRANSFER_BYTES ||
+      paths.has(f.path)
+    )
+      throw new Error("Unsafe binary checkpoint");
+    paths.add(f.path);
+  }
+  // Never apply old Yjs items into live state: the tree is re-applied as edits.
+  restoreProjectFromTree(project, files, author);
+  const current = project.snapshot().binaryFiles ?? [];
+  const keep = new Set<string>();
+  for (const f of binaries) {
+    const existing = current.find(
+      (c) =>
+        c.path === f.path &&
+        c.hash === f.hash &&
+        c.size === f.size &&
+        c.mime === f.mime,
+    );
+    if (existing) {
+      project.restoreBinary(existing.fileId, author);
+      keep.add(existing.fileId);
+    } else
+      keep.add(
+        project.createBinary(
+          f.path,
+          { type: "binary", hash: f.hash, size: f.size, mime: f.mime },
+          author,
+        ),
+      );
+  }
+  for (const f of current)
+    if (!f.deleted && !keep.has(f.fileId)) project.deleteBinary(f.fileId, author);
 }

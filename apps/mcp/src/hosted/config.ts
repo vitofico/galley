@@ -12,6 +12,11 @@
  *   GALLEY_CONNECTOR_COMPILE_URL   the compile service, e.g.
  *                                  http://galley-compile (optional; without it
  *                                  the `compile` tool reports not_configured)
+ *   GALLEY_CONNECTOR_STATE_DIR     a writable volume of the connector's own,
+ *                                  for the checkpoints and activity trail of
+ *                                  Auto mode (optional; without it the
+ *                                  connector never applies a change itself and
+ *                                  an Auto project is reviewed like an Ask one)
  *
  * Both URLs are OPERATOR configuration. Nothing a client sends ever becomes a
  * URL this service fetches.
@@ -23,6 +28,7 @@ export interface HostedConfig {
   dataDir: string;
   syncUrl: string;
   compileUrl?: string;
+  stateDir?: string;
 }
 
 type Env = Record<string, string | undefined>;
@@ -73,10 +79,17 @@ export function parseHostedConfig(env: Env): HostedConfig {
       ])
     : undefined;
 
+  const stateDir = env["GALLEY_CONNECTOR_STATE_DIR"]?.trim() || undefined;
+  if (stateDir !== undefined && stateDir === dataDir)
+    throw new Error(
+      "GALLEY_CONNECTOR_STATE_DIR must not be GALLEY_DATA_DIR. The connector only reads the data volume; its own checkpoints and activity trail need a separate, writable one.",
+    );
+
   return {
     port,
     dataDir,
     syncUrl,
     ...(compileUrl !== undefined ? { compileUrl } : {}),
+    ...(stateDir !== undefined ? { stateDir } : {}),
   };
 }

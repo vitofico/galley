@@ -242,12 +242,18 @@ let seq = 0;
  * signable view is built from it, the signature is awaited, and ONLY THEN is
  * the (still single) transaction run — so the signed bytes exactly match the
  * stored record. A missing `signer` publishes an unsigned record (local mode).
+ *
+ * `born: "accepted"` writes the record already resolved, in the same single
+ * transaction. It is for a writer that has ALREADY applied the change itself
+ * (the hosted connector in Auto mode, ADR-0033 §4) and leaves the record as
+ * history: no peer ever sees it pending, so nobody can accept it a second time.
  */
 export async function publishProposal(
   host: DocHost,
   input: ProposalInput,
   author: Author,
   signer?: ProposalSigner,
+  born: "pending" | "accepted" = "pending",
 ): Promise<string> {
   const violation = proposalSizeViolation(input);
   if (violation !== null) throw new Error(`publishProposal: ${violation}`);
@@ -271,7 +277,7 @@ export async function publishProposal(
     record.set("blocks", input.blocks.map((b) => ({ search: b.search, replace: b.replace })));
     record.set("request", input.request);
     record.set("author", "mcp");
-    record.set("status", "pending");
+    record.set("status", born);
     record.set("createdAt", createdAt);
     record.set("seq", recordSeq);
     // exactOptionalPropertyTypes: only set `sig` when actually signed.
@@ -786,6 +792,7 @@ export async function publishFileProposal(
   input: FileProposalInput,
   author: Author,
   signer?: ProposalSigner,
+  born: "pending" | "accepted" = "pending",
 ): Promise<string> {
   const violation = fileProposalSizeViolation(input);
   if (violation !== null) throw new Error(`publishFileProposal: ${violation}`);
@@ -829,7 +836,7 @@ export async function publishFileProposal(
       })),
     );
     record.set("author", "mcp");
-    record.set("status", "pending");
+    record.set("status", born);
     record.set("createdAt", createdAt);
     record.set("seq", recordSeq);
     // exactOptionalPropertyTypes: only set `sig` when actually signed.

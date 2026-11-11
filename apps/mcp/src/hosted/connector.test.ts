@@ -20,21 +20,30 @@ import {
   CollabConnection,
   CollabProject,
   WebSocketTransport,
+  getFileProposals,
   getPendingFileProposals,
   getPendingProposals,
+  getProposals,
   resolveProposal,
   type WebSocketLike,
 } from "@galley/collab";
 import {
   FsCapabilityRoomRegistry,
+  FsConnectorActivityLog,
+  FsConnectorCheckpoints,
   FsConnectorTokenStore,
   FsSessionStore,
 } from "@galley/persistence";
-import type { Author, CheckResult } from "@galley/shared";
+import type {
+  Author,
+  CheckResult,
+  ConnectorActivityEntry,
+  ConnectorCheckpoint,
+} from "@galley/shared";
 import { createConnectorApp, type ConnectorAppDeps } from "./app.js";
 import { ProjectUnavailableError } from "./room.js";
 import { MAX_PENDING_PROPOSALS } from "./tools.js";
-import { buildConnectorDeps } from "./wiring.js";
+import { buildConnectorDeps, createStateSweep } from "./wiring.js";
 
 interface SyncHandle {
   port: number;
@@ -526,7 +535,7 @@ describe("proposing a change (published for review, never applied)", () => {
     await c.close();
   });
 
-  it("says an Auto project still waits for review in this release", async () => {
+  it("reviews an Auto project like any other when the server is not set up to apply", async () => {
     const room = "share-auto000000000000000000000000";
     await connectRoom(room, "proj-auto", "alice", { reviewMode: "auto" });
     const auto = await seed(room, { "/main.typ": "one\n" });
@@ -586,6 +595,276 @@ describe("proposing a change (published for review, never applied)", () => {
     });
     expect(res.isError).toBe(true);
     expect(res.text).toMatch(/could not be confirmed on the server/);
+    await c.close();
+  });
+});
+
+describe("Auto mode: the server applies, under its safeguards", () => {
+  let stateDir: string;
+  let autoDeps: ConnectorAppDeps;
+  let n = 0;
+
+  beforeAll(async () => {
+    stateDir = await mkdtemp(join(tmpdir(), "galley-connector-state-"));
+    autoDeps = buildConnectorDeps({
+      port: 0,
+      dataDir,
+      syncUrl: `ws://127.0.0.1:${relay.port}`,
+      stateDir,
+    });
+  });
+  afterAll(() => rm(stateDir, { recursive: true, force: true }));
+
+  /** A fresh Auto project with a browser peer watching it. */
+  const autoProject = async (files: Record<string, string>) => {
+    const id = String(++n).padStart(2, "0");
+    const room = `share-autoapply${id}00000000000000000`;
+    const projectId = `proj-auto-${id}`;
+    await connectRoom(room, projectId, "alice", { reviewMode: "auto" });
+    const peer = await seed(room, files);
+    const text = (path: string) =>
+      peer.project.snapshot().files.find((f) => f.path === path && !f.deleted)
+        ?.text;
+    return { room, projectId, peer, text };
+  };
+  const trail = (room: string) => new FsConnectorActivityLog(stateDir).read(room);
+  const edit = (c: Client, project: string, search: string, replace: string) =>
+    call(c, "propose_edit", {
+      project,
+      path: "/main.typ",
+      request: `${search} to ${replace}`,
+      edits: [{ search, replace }],
+    });
+
+  it("applies an edit, leaving a checkpoint, a trail and a resolved record", async () => {
+    const p = await autoProject({ "/main.typ": "one\n" });
+    const c = await client(createConnectorApp(autoDeps), aliceToken);
+    const res = JSON.parse((await edit(c, p.projectId, "one", "two")).text);
+    expect(res).toMatchObject({ status: "applied", filePath: "/main.typ" });
+    // The browser peer gets the text, and never a card to review.
+    await vi.waitFor(() => expect(p.text("/main.typ")).toBe("two\n"), settle);
+    expect(getPendingProposals(p.peer.project)).toEqual([]);
+    expect(getProposals(p.peer.project)).toEqual([
+      expect.objectContaining({ status: "accepted", request: "one to two" }),
+    ]);
+    const entries = await trail(p.room);
+    expect(entries.map((e) => e.state)).toEqual(["started", "applied"]);
+    expect(entries[0]).toMatchObject<Partial<ConnectorActivityEntry>>({
+      tokenId: aliceTokenId,
+      request: "one to two",
+      files: ["/main.typ"],
+      ops: 1,
+    });
+    expect(entries[1]!.changeId).toBe(entries[0]!.changeId);
+    // The checkpoint is the project as it was before.
+    const bytes = await new FsConnectorCheckpoints(stateDir).read(
+      p.room,
+      entries[0]!.checkpointId,
+    );
+    const checkpoint = JSON.parse(
+      new TextDecoder().decode(bytes!),
+    ) as ConnectorCheckpoint;
+    expect(checkpoint.files.find((f) => f.path === "main.typ")?.text).toBe(
+      "one\n",
+    );
+    p.peer.close();
+    await c.close();
+  });
+
+  it("applies a multi-file set as one change", async () => {
+    const p = await autoProject({ "/main.typ": "= Book\n" });
+    const c = await client(createConnectorApp(autoDeps), aliceToken);
+    const res = JSON.parse(
+      (
+        await call(c, "propose_files", {
+          project: p.projectId,
+          request: "Add an intro",
+          ops: [
+            { kind: "create", path: "/intro.typ", text: "Hello.\n" },
+            {
+              kind: "edit",
+              path: "/main.typ",
+              edits: [{ search: "= Book\n", replace: '= Book\n#include "intro.typ"\n' }],
+            },
+          ],
+        })
+      ).text,
+    );
+    expect(res.status).toBe("applied");
+    await vi.waitFor(() => expect(p.text("/intro.typ")).toBe("Hello.\n"), settle);
+    expect(p.text("/main.typ")).toBe('= Book\n#include "intro.typ"\n');
+    expect(getPendingFileProposals(p.peer.project)).toEqual([]);
+    expect(getFileProposals(p.peer.project)[0]?.status).toBe("accepted");
+    expect((await trail(p.room))[0]).toMatchObject({ ops: 2, files: ["/intro.typ", "/main.typ"] });
+    p.peer.close();
+    await c.close();
+  });
+
+  it("applies nothing when the text moved while the change was on its way", async () => {
+    const p = await autoProject({ "/main.typ": "one\n" });
+    const app = createConnectorApp({
+      ...autoDeps,
+      auto: {
+        ...autoDeps.auto!,
+        checkpoints: {
+          // While the checkpoint is being saved, the owner rewrites the line.
+          save: async (room, bytes) => {
+            const file = p.peer.project.snapshot().files[0]!;
+            p.peer.project.transactFile(
+              file.fileId,
+              (t) => {
+                t.delete(0, t.length);
+                t.insert(0, "the owner's line\n");
+              },
+              HUMAN,
+            );
+            await new Promise((r) => setTimeout(r, 200));
+            return autoDeps.auto!.checkpoints.save(room, bytes);
+          },
+        },
+      },
+    });
+    const c = await client(app, aliceToken);
+    const res = JSON.parse((await edit(c, p.projectId, "one", "two")).text);
+    expect(res.status).toBe("conflict");
+    expect(res.message).toMatch(/Nothing was changed/);
+    expect(p.text("/main.typ")).toBe("the owner's line\n");
+    expect(getProposals(p.peer.project)).toEqual([]);
+    expect((await trail(p.room)).map((e) => e.state)).toEqual(["started", "conflict"]);
+    p.peer.close();
+    await c.close();
+  });
+
+  it("stops at once when the token is revoked or the project is switched to Ask", async () => {
+    const p = await autoProject({ "/main.typ": "one\n" });
+    // The token passes at the door, then is gone by the time of the change.
+    let checks = -Infinity; // not counting until the client has connected
+    const revoked = createConnectorApp({
+      ...autoDeps,
+      authenticate: async (token) =>
+        ++checks > 1 ? null : autoDeps.authenticate(token),
+    });
+    let c = await client(revoked, aliceToken);
+    checks = 0;
+    const refused = JSON.parse((await edit(c, p.projectId, "one", "two")).text);
+    expect(refused.status).toBe("unauthorized");
+    await c.close();
+
+    // Switched to Ask after the call began: published for review instead.
+    let reads = 0;
+    const switched = createConnectorApp({
+      ...autoDeps,
+      listProjects: async (userId) => {
+        const all = await autoDeps.listProjects(userId);
+        return ++reads > 1
+          ? all.map((x) => ({ ...x, reviewMode: "ask" as const }))
+          : all;
+      },
+    });
+    c = await client(switched, aliceToken);
+    reads = 0;
+    const asked = JSON.parse((await edit(c, p.projectId, "one", "two")).text);
+    expect(asked.status).toBe("pending_review");
+    expect(asked.message).not.toMatch(/set to Auto/);
+
+    expect(p.text("/main.typ")).toBe("one\n");
+    expect(await trail(p.room)).toEqual([]);
+    expect(await new FsConnectorCheckpoints(stateDir).list(p.room)).toEqual([]);
+    p.peer.close();
+    await c.close();
+  });
+
+  it("without a checkpoint or a trail entry nothing is applied: the change waits for review", async () => {
+    const p = await autoProject({ "/main.typ": "one\n" });
+    const failing = (auto: Partial<NonNullable<ConnectorAppDeps["auto"]>>) =>
+      createConnectorApp({ ...autoDeps, auto: { ...autoDeps.auto!, ...auto } });
+    for (const [app, why] of [
+      [
+        failing({ checkpoints: { save: async () => Promise.reject(new Error("disk")) } }),
+        /checkpoint could not be saved/,
+      ],
+      [
+        failing({
+          activity: {
+            read: autoDeps.auto!.activity.read.bind(autoDeps.auto!.activity),
+            append: async () => Promise.reject(new Error("disk")),
+          },
+        }),
+        /activity trail could not be written/,
+      ],
+    ] as const) {
+      const c = await client(app, aliceToken);
+      const res = JSON.parse((await edit(c, p.projectId, "one", "two")).text);
+      expect(res.status).toBe("pending_review");
+      expect(res.message).toMatch(why);
+      await c.close();
+    }
+    expect(p.text("/main.typ")).toBe("one\n");
+    expect(await trail(p.room)).toEqual([]);
+    p.peer.close();
+  });
+
+  it("falls back to review past the hourly volume cap", async () => {
+    const p = await autoProject({ "/main.typ": "one\n" });
+    await new FsConnectorActivityLog(stateDir).append(p.room, {
+      version: 1,
+      changeId: "earlier",
+      state: "started",
+      atMs: Date.now(),
+      tokenId: aliceTokenId,
+      request: "a big one",
+      files: [],
+      ops: 500,
+      bytes: 0,
+      checkpointId: `${"0".repeat(13)}-${"a".repeat(64)}`,
+    });
+    const c = await client(createConnectorApp(autoDeps), aliceToken);
+    const res = JSON.parse((await edit(c, p.projectId, "one", "two")).text);
+    expect(res.status).toBe("pending_review");
+    expect(res.message).toMatch(/already applied a lot/);
+    expect(p.text("/main.typ")).toBe("one\n");
+    p.peer.close();
+    await c.close();
+  });
+
+  it("erases a project's checkpoints and trail once it is disconnected", async () => {
+    const p = await autoProject({ "/main.typ": "one\n" });
+    const c = await client(createConnectorApp(autoDeps), aliceToken);
+    await edit(c, p.projectId, "one", "two");
+    const sweep = createStateSweep({
+      port: 0,
+      dataDir,
+      syncUrl: `ws://127.0.0.1:${relay.port}`,
+      stateDir,
+    });
+    const checkpoints = new FsConnectorCheckpoints(stateDir);
+    await sweep();
+    expect(await checkpoints.list(p.room)).toHaveLength(1); // still connected
+    const registry = new FsCapabilityRoomRegistry(dataDir);
+    await registry.put({ ...(await registry.get(p.room))!, revokedAtMs: Date.now() });
+    await sweep();
+    expect(await checkpoints.list(p.room)).toEqual([]);
+    expect(await trail(p.room)).toEqual([]);
+    p.peer.close();
+    await c.close();
+  });
+
+  it("does not claim a change it cannot find on the server, and records the doubt", async () => {
+    const p = await autoProject({ "/main.typ": "one\n" });
+    let joins = 0;
+    const app = createConnectorApp({
+      ...autoDeps,
+      withProject: (roomId, fn) => {
+        if (++joins > 1) throw new ProjectUnavailableError();
+        return autoDeps.withProject(roomId, fn);
+      },
+    });
+    const c = await client(app, aliceToken);
+    const res = await edit(c, p.projectId, "one", "two");
+    expect(res.isError).toBe(true);
+    expect(res.text).toMatch(/could not be confirmed on the server/);
+    expect((await trail(p.room)).map((e) => e.state)).toEqual(["started", "unconfirmed"]);
+    p.peer.close();
     await c.close();
   });
 });

@@ -5,11 +5,12 @@
  * functions as the local bridge's (read-tools.ts), so a read answers
  * identically over either connection.
  *
- * WRITES ARE PROPOSALS. `propose_edit` and `propose_files` publish a pending
- * record into the project's room, exactly what the local bridge publishes, and
- * stop. The document changes only when its owner accepts the proposal in
- * Galley. Applying on the server (a project in Auto mode, ADR-0033 §4) is not
- * in this release, so an Auto project is reviewed like an Ask one.
+ * WRITES DEPEND ON THE PROJECT'S REVIEW MODE. In Ask mode `propose_edit` and
+ * `propose_files` publish a pending record into the project's room, exactly
+ * what the local bridge publishes, and stop: the document changes only when
+ * its owner accepts the proposal in Galley. In Auto mode the same call applies
+ * the change on the server under the safeguards in auto-apply.ts, when the
+ * deployment is set up for it; otherwise it is reviewed like any other.
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -42,6 +43,14 @@ import {
 } from "../read-tools.js";
 import { buildTextOp, claimPath, TEXT_OP_SCHEMAS } from "../propose-build.js";
 import { createToolSurface, READ_LIMITS } from "../surface.js";
+import {
+  autoApply,
+  fileSetChange,
+  singleFileChange,
+  type AutoApply,
+  type AutoChange,
+  type AutoOutcome,
+} from "./auto-apply.js";
 import { ProjectUnavailableError, type ProjectRunner } from "./room.js";
 
 /** The connector as an author: an agent that is not the local bridge. */
@@ -53,6 +62,8 @@ export interface HostedToolDeps {
   withProject: ProjectRunner;
   /** Absent → `compile` reports `not_configured`. */
   compileService?: CompileService;
+  /** Absent → this server never applies a change itself; Auto is reviewed like Ask. */
+  auto?: AutoApply;
 }
 
 const projectParam = z
@@ -64,12 +75,23 @@ const projectParam = z
   );
 
 const READ_ONLY = { readOnlyHint: true, openWorldHint: false } as const;
-/** A proposal changes nothing by itself and is discarded by a Reject. */
+/**
+ * In Ask mode a proposal changes nothing by itself. In Auto mode it changes the
+ * document, after a checkpoint its owner can return to; a delete is a
+ * recoverable soft-delete either way.
+ */
 const PROPOSES = {
   readOnlyHint: false,
   destructiveHint: false,
   openWorldHint: false,
 } as const;
+
+/** What both write tools say about the two review modes. */
+const MODES =
+  "What happens next depends on the project's review mode (see list_projects). In `ask` mode " +
+  'the change is NOT applied: it waits for the owner to accept it in Galley (status "pending_review"). ' +
+  'In `auto` mode it is applied at once (status "applied") after a checkpoint the owner can return to; ' +
+  'if the text moved in the meantime nothing is applied (status "conflict"). Always read the status.';
 
 /**
  * Proposals waiting for review, per project, before the connector refuses to
@@ -268,10 +290,11 @@ export function registerHostedTools(
   );
 
   /**
-   * Publish a built proposal and answer honestly. The record is written into
-   * this call's replica, which is then closed; the answer says "published" only
-   * after a SECOND, fresh join finds the record on the relay. Without that
-   * check a dropped connection would report a proposal nobody will ever see.
+   * Publish or apply a built change and answer honestly. Whatever was written
+   * went into this call's replica, which is then closed; the answer says
+   * "published" or "applied" only after a SECOND, fresh join finds the record on
+   * the relay. Without that check a dropped connection would report a change
+   * nobody will ever see.
    */
   const propose = (
     tool: "propose_edit" | "propose_files",
@@ -279,20 +302,79 @@ export function registerHostedTools(
     build: (binding: ReadBinding) =>
       | { refusal: Record<string, unknown> }
       | {
-          publish: (project: CollabProject) => Promise<string>;
-          found: (project: CollabProject, id: string) => boolean;
+          /** Write the record; `born` accepted when the change is already applied. */
+          publish: (
+            project: CollabProject,
+            born: "pending" | "accepted",
+          ) => Promise<string>;
+          status: (project: CollabProject, id: string) => string | undefined;
+          change: AutoChange;
           identity: Record<string, unknown>;
         },
   ): Promise<ToolResult> => {
     let roomId: string | undefined;
     let delivered:
       | {
-          id: string;
           check: (p: CollabProject) => boolean;
-          body: Record<string, unknown>;
+          /** Auto only: record how the confirmation went. */
+          finish?: Extract<AutoOutcome, { kind: "applied" }>["finish"];
         }
       | undefined;
     return onProject(tool, projectId, async (binding, project, grant) => {
+      const built = build(binding);
+      if ("refusal" in built) return jsonResult(built.refusal);
+
+      // Auto: apply here and now, when the server is set up for it.
+      let reviewed = "";
+      if (grant.reviewMode === "auto") {
+        if (deps.auto === undefined)
+          reviewed =
+            " (This project is set to Auto, but this server is not set up to apply changes itself, so the change waits for review like any other.)";
+        else {
+          const outcome = await autoApply(
+            deps.auto,
+            grant.roomId,
+            project,
+            built.change,
+            async () => {
+              const now = (await deps.listProjects()).find(
+                (p) => p.projectId === projectId,
+              );
+              return now === undefined ? null : now.reviewMode === "auto";
+            },
+          );
+          if (outcome.kind === "stopped")
+            return jsonResult({
+              status: outcome.status,
+              message: outcome.message,
+            });
+          if (outcome.kind === "applied") {
+            roomId = grant.roomId;
+            // The resolved record: the change in Galley's own history.
+            let id: string | undefined;
+            try {
+              id = await built.publish(project, "accepted");
+            } catch {
+              // The text is applied; without its record it cannot be confirmed.
+            }
+            delivered = {
+              check: (p) =>
+                id !== undefined && built.status(p, id) === "accepted",
+              finish: outcome.finish,
+            };
+            return jsonResult({
+              status: "applied",
+              project: projectId,
+              ...built.identity,
+              message:
+                "Applied to the project. Its owner can return to the state before this change from History in Galley.",
+            });
+          }
+          if (outcome.why !== "")
+            reviewed = ` (This project is set to Auto, but ${outcome.why}, so this change waits for review.)`;
+        }
+      }
+
       if (
         getPendingProposals(project).length +
           getPendingFileProposals(project).length >=
@@ -302,11 +384,9 @@ export function registerHostedTools(
           status: "too_many_pending",
           message: `No proposal was published: ${MAX_PENDING_PROPOSALS} proposals are already waiting for review in this project. Ask its owner to open Galley and accept or reject them.`,
         });
-      const built = build(binding);
-      if ("refusal" in built) return jsonResult(built.refusal);
       let id: string;
       try {
-        id = await built.publish(project);
+        id = await built.publish(project, "pending");
       } catch {
         return jsonResult({
           status: "publish_failed",
@@ -315,36 +395,36 @@ export function registerHostedTools(
         });
       }
       roomId = grant.roomId;
-      delivered = {
-        id,
-        check: (p) => built.found(p, id),
-        body: {
-          status: "pending_review",
-          proposalId: id,
-          project: projectId,
-          ...built.identity,
-          message:
-            "Published for review. The document has NOT changed: the change is applied only when the project's owner accepts it in Galley." +
-            (grant.reviewMode === "auto"
-              ? " (This project is set to Auto, but this server does not apply changes on its own yet, so it waits for review like any other.)"
-              : ""),
-        },
-      };
-      return jsonResult(delivered.body);
+      delivered = { check: (p) => built.status(p, id) !== undefined };
+      return jsonResult({
+        status: "pending_review",
+        proposalId: id,
+        project: projectId,
+        ...built.identity,
+        message:
+          "Published for review. The document has NOT changed: the change is applied only when the project's owner accepts it in Galley." +
+          reviewed,
+      });
     }).then(async (result) => {
       if (delivered === undefined || roomId === undefined) return result;
-      const { check } = delivered;
+      const { check, finish } = delivered;
       for (let attempt = 0; attempt < DELIVERY_CHECKS; attempt++) {
         if (attempt > 0)
           await new Promise((r) => setTimeout(r, DELIVERY_CHECK_GAP_MS));
         try {
-          if (await deps.withProject(roomId, check)) return result;
+          if (await deps.withProject(roomId, check)) {
+            await finish?.("applied");
+            return result;
+          }
         } catch (err) {
           if (!(err instanceof ProjectUnavailableError)) throw err;
         }
       }
+      await finish?.("unconfirmed");
       return errorResult(
-        `${tool}: the proposal could not be confirmed on the server. It may not have been published; read the project again before retrying.`,
+        finish === undefined
+          ? `${tool}: the proposal could not be confirmed on the server. It may not have been published; read the project again before retrying.`
+          : `${tool}: the change could not be confirmed on the server. It may or may not have been applied; read the project again before retrying.`,
       );
     });
   };
@@ -352,12 +432,11 @@ export function registerHostedTools(
   server.registerTool(
     "propose_edit",
     {
-      title: "Propose an edit to one file (published for review)",
+      title: "Change one file (reviewed, or applied in Auto mode)",
       description:
-        "Applies search/replace edits to a scratch copy of ONE text file of a connected project " +
-        "and publishes the result as a proposal. It never edits the document: the change waits " +
-        "for the project's owner to accept it in Galley, and the answer says so (status " +
-        '"pending_review"). Each `search` must match the file\'s current text exactly once; ' +
+        "Changes ONE text file of a connected project with search/replace edits. " +
+        MODES +
+        " Each `search` must match the file\'s current text exactly once; " +
         'failures come back as structured data (status "edit_failed"): refine and retry. To ' +
         "create, rename or delete files, or to change several at once, use propose_files.",
       inputSchema: {
@@ -420,8 +499,10 @@ export function registerHostedTools(
             },
           };
         return {
-          publish: (p) => publishProposal(p, input, CONNECTOR_AUTHOR),
-          found: (p, id) => getProposal(p, id) !== undefined,
+          publish: (p, born) =>
+            publishProposal(p, input, CONNECTOR_AUTHOR, undefined, born),
+          status: (p, id) => getProposal(p, id)?.status,
+          change: singleFileChange(input),
           identity: { filePath: path },
         };
       }),
@@ -430,13 +511,13 @@ export function registerHostedTools(
   server.registerTool(
     "propose_files",
     {
-      title: "Propose a multi-file change (published for review)",
+      title: "Change several files at once (reviewed, or applied in Auto mode)",
       description:
         "Proposes a change set across the files of a connected project as ONE proposal: create " +
         "new text files, edit existing ones, rename or move them, or delete them (for example " +
-        "add /chapters/intro.typ and #include it from /main.typ). It never changes the project: " +
-        "the set waits for the project's owner to accept it in Galley and lands all-or-nothing " +
-        '(status "pending_review"). For `edit` ops each `search` must match that file\'s current ' +
+        "add /chapters/intro.typ and #include it from /main.typ). The set lands all-or-nothing. " +
+        MODES +
+        " For `edit` ops each `search` must match that file\'s current " +
         "text exactly once; failures come back as structured data. Delete is a recoverable " +
         "soft-delete. Paths must be safe in-tree project paths (leading slash, no traversal, not " +
         "under /.galley). Text files only: images and other binary files cannot be added through " +
@@ -454,7 +535,7 @@ export function registerHostedTools(
           .array(z.discriminatedUnion("kind", [...TEXT_OP_SCHEMAS]))
           .min(1)
           .max(FILE_PROPOSAL_LIMITS.maxOps)
-          .describe("The file operations, applied all-or-nothing on Accept."),
+          .describe("The file operations, applied all-or-nothing."),
       },
       annotations: PROPOSES,
     },
@@ -479,8 +560,10 @@ export function registerHostedTools(
             },
           };
         return {
-          publish: (p) => publishFileProposal(p, input, CONNECTOR_AUTHOR),
-          found: (p, id) => getFileProposal(p, id) !== undefined,
+          publish: (p, born) =>
+            publishFileProposal(p, input, CONNECTOR_AUTHOR, undefined, born),
+          status: (p, id) => getFileProposal(p, id)?.status,
+          change: fileSetChange(request, built),
           identity: {
             ops: built.map((op) => ({
               kind: op.kind,

@@ -20,10 +20,11 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import type { ConnectedProject } from "@galley/auth";
 import { isConnectorToken } from "@galley/shared";
 import type { CompileService } from "../compile-client.js";
+import type { AutoApply } from "./auto-apply.js";
 import type { ProjectRunner } from "./room.js";
 import { registerHostedTools } from "./tools.js";
 
-/** An MCP request is small JSON; a write (later) carries at most a few files. */
+/** An MCP request is small JSON; a write carries at most a few files. */
 export const MAX_REQUEST_BYTES = 1024 * 1024;
 /** Calls served at once. Each one holds a websocket and a project replica. */
 export const DEFAULT_MAX_CONCURRENT = 8;
@@ -36,6 +37,11 @@ export interface ConnectorAppDeps {
   listProjects: (userId: string) => Promise<ConnectedProject[]>;
   withProject: ProjectRunner;
   compileService?: CompileService;
+  /**
+   * Where Auto mode keeps its checkpoints and activity trail. Absent → the
+   * connector never applies a change itself.
+   */
+  auto?: Pick<AutoApply, "checkpoints" | "activity" | "serialize">;
   maxConcurrent?: number;
 }
 
@@ -99,6 +105,16 @@ export function createConnectorApp(deps: ConnectorAppDeps): Hono {
         withProject: deps.withProject,
         ...(deps.compileService !== undefined
           ? { compileService: deps.compileService }
+          : {}),
+        ...(deps.auto !== undefined && token !== null
+          ? {
+              auto: {
+                ...deps.auto,
+                tokenId: who.tokenId,
+                stillAuthorized: async () =>
+                  (await deps.authenticate(token)) !== null,
+              },
+            }
           : {}),
       });
       const transport = new WebStandardStreamableHTTPServerTransport({
