@@ -9,9 +9,29 @@
  * Theme RESOLUTION lives in `SettingsApp` itself — the Appearance section's
  * pressed state must agree with the applied theme from the very first paint.
  */
+import { useEffect, useRef } from "react";
 import { SettingsApp } from "./components/SettingsApp.js";
+import { WhatsNewApp, whatsNewLinkId } from "./components/WhatsNewApp.js";
+import { sectionFromHash } from "./settings-sections.js";
 import "./theme.css";
 
-export function SettingsRoot() {
-  return <SettingsApp />;
+export function SettingsRoot({ whatsNew = false }: { whatsNew?: boolean }) {
+  const wasWhatsNew = useRef(false);
+  useEffect(() => {
+    if (!whatsNew && wasWhatsNew.current) {
+      const section = sectionFromHash(window.location.hash);
+      if (section) {
+        const target = document.getElementById(section);
+        if (target) {
+          target.tabIndex = -1;
+          target.focus({ preventScroll: true });
+        }
+      } else {
+        document.getElementById(whatsNewLinkId)?.focus();
+      }
+    }
+    wasWhatsNew.current = whatsNew;
+  }, [whatsNew]);
+
+  return whatsNew ? <WhatsNewApp /> : <SettingsApp />;
 }
