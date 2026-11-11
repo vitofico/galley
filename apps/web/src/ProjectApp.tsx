@@ -171,6 +171,10 @@ import {
   type HostedHistoryTarget,
 } from "./hosted-history.js";
 import {
+  createConnectorHistoryVersionStore,
+  restoreConnectorCheckpoint,
+} from "./connector-history.js";
+import {
   forgetHostedRunTarget,
   readHostedRunTarget,
   rememberHostedRunTarget,
@@ -1212,10 +1216,16 @@ export function ProjectApp({
           room: activeShareRoom,
         }
       : undefined;
+  // The open project's connector room while it is connected (ADR-0033): its
+  // server-side checkpoints are listed in History beside the local versions.
+  const connectorRoom = useRef<string | undefined>(undefined);
   const versionStore = useMemo(
     () =>
       createHostedHistoryVersionStore(
-        new IdbVersionStore(),
+        createConnectorHistoryVersionStore(
+          new IdbVersionStore(),
+          () => connectorRoom.current,
+        ),
         () => historyTarget.current,
         undefined,
         () =>
@@ -2443,12 +2453,14 @@ export function ProjectApp({
           resolveSyncUrl(configuredSyncUrlOverride(), window.location),
           connected.roomId,
         );
+        connectorRoom.current = connected.roomId;
         setConnectorLinked(true);
       })
       .catch(() => undefined); // a misconfigured relay address: stay local
     return () => {
       disposed = true;
       replica?.destroy();
+      connectorRoom.current = undefined;
       setConnectorLinked(false);
     };
   }, [projectId, session]);
@@ -3918,6 +3930,16 @@ export function ProjectApp({
       historyTarget.current,
       HUMAN,
     )
+      .then(
+        async (restored) =>
+          restored ||
+          restoreConnectorCheckpoint(
+            project,
+            versionId,
+            connectorRoom.current,
+            HUMAN,
+          ),
+      )
       .then((restored) =>
         restored ? null : versionStore.getVersionTree(versionId),
       )

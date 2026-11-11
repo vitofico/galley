@@ -5,10 +5,12 @@ import {
   createConnectorToken,
   disconnectProject,
   listConnectedProjects,
+  listConnectorActivity,
   listConnectorTokens,
   revokeConnectorToken,
   setConnectedProjectReviewMode,
   type ConnectedProject,
+  type ConnectorChange,
   type ConnectorResult,
   type ConnectorToken,
 } from "../hosted-connector.js";
@@ -27,14 +29,18 @@ import { loadLocalProfile } from "../local-profile.js";
 export function HostedConnectorSettings() {
   const [local, setLocal] = useState<{ id: string; name: string }[]>([]);
   const [connected, setConnected] = useState<ConnectedProject[] | null>(null);
+  // Whether this server applies an Auto project's changes itself.
+  const [applies, setApplies] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // The project (or room) a request is in flight for: its buttons are disabled.
   const [busy, setBusy] = useState<string | null>(null);
 
   const refresh = async () => {
     const listed = await listConnectedProjects();
-    if (listed.ok) setConnected(listed.projects);
-    else setError(listed.error);
+    if (listed.ok) {
+      setConnected(listed.projects);
+      setApplies(listed.appliesChanges);
+    } else setError(listed.error);
   };
 
   useEffect(() => {
@@ -90,18 +96,29 @@ export function HostedConnectorSettings() {
         connecting. It is <strong>off for every project</strong> until you
         connect one here.
       </p>
-      <p className="settings-note" data-testid="hosted-connector-status-note">
-        This release lets an AI client <strong>read</strong> a connected project
-        and <strong>propose changes</strong> to it. A proposal waits for you:
-        open the project in Galley and accept or reject it there. That is true
-        in both modes for now. Applying on the server, which is what Auto means,
-        arrives in a following release.
-      </p>
       <p className="settings-note">
-        <strong>Ask</strong>: a change from the connector waits for you to
-        accept it in Galley. <strong>Auto</strong>: the server applies it with
-        nobody watching. Each change is saved as a version first and recorded,
-        so it can be undone, not prevented.
+        An AI client can <strong>read</strong> a connected project and{" "}
+        <strong>change</strong> it. How a change lands is set per project.{" "}
+        <strong>Ask</strong>: it waits for you to accept or reject it, the next
+        time you open the project in Galley. <strong>Auto</strong>: the server
+        applies it with nobody watching.
+      </p>
+      <p className="settings-note" data-testid="hosted-connector-status-note">
+        {applies ? (
+          <>
+            Before each Auto change the server saves a checkpoint of the whole
+            project and records the change, so it can be{" "}
+            <strong>undone, not prevented</strong>: the checkpoint appears in
+            that project&apos;s History, and the record under the project
+            below.
+          </>
+        ) : (
+          <>
+            <strong>This server is not set up to apply changes itself</strong>,
+            so a project set to Auto is treated like one set to Ask: every
+            change waits for you.
+          </>
+        )}
       </p>
       {error !== null && (
         <p
@@ -175,6 +192,9 @@ export function HostedConnectorSettings() {
                     </button>
                   </>
                 )}
+                {grant !== undefined && applies && (
+                  <ConnectorActivity roomId={grant.roomId} name={p.name} />
+                )}
               </div>
             );
           })}
@@ -186,6 +206,66 @@ export function HostedConnectorSettings() {
       </p>
       <ConnectorTokens />
     </>
+  );
+}
+
+const CHANGE_STATES: Record<ConnectorChange["state"], string> = {
+  applied: "applied",
+  unconfirmed: "applied, but not confirmed",
+  started: "interrupted",
+  conflict: "not applied: the text had changed",
+  failed: "failed",
+};
+
+/** What the connector applied to one project on its own, loaded when opened. */
+function ConnectorActivity({ roomId, name }: { roomId: string; name: string }) {
+  const [changes, setChanges] = useState<ConnectorChange[] | null>(null);
+  const [tokenNames, setTokenNames] = useState(new Map<string, string>());
+  const [error, setError] = useState<string | null>(null);
+
+  const load = async () => {
+    const [activity, tokens] = await Promise.all([
+      listConnectorActivity(roomId),
+      listConnectorTokens(),
+    ]);
+    if (!activity.ok) return setError(activity.error);
+    setError(null);
+    setChanges(activity.changes);
+    if (tokens.ok)
+      setTokenNames(new Map(tokens.tokens.map((t) => [t.tokenId, t.name])));
+  };
+
+  return (
+    <details
+      className="settings-note"
+      data-testid="hosted-connector-activity"
+      onToggle={(e) => {
+        if (e.currentTarget.open) void load();
+      }}
+    >
+      <summary>Changes the connector applied to {name}</summary>
+      {error !== null && <p role="alert">{error}</p>}
+      {changes !== null && changes.length === 0 && (
+        <p>Nothing yet. A change applied in Auto mode is listed here.</p>
+      )}
+      {changes !== null && changes.length > 0 && (
+        <ul>
+          {changes.map((c) => (
+            <li key={c.changeId} data-state={c.state}>
+              {new Date(c.atMs).toLocaleString()}: “{c.request}” (
+              {c.files.length === 1 ? c.files[0] : `${c.files.length} files`},{" "}
+              {CHANGE_STATES[c.state]}), asked by{" "}
+              {tokenNames.get(c.tokenId) ?? "a token that no longer exists"}.{" "}
+              {c.state === "conflict"
+                ? ""
+                : c.restorable
+                  ? "To undo it, open the project and restore its checkpoint from History."
+                  : "Its checkpoint is no longer kept."}
+            </li>
+          ))}
+        </ul>
+      )}
+    </details>
   );
 }
 

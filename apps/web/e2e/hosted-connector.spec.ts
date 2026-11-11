@@ -102,6 +102,69 @@ test("enabled: a connected project can change review mode and be disconnected", 
   expect(posts[1]?.url).toContain(`/auth/capability-rooms/${ROOM}/revoke`);
 });
 
+test("enabled, with a server that applies: the card says how to undo and lists what was applied", async ({
+  page,
+}) => {
+  await signedIn(page, true);
+  await page.route("**/auth/connector/projects", (route) =>
+    route.fulfill({
+      status: 200,
+      json: {
+        ok: true,
+        appliesChanges: true,
+        projects: [
+          { roomId: ROOM, projectId: "proj-elsewhere", reviewMode: "auto", connectedAtMs: 1 },
+        ],
+      },
+    }),
+  );
+  await page.route("**/auth/connector/tokens", (route) =>
+    route.fulfill({
+      status: 200,
+      json: {
+        ok: true,
+        tokens: [
+          { tokenId: "aaaaaaaaaaaaaaaa", name: "Claude chat", createdAtMs: 1, expiresAtMs: 2e12 },
+        ],
+      },
+    }),
+  );
+  await page.route(`**/auth/connector/projects/${ROOM}/activity`, (route) =>
+    route.fulfill({
+      status: 200,
+      json: {
+        ok: true,
+        changes: [
+          {
+            version: 1,
+            changeId: "c1",
+            state: "applied",
+            atMs: 1_800_000_000_000,
+            tokenId: "aaaaaaaaaaaaaaaa",
+            request: "Tighten the opening",
+            files: ["/main.typ"],
+            ops: 1,
+            bytes: 40,
+            checkpointId: `${"1".repeat(13)}-${"a".repeat(64)}`,
+            restorable: true,
+          },
+        ],
+      },
+    }),
+  );
+  await page.goto("/settings#agent-access");
+  await expect(page.getByTestId("hosted-connector-status-note")).toContainText(
+    "undone, not prevented",
+    { timeout: 60_000 },
+  );
+  const activity = page.getByTestId("hosted-connector-activity");
+  await activity.locator("summary").click();
+  await expect(activity.locator("li")).toContainText(
+    "“Tighten the opening” (/main.typ, applied), asked by Claude chat",
+  );
+  await expect(activity.locator("li")).toContainText("restore its checkpoint from History");
+});
+
 test("enabled: a token is created, shown once, listed without its secret, and revoked", async ({
   page,
 }) => {

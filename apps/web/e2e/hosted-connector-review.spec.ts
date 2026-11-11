@@ -8,6 +8,7 @@ import {
   WebSocketTransport,
   publishProposal,
   getProposal,
+  materializeProject,
   type WebSocketLike,
 } from "@galley/collab";
 import { gotoEditor } from "./app-helpers.js";
@@ -37,11 +38,11 @@ const PROJECT = "e2e-connector-review";
 const ROOM = "share-e2econnectorreview00000000000";
 
 /** The connector, as the relay sees it: one more peer in the project's room. */
-function joinAsConnector() {
+function joinAsConnector(room = ROOM) {
   const project = new CollabProject();
   const connection = new CollabConnection(
     project,
-    new WebSocketTransport(() => new WS(`ws://localhost:1234/${ROOM}`)),
+    new WebSocketTransport(() => new WS(`ws://localhost:1234/${room}`)),
   );
   connection.connect();
   return {
@@ -145,6 +146,133 @@ test("a connector proposal waits for Accept in a connected project, with no Shar
         timeout: 30_000,
       })
       .toBe("accepted");
+  } finally {
+    connector.destroy();
+  }
+});
+
+/**
+ * Auto mode (ADR-0033 §4): the connector applied a change on its own, after
+ * saving a checkpoint on the server. Nothing asks for review, and the way back
+ * is the checkpoint, listed in the project's History beside the local versions.
+ */
+test("a change the connector applied is undone from History, with the server's checkpoint", async ({
+  page,
+}) => {
+  const project = "e2e-connector-undo";
+  const room = "share-e2econnectorundo0000000000000";
+  const checkpointId = `${String(Date.now()).padStart(13, "0")}-${"a".repeat(64)}`;
+  let checkpoint: unknown;
+  await page.addInitScript(() => {
+    (window as unknown as { __GALLEY_CONFIG__?: unknown }).__GALLEY_CONFIG__ = {
+      auth: true,
+      hostedConnector: true,
+    };
+  });
+  await page.route("**/auth/me", (route) =>
+    route.fulfill({
+      status: 200,
+      json: { authenticated: true, userId: "oidc:e2e-user", display: "Ada" },
+    }),
+  );
+  await page.route("**/auth/connector/projects", (route) =>
+    route.fulfill({
+      status: 200,
+      json: {
+        ok: true,
+        appliesChanges: true,
+        projects: [
+          { roomId: room, projectId: project, reviewMode: "auto", connectedAtMs: 1 },
+        ],
+      },
+    }),
+  );
+  await page.route(`**/auth/connector/projects/${room}/activity`, (route) =>
+    route.fulfill({
+      status: 200,
+      json: {
+        ok: true,
+        changes:
+          checkpoint === undefined
+            ? []
+            : [
+                {
+                  version: 1,
+                  changeId: "e2e-change",
+                  state: "applied",
+                  atMs: Date.now(),
+                  tokenId: "aaaaaaaaaaaaaaaa",
+                  request: "Add a closing line",
+                  files: ["/main.typ"],
+                  ops: 1,
+                  bytes: 10,
+                  checkpointId,
+                  restorable: true,
+                },
+              ],
+      },
+    }),
+  );
+  await page.route(
+    `**/auth/connector/projects/${room}/checkpoints/${checkpointId}`,
+    (route) => route.fulfill({ status: 200, json: checkpoint }),
+  );
+
+  await gotoEditor(page, { id: project });
+  await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, {
+    timeout: 60_000,
+  });
+
+  const connector = joinAsConnector(room);
+  try {
+    await expect
+      .poll(() => mainFile(connector.project)?.text ?? "", { timeout: 30_000 })
+      .not.toBe("");
+    const main = mainFile(connector.project)!;
+
+    // What the connector does in Auto mode: checkpoint, apply, resolved record.
+    const tree = materializeProject(connector.project.snapshot());
+    if (!tree.ok) throw new Error("the seeded project should materialize");
+    checkpoint = { version: 1, files: tree.result.files, binaryFiles: [] };
+    const marker = `CONNECTOR_APPLIED_${Date.now()}`;
+    const proposedText = `${main.text}\n${marker}\n`;
+    connector.project.transactFile(
+      connector.project.mainFileId()!,
+      (t) => t.insert(t.length, `\n${marker}\n`),
+      CONNECTOR,
+    );
+    await publishProposal(
+      connector.project,
+      {
+        filePath: main.path,
+        baseText: main.text,
+        proposedText,
+        blocks: [{ search: main.text, replace: proposedText }],
+        request: "Add a closing line",
+      },
+      CONNECTOR,
+      undefined,
+      "accepted",
+    );
+
+    // The text arrives with no card to review.
+    const editor = page.locator('[data-testid="editor"] .cm-content');
+    await editor.click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await expect(editor).toContainText(marker, { timeout: 30_000 });
+    await expect(page.getByTestId("mcp-proposal")).toHaveCount(0);
+
+    // History lists the server's checkpoint; Restore goes back to it.
+    await page.getByTestId("history-button").click();
+    const version = page
+      .getByTestId("history-version")
+      .filter({ hasText: "Before the connector's change: Add a closing line" });
+    await expect(version).toBeVisible({ timeout: 30_000 });
+    await version.getByTestId("restore-version").click();
+    await expect(editor).not.toContainText(marker, { timeout: 30_000 });
+    await expect
+      .poll(() => mainFile(connector.project)?.text ?? "", { timeout: 30_000 })
+      .toBe(main.text);
   } finally {
     connector.destroy();
   }

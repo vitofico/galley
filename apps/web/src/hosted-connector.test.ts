@@ -13,7 +13,9 @@ import {
   listConnectorTokens,
   revokeConnectorToken,
   hostedConnectorEnabled,
+  fetchConnectorCheckpoint,
   listConnectedProjects,
+  listConnectorActivity,
   openConnectorReplica,
   setConnectedProjectReviewMode,
 } from "./hosted-connector.js";
@@ -61,7 +63,13 @@ describe("listConnectedProjects", () => {
     expect(await listConnectedProjects(fetchImpl)).toEqual({
       ok: true,
       projects: [good],
+      appliesChanges: false,
     });
+    expect(
+      await listConnectedProjects(
+        answering(200, { ok: true, projects: [], appliesChanges: true }),
+      ),
+    ).toEqual({ ok: true, projects: [], appliesChanges: true });
     expect(fetchImpl).toHaveBeenCalledWith(
       "/auth/connector/projects",
       expect.objectContaining({ credentials: "same-origin" }),
@@ -221,5 +229,70 @@ describe("tokens", () => {
     expect(revoke.mock.calls[0]![0]).toBe(
       `/auth/connector/tokens/${listed.tokenId}/revoke`,
     );
+  });
+});
+
+describe("what the connector applied", () => {
+  const CHECKPOINT = `${"0".repeat(13)}-${"a".repeat(64)}`;
+  const entry = {
+    version: 1,
+    changeId: "c1",
+    state: "applied",
+    atMs: 2,
+    tokenId: "aaaaaaaaaaaaaaaa",
+    request: "Fix a typo",
+    files: ["/main.typ"],
+    ops: 1,
+    bytes: 3,
+    checkpointId: CHECKPOINT,
+  };
+
+  it("lists well-formed changes with whether they can be undone", async () => {
+    const fetchImpl = answering(200, {
+      ok: true,
+      changes: [
+        { ...entry, restorable: true },
+        { ...entry, changeId: "c2" },
+        { ...entry, state: "exploded" },
+      ],
+    });
+    expect(await listConnectorActivity(ROOM, fetchImpl)).toEqual({
+      ok: true,
+      changes: [
+        { ...entry, restorable: true },
+        { ...entry, changeId: "c2", restorable: false },
+      ],
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      `/auth/connector/projects/${ROOM}/activity`,
+      expect.objectContaining({ credentials: "same-origin" }),
+    );
+  });
+
+  it("reads a checkpoint only when it is what it should be", async () => {
+    const good = {
+      version: 1,
+      files: [{ path: "main.typ", text: "x" }],
+      binaryFiles: [],
+    };
+    expect(
+      await fetchConnectorCheckpoint(ROOM, CHECKPOINT, answering(200, good)),
+    ).toEqual(good);
+    for (const bad of [
+      { ...good, version: 2 },
+      { ...good, files: [{ path: "main.typ" }] },
+      { ...good, binaryFiles: [{ path: "/a.png" }] },
+      null,
+    ])
+      expect(
+        await fetchConnectorCheckpoint(ROOM, CHECKPOINT, answering(200, bad)),
+      ).toBeNull();
+    expect(
+      await fetchConnectorCheckpoint(ROOM, CHECKPOINT, answering(404, {})),
+    ).toBeNull();
+    // A malformed id never becomes part of an address.
+    const never = answering(200, good);
+    expect(await fetchConnectorCheckpoint(ROOM, "../x", never)).toBeNull();
+    expect(never).not.toHaveBeenCalled();
   });
 });
