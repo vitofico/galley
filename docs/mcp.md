@@ -29,9 +29,11 @@ stops an agent from silently editing your work.
 > server that works with no tab open), is being built in steps
 > ([ADR-0033](decisions/ADR-0033-hosted-connector.md)). So far, on a signed-in
 > deployment whose operator enabled it, a client holding an access token can
-> read a project you connected (list, read, search, compile) and **propose
-> changes** that wait for your Accept in Galley. Applying with no tab open is
-> not there yet. You connect a project and create the token in **Settings →
+> read a project you connected (list, read, search, compile) and **change
+> it**. You choose how per project: in **Ask** a change waits for your Accept
+> in Galley; in **Auto** the server applies it with no tab open, after saving
+> a checkpoint you can return to from the project's History. You connect a
+> project and create the token in **Settings →
 > Agent Access → Hosted connector**, which also shows the address to give the
 > client; operators see
 > [`self-host.md`](self-host.md#hosted-connector-connected-projects).

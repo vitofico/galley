@@ -3,7 +3,9 @@
 #
 # It does three things, which only work together:
 #   1. web:  GALLEY_HOSTED_CONNECTOR=1, so signed-in people can connect a
-#            project and create access tokens in Settings;
+#            project and create access tokens in Settings, plus a read-only
+#            mount of the connector's state volume, so they can see and undo
+#            what it applied;
 #   2. sync: a durable volume and GALLEY_SYNC_PERSIST_ROOMS=connector, so the
 #            relay keeps a copy of connected projects, and only of those;
 #   3. the connector Deployment, Service, Ingress and network rules
@@ -32,6 +34,15 @@ patches:
                 env:
                   - name: GALLEY_HOSTED_CONNECTOR
                     value: "1"
+                  - name: GALLEY_CONNECTOR_STATE_DIR
+                    value: "/var/lib/galley/connector"
+                volumeMounts:
+                  - name: connector-state
+                    mountPath: /var/lib/galley/connector
+                    readOnly: true
+            volumes:
+              - name: connector-state
+                persistentVolumeClaim: { claimName: galley-connector-state, readOnly: true }
   - patch: |
       apiVersion: apps/v1
       kind: Deployment
