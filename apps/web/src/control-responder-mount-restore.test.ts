@@ -136,8 +136,14 @@ async function publishAndAwait(
     { op: "request_restore_version", params },
     REQUESTER,
   );
-  await flush();
-  return getControlResponse(state.kernelHost, id);
+  // Wait for the answer itself: a fixed number of ticks is outlasted on a
+  // loaded machine, and the test then reads "no response" as a failure.
+  for (let i = 0; i < 50; i++) {
+    await flush();
+    const resp = getControlResponse(state.kernelHost, id);
+    if (resp) return resp;
+  }
+  return undefined;
 }
 
 beforeEach(() => {
