@@ -20,6 +20,9 @@ import {
   CollabConnection,
   CollabProject,
   WebSocketTransport,
+  getPendingFileProposals,
+  getPendingProposals,
+  resolveProposal,
   type WebSocketLike,
 } from "@galley/collab";
 import {
@@ -29,6 +32,8 @@ import {
 } from "@galley/persistence";
 import type { Author, CheckResult } from "@galley/shared";
 import { createConnectorApp, type ConnectorAppDeps } from "./app.js";
+import { ProjectUnavailableError } from "./room.js";
+import { MAX_PENDING_PROPOSALS } from "./tools.js";
 import { buildConnectorDeps } from "./wiring.js";
 
 interface SyncHandle {
@@ -94,9 +99,12 @@ async function seed(roomId: string, files: Record<string, string>) {
   );
   connection.connect();
   await vi.waitFor(() => expect(connection.synced).toBe(true), settle);
-  return () => {
-    connection.destroy();
-    project.destroy();
+  return {
+    project,
+    close: () => {
+      connection.destroy();
+      project.destroy();
+    },
   };
 }
 
@@ -148,7 +156,7 @@ const post = (
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
   });
 
-let closeSeed: () => void;
+let novel: Awaited<ReturnType<typeof seed>>;
 
 beforeAll(async () => {
   const { startSyncServer } = (await import(SYNC_SERVER_SPECIFIER)) as {
@@ -169,14 +177,14 @@ beforeAll(async () => {
   await connectRoom(BOBS, "proj-bob", "bob", { reviewMode: "auto" });
   // A peer stays in the room so the open test relay keeps its state; on a
   // real deployment the relay's disk copy plays this part (apps/sync tests).
-  closeSeed = await seed(NOVEL, {
+  novel = await seed(NOVEL, {
     "/main.typ": "= Chapter one\nIt was a dark and stormy night.\n",
     "/notes.typ": "The lighthouse keeper is called Marta.\n",
   });
 });
 
 afterAll(async () => {
-  closeSeed();
+  novel.close();
   await relay.close();
   await rm(dataDir, { recursive: true, force: true });
 });
@@ -209,6 +217,8 @@ describe("the token is the only way in", () => {
         "read_file",
         "project_context",
         "compile",
+        "propose_edit",
+        "propose_files",
       ]);
       await c.close();
     }
@@ -324,7 +334,7 @@ describe("reading a connected project with no tab open", () => {
   it("stops at the next call once the project is disconnected", async () => {
     const room = "share-gone000000000000000000000000";
     await connectRoom(room, "proj-gone", "alice");
-    const close = await seed(room, { "/main.typ": "text\n" });
+    const { close } = await seed(room, { "/main.typ": "text\n" });
     const c = await client(createConnectorApp(deps), aliceToken);
     expect(
       (await call(c, "list_files", { project: "proj-gone" })).isError,
@@ -391,6 +401,191 @@ describe("compile", () => {
       pageCount: 2,
     });
     expect(seen[0]).toMatchObject({ kind: "project", main: "/main.typ" });
+    await c.close();
+  });
+});
+
+describe("proposing a change (published for review, never applied)", () => {
+  const mainText = () =>
+    novel.project
+      .snapshot()
+      .files.find((f) => f.path === "/main.typ")!.text;
+
+  it("publishes an edit as a pending proposal the browser can review", async () => {
+    const c = await client(createConnectorApp(deps), aliceToken);
+    const before = mainText();
+    const res = JSON.parse(
+      (
+        await call(c, "propose_edit", {
+          project: "proj-novel",
+          path: "/main.typ",
+          request: "Calmer weather",
+          edits: [{ search: "dark and stormy", replace: "quiet" }],
+        })
+      ).text,
+    );
+    expect(res).toMatchObject({
+      status: "pending_review",
+      project: "proj-novel",
+      filePath: "/main.typ",
+    });
+    expect(res.message).toMatch(/has NOT changed/);
+    // The browser peer sees the record, and the document is untouched.
+    await vi.waitFor(
+      () =>
+        expect(getPendingProposals(novel.project)).toEqual([
+          expect.objectContaining({
+            id: res.proposalId,
+            filePath: "/main.typ",
+            request: "Calmer weather",
+            proposedText: "= Chapter one\nIt was a quiet night.\n",
+            status: "pending",
+          }),
+        ]),
+      settle,
+    );
+    expect(mainText()).toBe(before);
+    resolveProposal(novel.project, res.proposalId, "rejected", HUMAN);
+    await c.close();
+  });
+
+  it("publishes a multi-file change set as one pending proposal", async () => {
+    const c = await client(createConnectorApp(deps), aliceToken);
+    const res = JSON.parse(
+      (
+        await call(c, "propose_files", {
+          project: "proj-novel",
+          request: "Add chapter two",
+          ops: [
+            { kind: "create", path: "/ch2.typ", text: "= Chapter two\n" },
+            {
+              kind: "edit",
+              path: "/main.typ",
+              edits: [{ search: "night.\n", replace: 'night.\n#include "ch2.typ"\n' }],
+            },
+            { kind: "rename", path: "/notes.typ", newPath: "/notes/cast.typ" },
+          ],
+        })
+      ).text,
+    );
+    expect(res).toMatchObject({
+      status: "pending_review",
+      ops: [
+        { kind: "create", path: "/ch2.typ" },
+        { kind: "edit", path: "/main.typ" },
+        { kind: "rename", path: "/notes.typ", newPath: "/notes/cast.typ" },
+      ],
+    });
+    await vi.waitFor(
+      () =>
+        expect(getPendingFileProposals(novel.project).map((p) => p.id)).toEqual([
+          res.proposalId,
+        ]),
+      settle,
+    );
+    // Nothing was created, edited or moved.
+    expect(novel.project.snapshot().files.map((f) => f.path).sort()).toEqual([
+      "/main.typ",
+      "/notes.typ",
+    ]);
+    await c.close();
+  });
+
+  it("refuses a change that does not apply, and publishes nothing", async () => {
+    const c = await client(createConnectorApp(deps), aliceToken);
+    const pendingBefore = getPendingProposals(novel.project).length;
+    const failed = JSON.parse(
+      (
+        await call(c, "propose_edit", {
+          project: "proj-novel",
+          path: "/main.typ",
+          request: "x",
+          edits: [{ search: "not in the text", replace: "y" }],
+        })
+      ).text,
+    );
+    expect(failed).toMatchObject({ status: "edit_failed", path: "/main.typ" });
+    const unsafe = JSON.parse(
+      (
+        await call(c, "propose_files", {
+          project: "proj-novel",
+          request: "x",
+          ops: [{ kind: "create", path: "../escape.typ", text: "" }],
+        })
+      ).text,
+    );
+    expect(unsafe.status).toBe("invalid_path");
+    // A binary op is not part of the connector's tool at all.
+    const binary = await call(c, "propose_files", {
+      project: "proj-novel",
+      request: "x",
+      ops: [{ kind: "create-binary", path: "/a.png", bytes: "AAAA" }],
+    });
+    expect(binary.isError).toBe(true);
+    expect(getPendingProposals(novel.project).length).toBe(pendingBefore);
+    await c.close();
+  });
+
+  it("says an Auto project still waits for review in this release", async () => {
+    const room = "share-auto000000000000000000000000";
+    await connectRoom(room, "proj-auto", "alice", { reviewMode: "auto" });
+    const auto = await seed(room, { "/main.typ": "one\n" });
+    const c = await client(createConnectorApp(deps), aliceToken);
+    const res = JSON.parse(
+      (
+        await call(c, "propose_edit", {
+          project: "proj-auto",
+          path: "/main.typ",
+          request: "two",
+          edits: [{ search: "one", replace: "two" }],
+        })
+      ).text,
+    );
+    expect(res.status).toBe("pending_review");
+    expect(res.message).toMatch(/set to Auto.*waits for review/);
+    expect(auto.project.snapshot().files[0]!.text).toBe("one\n");
+    auto.close();
+    await c.close();
+  });
+
+  it("stops adding proposals nobody is reviewing", async () => {
+    const room = "share-flood00000000000000000000000";
+    await connectRoom(room, "proj-flood", "alice");
+    const flood = await seed(room, { "/main.typ": "0\n" });
+    const c = await client(createConnectorApp(deps), aliceToken);
+    const propose = (n: number) =>
+      call(c, "propose_edit", {
+        project: "proj-flood",
+        path: "/main.typ",
+        request: `change ${n}`,
+        edits: [{ search: "0", replace: String(n) }],
+      });
+    for (let n = 1; n <= MAX_PENDING_PROPOSALS; n++)
+      expect(JSON.parse((await propose(n)).text).status).toBe("pending_review");
+    expect(JSON.parse((await propose(99)).text).status).toBe("too_many_pending");
+    flood.close();
+    await c.close();
+  });
+
+  it("does not claim a publish it cannot find on the server", async () => {
+    let joins = 0;
+    const app = createConnectorApp({
+      ...deps,
+      // The publishing join works; every later join (the read-back) fails.
+      withProject: (roomId, fn) => {
+        if (++joins > 1) throw new ProjectUnavailableError();
+        return deps.withProject(roomId, fn);
+      },
+    });
+    const c = await client(app, aliceToken);
+    const res = await call(c, "propose_edit", {
+      project: "proj-novel",
+      path: "/notes.typ",
+      request: "rename the keeper",
+      edits: [{ search: "Marta", replace: "Ines" }],
+    });
+    expect(res.isError).toBe(true);
+    expect(res.text).toMatch(/could not be confirmed on the server/);
     await c.close();
   });
 });

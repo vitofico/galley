@@ -201,10 +201,12 @@ Access behave exactly as in the zero-config local mode.
 
 The hosted connector lets an AI chat client work on a project with no Galley
 tab open ([ADR-0033](decisions/ADR-0033-hosted-connector.md)). It is being
-built in steps. **This release has the read side:** connected projects, access
+built in steps. **This release reads and proposes:** connected projects, access
 tokens, and an endpoint an AI client can use to list, read, search and compile
-a connected project. Proposing and applying changes are not in this release, so
-a project's Ask or Auto setting has no effect yet.
+a connected project and to propose changes to it. A proposal is stored in the
+project and waits for its owner to accept it in Galley. Applying a change on
+the server is not in this release, so a project set to Auto is reviewed like
+one set to Ask.
 
 A project lives in the browser. For the server to work on it with no tab open,
 the server needs its own copy, so connecting a project means exactly that:
@@ -215,7 +217,9 @@ the server needs its own copy, so connecting a project means exactly that:
   stores the room on disk. **The server then holds the project in plain text**,
   readable by whoever operates it, until the project is disconnected.
 - Each connected project has a review mode, **Ask** (default) or **Auto**,
-  recorded with the room. Nothing reads it yet.
+  recorded with the room. In this release both behave as Ask: a change from the
+  connector appears as a review card the next time the project is open in
+  Galley, and nothing changes until it is accepted there.
 - **Disconnect** revokes the room. The relay drops any connection to it and
   erases the stored copy within about half a minute. The project in the
   browser is untouched.

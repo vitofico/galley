@@ -56,8 +56,9 @@ The first public cut. Everything below is built, tested (2300+ unit tests,
   ([ADR-0033](docs/decisions/ADR-0033-hosted-connector.md)). The same card
   issues per-client access tokens, shown once and stored only as a
   fingerprint. A new connector service answers at `/mcp` and lets a client
-  holding a token list, read, search and compile a connected project. Writing
-  follows.
+  holding a token list, read, search and compile a connected project, and
+  propose changes that wait for the owner's Accept in Galley. Applying on the
+  server (Auto) follows.
 
 ### Security & robustness
 

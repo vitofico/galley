@@ -91,10 +91,11 @@ export function HostedConnectorSettings() {
         connect one here.
       </p>
       <p className="settings-note" data-testid="hosted-connector-status-note">
-        This release lets an AI client <strong>read</strong> a connected
-        project: list its files, read them, search them and compile. Proposing
-        and applying changes arrive in a following release, so Ask and Auto have
-        no effect yet.
+        This release lets an AI client <strong>read</strong> a connected project
+        and <strong>propose changes</strong> to it. A proposal waits for you:
+        open the project in Galley and accept or reject it there. That is true
+        in both modes for now. Applying on the server, which is what Auto means,
+        arrives in a following release.
       </p>
       <p className="settings-note">
         <strong>Ask</strong>: a change from the connector waits for you to

@@ -10,10 +10,16 @@ import {
   sha256Hex,
   type FileProposalOp,
 } from "@galley/collab";
-import { isSafeProjectPath, type Diagnostic, type EditBlock } from "@galley/shared";
+import type { Diagnostic, EditBlock } from "@galley/shared";
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
 import { isAbsolute as pathIsAbsolute } from "node:path";
 import type { CompileService } from "./compile-client.js";
+import {
+  buildTextOp,
+  claimPath,
+  describeEditFailures,
+  TEXT_OP_SCHEMAS,
+} from "./propose-build.js";
 import { READ_LIMITS, type ToolSurface } from "./surface.js";
 import {
   compileServiceResult,
@@ -172,14 +178,6 @@ export { textResult, jsonResult, errorResult, type ToolResult };
 const UNWATCHED_NOTE =
   "published, but no browser is attached to review — ask the user to open the project in Galley";
 
-/** Max characters of a failing block's `search` echoed back in `edit_failed`. */
-const MAX_FAILURE_ECHO_CHARS = 200;
-
-function truncateEcho(text: string): string {
-  return text.length <= MAX_FAILURE_ECHO_CHARS
-    ? text
-    : `${text.slice(0, MAX_FAILURE_ECHO_CHARS)}… [truncated]`;
-}
 
 /**
  * Decode a STRICT, CANONICAL base64 string (A2-D2) → bytes, or null when it is not
@@ -542,13 +540,7 @@ export function registerProjectTools(
           status: "edit_failed",
           message:
             "No proposal was published: one or more blocks did not apply. Fix the failing blocks and retry.",
-          failures: result.failures.map((f) => ({
-            reason: f.reason,
-            ...(f.matchCount !== undefined ? { matchCount: f.matchCount } : {}),
-            // Echo a bounded prefix only — failure payloads must not become a
-            // second oversized channel (finding 1).
-            search: truncateEcho(f.block.search),
-          })),
+          failures: describeEditFailures(result.failures),
         });
       }
 
@@ -620,67 +612,7 @@ export function registerProjectTools(
         ops: z
           .array(
             z.discriminatedUnion("kind", [
-              z.object({
-                kind: z.literal("create"),
-                path: z
-                  .string()
-                  .min(1)
-                  .max(READ_LIMITS.maxPathChars)
-                  .describe("Canonical path of the NEW file, e.g. /chapters/intro.typ."),
-                text: z
-                  .string()
-                  .max(FILE_PROPOSAL_LIMITS.maxTextBytes)
-                  .describe("Full text of the new file."),
-              }),
-              z.object({
-                kind: z.literal("edit"),
-                path: z
-                  .string()
-                  .min(1)
-                  .max(READ_LIMITS.maxPathChars)
-                  .describe("Exact path of the EXISTING file to edit (as listed by list_files)."),
-                edits: z
-                  .array(
-                    z.object({
-                      search: z
-                        .string()
-                        .max(FILE_PROPOSAL_LIMITS.maxBlockBytes)
-                        .describe("Exact text to find in this file — must match exactly once."),
-                      replace: z
-                        .string()
-                        .max(FILE_PROPOSAL_LIMITS.maxBlockBytes)
-                        .describe("Replacement text."),
-                    }),
-                  )
-                  .min(1)
-                  .max(FILE_PROPOSAL_LIMITS.maxBlocks)
-                  .describe("Search/replace blocks, applied in order against this file's text."),
-              }),
-              z.object({
-                kind: z.literal("rename"),
-                path: z
-                  .string()
-                  .min(1)
-                  .max(READ_LIMITS.maxPathChars)
-                  .describe("Exact CURRENT path of the EXISTING file to move (as listed by list_files)."),
-                newPath: z
-                  .string()
-                  .min(1)
-                  .max(READ_LIMITS.maxPathChars)
-                  .describe(
-                    "Destination path — also moves into a folder (e.g. /draft.typ → /chapters/intro.typ). " +
-                      "Must be a free, safe in-tree path. References (#include/#image) are NOT auto-rewritten — " +
-                      "bundle the corrective `edit` ops in the same proposal.",
-                  ),
-              }),
-              z.object({
-                kind: z.literal("delete"),
-                path: z
-                  .string()
-                  .min(1)
-                  .max(READ_LIMITS.maxPathChars)
-                  .describe("Exact path of the EXISTING file to remove (recoverable soft-delete on Accept)."),
-              }),
+              ...TEXT_OP_SCHEMAS,
               z.object({
                 kind: z.literal("create-binary"),
                 path: z
@@ -761,58 +693,16 @@ export function registerProjectTools(
         // Every path is caller-supplied here (unlike the session-bound
         // propose_edit), so it must pass the same in-tree safety gate the
         // version store and mailbox enforce — fail BEFORE any work, as data.
-        if (!isSafeProjectPath(op.path)) {
-          return withLiveness(att, {
-            status: "invalid_path",
-            path: op.path,
-            message: `No proposal was published: ${op.path} is not a safe in-tree project path (needs a leading slash, no traversal, not under /.galley).`,
-          });
-        }
-        if (seenPaths.has(op.path)) {
-          return withLiveness(att, {
-            status: "duplicate_path",
-            path: op.path,
-            message: `No proposal was published: two ops target ${op.path}. Combine them into one op.`,
-          });
-        }
-        seenPaths.add(op.path);
+        const pathRefusal = claimPath(seenPaths, op.path);
+        if (pathRefusal !== null) return withLiveness(att, pathRefusal);
 
-        if (op.kind === "create") {
-          built[i] = { kind: "create", path: op.path, baseText: "", proposedText: op.text, blocks: [] };
-          continue;
-        }
-
-        if (op.kind === "rename") {
-          // The destination is caller-supplied too — gate it through the same
-          // safety + uniqueness rules as `path` before publishing.
-          if (!isSafeProjectPath(op.newPath)) {
-            return withLiveness(att, {
-              status: "invalid_path",
-              path: op.newPath,
-              message: `No proposal was published: ${op.newPath} is not a safe in-tree project path (needs a leading slash, no traversal, not under /.galley).`,
-            });
-          }
-          if (seenPaths.has(op.newPath)) {
-            return withLiveness(att, {
-              status: "duplicate_path",
-              path: op.newPath,
-              message: `No proposal was published: two ops target ${op.newPath}. Combine them into one op.`,
-            });
-          }
-          seenPaths.add(op.newPath);
-          built[i] = {
-            kind: "rename",
-            path: op.path,
-            newPath: op.newPath,
-            baseText: "",
-            proposedText: "",
-            blocks: [],
-          };
-          continue;
-        }
-
-        if (op.kind === "delete") {
-          built[i] = { kind: "delete", path: op.path, baseText: "", proposedText: "", blocks: [] };
+        // Text ops (create / edit / rename / delete) are built by the code the
+        // hosted connector shares; an edit's proposed text is computed from the
+        // live file on a SCRATCH copy, never taken from the model.
+        if (op.kind !== "create-binary" && op.kind !== "create-binary-path") {
+          const text = buildTextOp(surface, op, seenPaths);
+          if ("refusal" in text) return withLiveness(att, text.refusal);
+          built[i] = text.op;
           continue;
         }
 
@@ -963,48 +853,6 @@ export function registerProjectTools(
           continue;
         }
 
-        // edit: read the live file and apply the blocks to a SCRATCH copy only —
-        // the kernel computes the proposed text (never trusts a model-supplied
-        // full body), exactly like propose_edit.
-        const read = surface.readFile(op.path);
-        if (!read.ok) {
-          return withLiveness(att, {
-            status: "file_unreadable",
-            path: op.path,
-            message: `No proposal was published: could not read ${op.path} — ${read.error}.`,
-          });
-        }
-        // A3: an edit op targets a text file's body — a binary file (no Y.Text)
-        // can't take search/replace blocks, so refuse the whole change set
-        // honestly rather than apply edits to a phantom empty string.
-        if ("kind" in read) {
-          return withLiveness(att, {
-            status: "file_unreadable",
-            path: op.path,
-            message: `No proposal was published: ${op.path} is a binary file (${read.mime}) and cannot be edited as text.`,
-          });
-        }
-        const blocks: EditBlock[] = op.edits.map((e) => ({ search: e.search, replace: e.replace }));
-        const result = applyEdits(read.text, blocks);
-        if (!result.ok) {
-          return withLiveness(att, {
-            status: "edit_failed",
-            path: op.path,
-            message: `No proposal was published: one or more blocks did not apply to ${op.path}. Fix the failing blocks and retry.`,
-            failures: result.failures.map((f) => ({
-              reason: f.reason,
-              ...(f.matchCount !== undefined ? { matchCount: f.matchCount } : {}),
-              search: truncateEcho(f.block.search),
-            })),
-          });
-        }
-        built[i] = {
-          kind: "edit",
-          path: op.path,
-          baseText: read.text,
-          proposedText: result.source,
-          blocks,
-        };
       }
 
       // Every slot is filled (the loop sets built[i] or returns) — assert + narrow.
