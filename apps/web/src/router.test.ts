@@ -17,6 +17,11 @@ describe("parseRoute", () => {
     expect(parseRoute("/settings/")).toEqual({ kind: "settings" });
   });
 
+  it("maps the What's new settings subpage with or without a trailing slash", () => {
+    expect(parseRoute("/settings/whats-new")).toEqual({ kind: "whats-new" });
+    expect(parseRoute("/settings/whats-new/")).toEqual({ kind: "whats-new" });
+  });
+
   it("maps /p/<id> with the id decoded", () => {
     expect(parseRoute("/p/proj-abc")).toEqual({ kind: "project", id: "proj-abc" });
     expect(parseRoute("/p/a%20b")).toEqual({ kind: "project", id: "a b" });
@@ -98,6 +103,7 @@ describe("routeHref", () => {
       { kind: "join", room: "share-abc", role: "viewer" },
       { kind: "join", room: "share-abc", sync: "ws://relay:9000", role: "editor" },
       { kind: "settings" },
+      { kind: "whats-new" },
     ] as const;
     for (const route of routes) {
       const href = routeHref(route);

@@ -58,8 +58,7 @@ export function settingsHref(section?: SettingsSectionId, from?: string): string
  * the threaded `from` route when it names a SAFE internal route, else `/`.
  *
  * Safety: the value is canonicalized through the router (`parseRoute`→
- * `routeHref`), so only known internal paths (`/`, `/library`, `/p/<id>`,
- * `/join/<room>`, `/settings`) ever survive — an external or protocol-relative
+ * `routeHref`), so only known internal paths survive — an external or protocol-relative
  * `from` (`https://…`, `//evil.com`, `javascript:…`) is rejected to home,
  * closing the open-redirect shape even though in-SPA `navigate()` can't cross
  * origins anyway.

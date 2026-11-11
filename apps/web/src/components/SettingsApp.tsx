@@ -62,6 +62,7 @@ import { resolveServerCompileUrl } from "./compiler-mode.js";
 import { ProviderSettings } from "./ProviderSettings.js";
 import { AgentAccessSettings } from "./AgentAccessSettings.js";
 import { AccountChip } from "./AccountChip.js";
+import { WhatsNewLink } from "./WhatsNewApp.js";
 import {
   loadStoredProvider,
   saveStoredProvider,
@@ -363,6 +364,7 @@ export function SettingsApp() {
                 {s.label}
               </a>
             ))}
+            <WhatsNewLink />
           </nav>
 
           <div className="settings-sections">

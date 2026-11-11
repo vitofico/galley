@@ -89,6 +89,7 @@ getControlResponderManager();
  *   `/p/<id>`      → a specific persistent project (opened from the library)
  *   `/join/<room>` → share-link entry: name prompt once, then the shared room
  *   `/settings`    → the unified device-scoped settings surface (#19.7)
+ *   `/settings/whats-new` → recent user-facing changes
  */
 function RouterRoot() {
   const [route, setRoute] = useState<Route>(() => currentRoute());
@@ -110,6 +111,8 @@ function RouterRoot() {
       );
     case "settings":
       return <SettingsRoot />;
+    case "whats-new":
+      return <SettingsRoot whatsNew />;
     case "home":
       // The Projects page is the landing surface; the only editor-on-home hatch
       // is `?seed=…` (the Einstein showcase / e2e entry). All other editor entry

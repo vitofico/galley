@@ -133,6 +133,7 @@ Galley uses **path-based routes** (a tiny History-API router):
 - **`/library`** — the project dashboard.
 - **`/join/<room>`** — share-link entry (joins a collaboration room; carries `?sync=` / `?role=`).
 - **`/settings`** — device-scoped settings.
+- **`/settings/whats-new`** — recent features, linked from Settings.
 
 Collaboration is an explicit **Share** action, never on by default. The only
 editor-on-home hatch is **`?seed=…`** (the seeded Einstein showcase, also the e2e entry).
