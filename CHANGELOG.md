@@ -61,6 +61,14 @@ The first public cut. Everything below is built, tested (2300+ unit tests,
   Auto mode the server applies it with no tab open: it saves a checkpoint of
   the whole project first and records the change, the owner sees the record
   in Settings and can return to the checkpoint from the project's History.
+- **A connected project opens on your other devices** — sign in on a phone and
+  the Projects page lists the projects you connected elsewhere, under "On the
+  server". One opens from its server copy at `/c/<project id>`: read it, edit
+  text, accept or reject what an AI client proposed. The room's secret id is
+  looked up behind sign-in and never put in the address or in that device's
+  storage, and such a session never applies a proposal on its own
+  ([ADR-0034](docs/decisions/ADR-0034-connected-project-second-device.md)).
+  Text only for now: images and project fonts are not in the server copy.
 
 ### Security & robustness
 

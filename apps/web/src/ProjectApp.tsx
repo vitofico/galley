@@ -624,7 +624,9 @@ export function ProjectApp({
   // StrictMode's double-invoke nor a route remount can make two docs over the
   // same persisted project — same discipline as App's collab session, hoisted
   // to module scope now that the router can unmount/remount this shell.
-  const projectId = config.room ?? "default";
+  // An owner's connector room opened on another device (ADR-0034) is known here
+  // by its project id: the room id is a secret and must not key stored state.
+  const projectId = config.connectedProjectId ?? config.room ?? "default";
 
   // #7 7D: the per-project binary BlobStore (bytes for content-addressed image
   // pointers), keyed by the SAME projectId as the version store / blob DB. Built
@@ -5775,6 +5777,8 @@ export function ProjectApp({
       title: "Share for live collaboration",
       keywords: ["collaborate", "link", "room"],
       group: "Project",
+      // An owner's connector room on another device has no Share (ADR-0034).
+      available: () => config.connectedProjectId === undefined,
       run: onShare,
     },
     {
@@ -7399,45 +7403,63 @@ export function ProjectApp({
             </div>
           </StatusChip>
           {connection && (
-            <span className="collab-chip" data-testid="collab-indicator">
-              Collaborative
+            <span
+              className="collab-chip"
+              data-testid="collab-indicator"
+              {...(config.connectedProjectId !== undefined
+                ? {
+                    title:
+                      "You are working on this project's server copy. Changes reach the browser that holds it the next time it opens the project.",
+                  }
+                : {})}
+            >
+              {config.connectedProjectId !== undefined
+                ? "Server copy"
+                : "Collaborative"}
             </span>
           )}
         </div>
         <div className="actions-cluster">
           <div className="pill actions-pill">
-            <SharePopover
-              connected={connection !== undefined}
-              shareLink={shareLink}
-              error={shareError}
-              peers={peers}
-              stalePresence={linkStatus === "reconnecting"}
-              copied={shareCopied}
-              onCopy={copyShareLink}
-              onShare={onShare}
-              // B18: only the OWNING host can stop sharing — a joiner that booted
-              // CONNECTED (config.syncUrl set) is visiting someone else's room, so
-              // it never gets the Unshare affordance. B19: likewise the role
-              // chooser is the host's link-minting control (joiners don't mint).
-              {...(config.syncUrl === undefined
-                ? {
-                    // H8: gate the copyable link on the first "connected" status,
-                    // and go loud if that status never arrives — host-only (a
-                    // joiner boots into an already-served room).
-                    connectPhase: shareConnectPhase(
-                      connection !== undefined,
-                      linkStatus,
-                      shareConnectTimedOut,
-                    ),
-                    onUnshare,
-                    role: shareRole,
-                    onRoleChange: onShareRoleChange,
-                    displayName,
-                    onSetDisplayName,
-                  }
-                : {})}
-            />
-            <span className="pill-sep" aria-hidden="true" />
+            {/* An owner's connector room on another device (ADR-0034) offers no
+                Share: its room is a secret, and sharing belongs to the browser
+                that holds the project. */}
+            {config.connectedProjectId === undefined && (
+              <>
+                <SharePopover
+                  connected={connection !== undefined}
+                  shareLink={shareLink}
+                  error={shareError}
+                  peers={peers}
+                  stalePresence={linkStatus === "reconnecting"}
+                  copied={shareCopied}
+                  onCopy={copyShareLink}
+                  onShare={onShare}
+                  // B18: only the OWNING host can stop sharing — a joiner that booted
+                  // CONNECTED (config.syncUrl set) is visiting someone else's room, so
+                  // it never gets the Unshare affordance. B19: likewise the role
+                  // chooser is the host's link-minting control (joiners don't mint).
+                  {...(config.syncUrl === undefined
+                    ? {
+                        // H8: gate the copyable link on the first "connected" status,
+                        // and go loud if that status never arrives — host-only (a
+                        // joiner boots into an already-served room).
+                        connectPhase: shareConnectPhase(
+                          connection !== undefined,
+                          linkStatus,
+                          shareConnectTimedOut,
+                        ),
+                        onUnshare,
+                        role: shareRole,
+                        onRoleChange: onShareRoleChange,
+                        displayName,
+                        onSetDisplayName,
+                      }
+                    : {})}
+                />
+                <span className="pill-sep" aria-hidden="true" />
+              </>
+            )}
             <ExportMenu
               items={
                 [
@@ -7593,6 +7615,16 @@ export function ProjectApp({
           <Notice severity={joinCue.severity} message={joinCue.message} />
         </div>
       )}
+      {config.connectedProjectId !== undefined &&
+        joinSync === "done" &&
+        allLiveFiles.length === 0 && (
+          <div className="durability-bar" data-testid="connected-empty">
+            <Notice
+              severity="info"
+              message="The server has no copy of this project yet. Open it once in the browser that holds it, and it will appear here."
+            />
+          </div>
+        )}
       {/* C2: the link-status cue. A dropped relay socket used to be invisible
           (the topbar still implied "Collaborative" while edits buffered into a
           dead outbox). Now a drop shows a calm "Reconnecting…" and recovery a

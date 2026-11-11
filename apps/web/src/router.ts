@@ -6,6 +6,8 @@
  *   `/library`      → the project dashboard
  *   `/p/<id>`       → a specific project
  *   `/join/<room>`  → share-link entry (joins the sync room; `?sync=` override)
+ *   `/c/<id>`       → one of your connected projects, on a device that does not
+ *                     hold it (ADR-0034)
  *   `/settings`     → the unified device-scoped settings surface (#19.7)
  *   `/settings/whats-new` → recent user-facing changes
  *
@@ -22,6 +24,7 @@ export type Route =
   | { kind: "library" }
   | { kind: "project"; id: string }
   | { kind: "join"; room: string; sync?: string; role?: ShareRole }
+  | { kind: "connected"; id: string }
   | { kind: "settings" }
   | { kind: "whats-new" };
 
@@ -36,6 +39,9 @@ export function parseRoute(pathname: string, search = ""): Route {
   }
   if (segments.length === 2 && segments[0] === "p" && segments[1]) {
     return { kind: "project", id: decodeSegment(segments[1]!) };
+  }
+  if (segments.length === 2 && segments[0] === "c" && segments[1]) {
+    return { kind: "connected", id: decodeSegment(segments[1]!) };
   }
   if (segments.length === 2 && segments[0] === "join" && segments[1]) {
     const params = new URLSearchParams(search);
@@ -70,6 +76,8 @@ export function routeHref(route: Route): string {
       const query = params.toString();
       return `/join/${encodeURIComponent(route.room)}${query ? `?${query}` : ""}`;
     }
+    case "connected":
+      return `/c/${encodeURIComponent(route.id)}`;
     case "settings":
       return "/settings";
     case "whats-new":
@@ -118,13 +126,15 @@ export function currentRoute(): Route {
 
 /**
  * Navigate to an app path WITHOUT a full reload: push a history entry and
- * notify subscribers (the route root re-renders). Browser-only.
+ * notify subscribers (the route root re-renders). Browser-only. `replace`
+ * rewrites the current entry instead, for an address that only redirects.
  *
  * Takes an APP-ABSOLUTE href (`/library`, `routeHref(route)`) and rebases it on
  * the way out, so every call site stays base-agnostic. Identity at base `/`.
  */
-export function navigate(href: string): void {
-  window.history.pushState(null, "", withBase(href));
+export function navigate(href: string, { replace = false } = {}): void {
+  if (replace) window.history.replaceState(null, "", withBase(href));
+  else window.history.pushState(null, "", withBase(href));
   notify();
 }
 

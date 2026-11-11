@@ -13,7 +13,12 @@ import { useEffect, useMemo, useState } from "react";
 import { LibraryApp } from "./components/LibraryApp.js";
 import { IdbProjectStore } from "./idb-project-store.js";
 import { loadLocalProfile } from "./local-profile.js";
-import { navigate } from "./router.js";
+import { navigate, routeHref } from "./router.js";
+import {
+  hostedConnectorEnabled,
+  listConnectedProjects,
+  type ConnectedProject,
+} from "./hosted-connector.js";
 import {
   markEinsteinDemoSeeded,
   setDurableSeed,
@@ -109,6 +114,21 @@ export function LibraryRoot() {
     };
   }, [seedReady, store, userId]);
 
+  // Hosted connector (ADR-0034): the person's connected projects, so those this
+  // device does not hold can be opened from their server copy. No request is
+  // made where the connector is off.
+  const [connected, setConnected] = useState<ConnectedProject[]>([]);
+  useEffect(() => {
+    if (!hostedConnectorEnabled()) return;
+    let cancelled = false;
+    void listConnectedProjects().then((listed) => {
+      if (!cancelled && listed.ok) setConnected(listed.projects);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const onOpen = (projectId: string) => {
     navigate(`/p/${encodeURIComponent(projectId)}`);
   };
@@ -121,6 +141,8 @@ export function LibraryRoot() {
       userId={userId}
       onOpen={onOpen}
       onOpenSettings={() => navigate("/settings")}
+      connected={connected}
+      onOpenConnected={(id) => navigate(routeHref({ kind: "connected", id }))}
       {...(authUser ? { user: authUser } : {})}
     />
   );

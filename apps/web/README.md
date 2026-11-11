@@ -30,6 +30,7 @@ Routing is **path-based** (a tiny History-API router, `src/router.ts`):
 | `/p/<id>`      | a persistent project   | local-first, auto-saved, reload-survivable               |
 | `/library`     | project dashboard      |                                                          |
 | `/join/<room>` | share-link entry       | joins a collaboration room (`?sync=` / `?role=` carried) |
+| `/c/<id>`      | a connected project    | its server copy, on a device that does not hold it       |
 | `/settings`    | device-scoped settings |                                                          |
 
 The only editor-on-home hatch is `?seed=…` (the seeded Einstein showcase, also the
