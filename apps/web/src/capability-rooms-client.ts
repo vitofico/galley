@@ -47,7 +47,7 @@ export type CapabilityFetch = (
 export const CAPABILITY_FETCH_TIMEOUT_MS = 15_000;
 
 /** `AbortSignal.timeout` where available, else a manual controller; undefined when neither exists. */
-function timeoutSignal(ms: number): AbortSignal | undefined {
+export function timeoutSignal(ms: number): AbortSignal | undefined {
   const signalCtor = (
     globalThis as { AbortSignal?: { timeout?: (ms: number) => AbortSignal } }
   ).AbortSignal;

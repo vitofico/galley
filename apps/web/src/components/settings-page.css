@@ -266,6 +266,16 @@
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-pill);
 }
+.settings-identity-row select {
+  flex: none;
+  font: inherit;
+  font-size: 0.84rem;
+  padding: 0.42rem 0.6rem;
+  color: var(--ink);
+  background: var(--paper-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+}
 .settings-identity-row input::placeholder {
   color: var(--ink-faint);
 }

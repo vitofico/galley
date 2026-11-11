@@ -46,6 +46,10 @@
  *                                      SAME path into the sync container so it can
  *                                      validate web-minted sessions. Missing under
  *                                      OIDC → fail closed (see server-config.ts).
+ *   - `GALLEY_HOSTED_CONNECTOR=1`    — let signed-in people connect a project to
+ *                                      the hosted connector (ADR-0033). Default
+ *                                      OFF. Needs OIDC and `GALLEY_DATA_DIR`, and
+ *                                      a relay that persists (apps/sync).
  *   - `GALLEY_DATA_DIR`              — the shared data volume (#1 slice 2). Under
  *                                      OIDC it additionally hosts the capability-room
  *                                      registry the Share/Agent-Access routes write
@@ -95,6 +99,7 @@ import {
   readLifecycleKey,
 } from "./account-lifecycle.js";
 import {
+  isHostedConnectorEnabled,
   isOidcEnabled,
   isOidcHttpAllowed,
   resolveAuthStores,
@@ -151,6 +156,9 @@ const compileUrl = process.env.GALLEY_COMPILE_URL ?? null;
 const syncUrl = process.env.GALLEY_SYNC_URL ?? null;
 const hostedRunsApiPath = process.env.GALLEY_HOSTED_RUNS_API_PATH ?? null;
 const hostedAccountPath = process.env.GALLEY_HOSTED_ACCOUNT_PATH ?? null;
+// Hosted connector (ADR-0033, default off). Fails closed here, at startup, on a
+// typo or without sign-in and the shared data volume.
+const hostedConnector = isHostedConnectorEnabled(process.env);
 
 /**
  * Build the OIDC auth router from env, or null when auth is OFF (the default).
@@ -236,6 +244,7 @@ async function buildAuthRouter(): Promise<Hono | null> {
                 ? async (subject) => (await policy(subject)).maxOwnedProjects
                 : undefined,
             ),
+            hostedConnector,
           },
         }
       : {}),
@@ -355,6 +364,7 @@ Promise.all(
       hostedRunsApiPath,
       hostedAccountPath,
       hostedStorage: process.env.GALLEY_SYNC_HOSTED_BLOBS === "1",
+      hostedConnector,
       ...(authRouter ? { authRouter } : {}),
       ...(internalMembership ? { internalMembership } : {}),
       ...(accountLifecycleRouter ? { accountLifecycleRouter } : {}),

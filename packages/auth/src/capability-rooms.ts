@@ -26,17 +26,21 @@
  * answers identically for "no such room" and "not yours" (no ownership oracle).
  */
 import {
+  CONNECTOR_REVIEW_MODES,
   isActiveCapabilityRoom,
   isCapabilityRoomId,
   type CapabilityRoomKind,
   type CapabilityRoomRecord,
   type CapabilityRoomStore,
+  type ConnectorReviewMode,
 } from "@galley/shared";
 
 /** Max ACTIVE capability rooms (share + control) one user may hold. */
 export const MAX_ACTIVE_CAPABILITY_ROOMS_PER_USER = 128;
 /** Max ACTIVE control rooms one user may hold (a user runs few agent sessions). */
 export const MAX_ACTIVE_CONTROL_ROOMS_PER_USER = 8;
+/** Max projects one user may keep connected to the hosted connector (ADR-0033). */
+export const MAX_ACTIVE_CONNECTOR_ROOMS_PER_USER = 32;
 /**
  * Max revocation TOMBSTONES retained per user, FIFO-pruned on revoke
  * (verification round, M: unbounded permanent tombstones). Tombstones must
@@ -107,6 +111,7 @@ export type CapabilityRoomErrorCode =
   | "forbidden" // origin mismatch (router), conflict, or revoked-id resurrection
   | "unknown" // revoke: no such room OR not the creator (identical on purpose)
   | "cap-exceeded" // per-user active-room cap hit
+  | "exists" // connector: this project already has an active connector room
   | "too-large"; // oversized body (set by the router)
 
 const ok = (): CapabilityRoomRouteResult => ({
@@ -126,17 +131,40 @@ export interface RegisterCapabilityRoomInput {
   /** The authenticated session's absolute expiry — a control room's expiry. */
   sessionExpiresAtMs: number;
   nowMs: number;
+  /**
+   * Whether the operator enabled the hosted connector (ADR-0033, default off).
+   * Unset → a `connector` registration is `invalid`, like any unknown kind.
+   */
+  allowConnector?: boolean;
 }
+
+const isReviewMode = (value: unknown): value is ConnectorReviewMode =>
+  CONNECTOR_REVIEW_MODES.includes(value as ConnectorReviewMode);
 
 /** Validated registration request, or null (one constant `invalid` for all faults). */
 function parseRegisterBody(
   body: unknown,
-): { roomId: string; kind: CapabilityRoomKind; projectId?: string } | null {
+  allowConnector: boolean,
+): {
+  roomId: string;
+  kind: CapabilityRoomKind;
+  projectId?: string;
+  reviewMode?: ConnectorReviewMode;
+} | null {
   if (typeof body !== "object" || body === null || Array.isArray(body))
     return null;
-  const { roomId, kind, projectId } = body as Record<string, unknown>;
+  const { roomId, kind, projectId, reviewMode } = body as Record<
+    string,
+    unknown
+  >;
   if (!isCapabilityRoomId(roomId)) return null;
-  if (kind !== "share" && kind !== "control") return null;
+  if (kind === "connector") {
+    // A connector room IS a project's grant: it must name the project, and
+    // its review mode defaults to the safe one.
+    if (!allowConnector || projectId === undefined) return null;
+    if (reviewMode !== undefined && !isReviewMode(reviewMode)) return null;
+  } else if ((kind !== "share" && kind !== "control") || reviewMode !== undefined)
+    return null;
   if (projectId !== undefined) {
     if (
       typeof projectId !== "string" ||
@@ -146,7 +174,9 @@ function parseRegisterBody(
     ) {
       return null;
     }
-    return { roomId, kind, projectId };
+    return kind === "connector"
+      ? { roomId, kind, projectId, reviewMode: reviewMode ?? "ask" }
+      : { roomId, kind, projectId };
   }
   return { roomId, kind };
 }
@@ -221,17 +251,18 @@ async function gcCapabilityRooms(
  *      createdBy+kind (re-POST → ok, no rewrite); anyone/anything else →
  *      constant `forbidden`. An EXPIRED (non-revoked) record may be
  *      re-registered by its ORIGINAL creator only.
- *   5. Caps: ≤128 active rooms/user, ≤8 active control rooms/user.
- *   6. Write: control rooms expire AT THE SESSION'S EXPIRY; share rooms carry
- *      no default expiry (revocation/abandonment ends them).
+ *   5. Caps: ≤128 active rooms/user, ≤8 active control rooms/user, ≤32
+ *      connected projects/user, and ONE active connector room per project.
+ *   6. Write: control rooms expire AT THE SESSION'S EXPIRY; share and connector
+ *      rooms carry no default expiry (revocation/abandonment ends them).
  */
 export async function registerCapabilityRoom(
   store: CapabilityRoomStore,
   input: RegisterCapabilityRoomInput,
 ): Promise<CapabilityRoomRouteResult> {
-  const parsed = parseRegisterBody(input.body);
+  const parsed = parseRegisterBody(input.body, input.allowConnector === true);
   if (parsed === null) return fail(400, "invalid");
-  const { roomId, kind, projectId } = parsed;
+  const { roomId, kind, projectId, reviewMode } = parsed;
   const locks = locksFor(store);
 
   // HIGH-2: the whole GC + existence-check + cap-count + write sequence runs
@@ -269,6 +300,15 @@ export async function registerCapabilityRoom(
       ) {
         return fail(409, "cap-exceeded");
       }
+      if (kind === "connector") {
+        const connected = mine.filter((r) => r.kind === "connector");
+        // One room per project: a second would leave two server replicas of
+        // the same project, and the connector could not tell which is current.
+        if (connected.some((r) => r.projectId === projectId))
+          return fail(409, "exists");
+        if (connected.length >= MAX_ACTIVE_CONNECTOR_ROOMS_PER_USER)
+          return fail(409, "cap-exceeded");
+      }
 
       const record: CapabilityRoomRecord = {
         version: 1,
@@ -277,6 +317,7 @@ export async function registerCapabilityRoom(
         createdBy: input.userId,
         createdAtMs: input.nowMs,
         ...(projectId !== undefined ? { projectId } : {}),
+        ...(reviewMode !== undefined ? { reviewMode } : {}),
         ...(kind === "control"
           ? { expiresAtMs: input.sessionExpiresAtMs }
           : {}),
@@ -338,6 +379,84 @@ export async function revokeCapabilityRoom(
     if (result.status === 200) await pruneTombstones(store, locks, input.userId);
     return result;
   });
+}
+
+/** One connected project, as its owner sees it (ADR-0033 §1, §3). */
+export interface ConnectedProject {
+  /** The durable room the project is synced into — the owner's own capability. */
+  roomId: string;
+  projectId: string;
+  reviewMode: ConnectorReviewMode;
+  connectedAtMs: number;
+}
+
+/** The projects `userId` currently has connected to the hosted connector. */
+export async function listConnectedProjects(
+  store: CapabilityRoomStore,
+  userId: string,
+  nowMs: number,
+): Promise<ConnectedProject[]> {
+  const out: ConnectedProject[] = [];
+  for (const r of await store.list()) {
+    if (
+      r.kind !== "connector" ||
+      r.createdBy !== userId ||
+      typeof r.projectId !== "string" ||
+      !isActiveCapabilityRoom(r, nowMs)
+    )
+      continue;
+    out.push({
+      roomId: r.roomId,
+      projectId: r.projectId,
+      reviewMode: isReviewMode(r.reviewMode) ? r.reviewMode : "ask",
+      connectedAtMs: r.createdAtMs,
+    });
+  }
+  return out.sort((a, b) => a.connectedAtMs - b.connectedAtMs);
+}
+
+export interface SetConnectorReviewModeInput {
+  /** The roomId from the URL param (UNTRUSTED). */
+  roomId: string;
+  /** The parsed JSON request body (UNTRUSTED — validated here). */
+  body: unknown;
+  userId: string;
+  nowMs: number;
+}
+
+/**
+ * Switch a connected project between Ask and Auto. Only its creator may, and
+ * only while the room is an ACTIVE connector room; every other case answers
+ * the same `404 unknown` as revoke (no ownership oracle). The connector
+ * re-reads the record on every call, so the switch takes effect on the next
+ * one — this is the grant's kill switch (ADR-0033 §4).
+ */
+export async function setConnectorReviewMode(
+  store: CapabilityRoomStore,
+  input: SetConnectorReviewModeInput,
+): Promise<CapabilityRoomRouteResult> {
+  const mode =
+    typeof input.body === "object" && input.body !== null
+      ? (input.body as Record<string, unknown>)["reviewMode"]
+      : undefined;
+  if (!isReviewMode(mode)) return fail(400, "invalid");
+  if (!isCapabilityRoomId(input.roomId)) return fail(404, "unknown");
+  const locks = locksFor(store);
+  return locks.run(`user:${input.userId}`, () =>
+    locks.run(`room:${input.roomId}`, async () => {
+      const existing = await store.get(input.roomId);
+      if (
+        existing === null ||
+        existing.createdBy !== input.userId ||
+        existing.kind !== "connector" ||
+        !isActiveCapabilityRoom(existing, input.nowMs)
+      )
+        return fail(404, "unknown");
+      if (existing.reviewMode !== mode)
+        await store.put({ ...existing, reviewMode: mode });
+      return ok();
+    }),
+  );
 }
 
 /**

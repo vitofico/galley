@@ -61,6 +61,8 @@ import { readServerUrlInputs } from "../compiler-assets.js";
 import { resolveServerCompileUrl } from "./compiler-mode.js";
 import { ProviderSettings } from "./ProviderSettings.js";
 import { AgentAccessSettings } from "./AgentAccessSettings.js";
+import { HostedConnectorSettings } from "./HostedConnectorSettings.js";
+import { hostedConnectorEnabled } from "../hosted-connector.js";
 import { AccountChip } from "./AccountChip.js";
 import {
   loadStoredProvider,
@@ -668,7 +670,18 @@ export function SettingsApp() {
               aria-label={sectionTitle("agent-access")}
             >
               <h2 className="settings-card-title">Agent Access</h2>
-              <AgentAccessSettings />
+              {/* Two ways in (ADR-0033). The second appears only where the
+                  operator enabled it; without it this card is unchanged. */}
+              {hostedConnectorEnabled() ? (
+                <>
+                  <h3 className="settings-subhead">Local bridge</h3>
+                  <AgentAccessSettings />
+                  <h3 className="settings-subhead">Hosted connector</h3>
+                  <HostedConnectorSettings />
+                </>
+              ) : (
+                <AgentAccessSettings />
+              )}
             </section>
           </div>
         </div>

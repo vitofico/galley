@@ -107,6 +107,23 @@ describe("optional hosted adapters", () => {
       ).status,
     ).toBe(404);
   });
+  it("advertises the hosted connector only when the operator enabled it", async () => {
+    const enabled = createWebServerApp({
+      files: fakeFiles(TREE),
+      hostedConnector: true,
+    });
+    expect(await (await enabled.request("/config.js")).text()).toBe(
+      'window.__GALLEY_CONFIG__ = {"hostedConnector":true};\n',
+    );
+    expect(
+      (
+        await createWebServerApp({
+          files: fakeFiles(TREE),
+          hostedConnector: false,
+        }).request("/config.js")
+      ).status,
+    ).toBe(404);
+  });
 });
 
 function appWith(compileUrl?: string | null) {
