@@ -11,7 +11,7 @@
  *
  * #16.2a widens the READ side only — `listFiles`/`readFile` give tools
  * single-project read context (bounded by READ_LIMITS) — while the write scope
- * stays exactly one proposal mailbox keyed to the session's one target file.
+ * stays exactly the project's proposal mailboxes.
  *
  * #16.2b adds `projectContext`: budget-limited, query-relevant excerpts across
  * the WHOLE live project (chunk → BM25 rank → select, the same retrieval
@@ -327,7 +327,7 @@ export type ProposalKind = "single" | "file";
 export type ProposalResolution = "accepted" | "rejected" | "timeout";
 
 export interface ToolSurface {
-  /** The session's one target file path (for messages/results). */
+  /** The project's main file: the readiness anchor and the single-file compile fallback. */
   readonly filePath: string;
   /**
    * Whether this session can produce AUTO-ACCEPTABLE proposals (ADR-0023): true
@@ -355,8 +355,6 @@ export interface ToolSurface {
     id: string,
     timeoutMs: number,
   ): Promise<ProposalResolution>;
-  /** READ: the scoped file's current replicated text. */
-  readDocument(): ReadOutcome;
   /**
    * READ (#16.2a): the project's live (non-deleted) files — exact path +
    * bounded-cost size — in the deterministic [path, fileId] order, bounded by
@@ -395,11 +393,10 @@ export interface ToolSurface {
    */
   compileInput(): CompileInput | { error: string };
   /**
-   * WRITE: park a single-file pending proposal in the shared mailbox. ASYNC
-   * because publishing may sign the record (ADR-0023) — the kernel will pass a
-   * signer here in a later slice; today it forwards none.
+   * WRITE: park a single-file pending proposal for `input.filePath` in the
+   * shared mailbox. ASYNC because publishing may sign the record (ADR-0023).
    */
-  publishProposal(input: Omit<ProposalInput, "filePath">): Promise<string>;
+  publishProposal(input: ProposalInput): Promise<string>;
   /**
    * WRITE: park a MULTI-FILE pending proposal (create + edit change set) in the
    * sibling mailbox. Each op carries its own path (no session-file injection);
@@ -628,7 +625,7 @@ function lineOf(starts: number[], offset: number): number {
 }
 
 /**
- * The session-scoped file for readDocument/compileInput: FIRST live match in
+ * The session-scoped file for compileInput: FIRST live match in
  * deterministic order (the pre-16.2a `snapshot().find` semantics, preserved
  * byte-for-byte) — but now only THAT one file's text is ever materialized.
  */
@@ -761,17 +758,6 @@ export function createToolSurface(
         if (settled) return;
         timer = setTimeout(() => finish("timeout"), timeoutMs);
       });
-    },
-
-    readDocument(): ReadOutcome {
-      const file = liveFile(project, filePath);
-      if (!file) {
-        return {
-          ok: false,
-          error: `file ${filePath} is not present in this room (deleted or never created)`,
-        };
-      }
-      return { ok: true, path: file.path, text: file.text };
     },
 
     listFiles(): ListOutcome {
@@ -1157,7 +1143,7 @@ export function createToolSurface(
       // Tag this publish with the current run (Task 3): same runId for every
       // proposal in one run; a UI grouping hint only, never gating apply.
       const runId = beginProposalRun();
-      return publishProposal(project, { ...input, filePath, runId }, author, signer);
+      return publishProposal(project, { ...input, runId }, author, signer);
     },
 
     publishFileProposal(input): Promise<string> {

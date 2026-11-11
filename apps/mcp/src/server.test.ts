@@ -18,8 +18,11 @@ import {
   GALLEY_MCP_SERVER_VERSION,
   createGalleyMcpServer,
   registerProjectTools,
+  jsonResult,
+  ROOM_PROJECT_ID,
   type KernelTools,
   type ProjectAttachment,
+  type ProjectLookup,
 } from "./server.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { READ_LIMITS, createToolSurface } from "./surface.js";
@@ -71,13 +74,13 @@ function firstText(result: unknown): string {
 
 /**
  * Drive a server whose per-project tools are registered ONCE over a MUTABLE
- * attachment provider (ADR-0024 §2): the static tool surface. The harness lets a
+ * project lookup (ADR-0024 §2): the static tool surface. The harness lets a
  * test attach / detach a project and simulate a reconnect, then inspect the tool
  * list + idle behavior.
  */
-async function staticSurfaceClient(provider: () => ProjectAttachment | undefined) {
+async function staticSurfaceClient(lookup: ProjectLookup) {
   const server = new McpServer({ name: "galley", version: GALLEY_MCP_SERVER_VERSION });
-  registerProjectTools(server, provider);
+  registerProjectTools(server, lookup);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "static-surface-test", version: "0.0.0" });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -85,29 +88,31 @@ async function staticSurfaceClient(provider: () => ProjectAttachment | undefined
 }
 
 describe("galley mcp kernel — static tool surface (ADR-0024 §2)", () => {
+  const unattached = {
+    refusal: jsonResult({ status: "no_project_attached", message: "call open_project first" }),
+  };
   const PER_PROJECT = [
     "compile",
     "list_files",
     "project_context",
     "propose_edit",
     "propose_files",
-    "read_document",
     "read_file",
   ];
 
   it("a per-project tool with NO project attached returns a structured no_project_attached (not a throw, not a missing tool)", async () => {
-    const client = await staticSurfaceClient(() => undefined);
+    const client = await staticSurfaceClient(() => unattached);
     const { tools } = await client.listTools();
     // The tools are REGISTERED even with no project — they never vanish.
     expect(tools.map((t) => t.name).sort()).toEqual(PER_PROJECT);
 
-    for (const name of ["read_document", "list_files", "read_file", "project_context", "propose_edit", "propose_files"]) {
+    for (const name of ["list_files", "read_file", "project_context", "propose_edit", "propose_files"]) {
       const args = name === "read_file" ? { path: "/x.typ" }
         : name === "project_context" ? { query: "x" }
-        : name === "propose_edit" ? { request: "x", edits: [{ search: "a", replace: "b" }] }
+        : name === "propose_edit" ? { path: "/x.typ", request: "x", edits: [{ search: "a", replace: "b" }] }
         : name === "propose_files" ? { request: "x", ops: [{ kind: "create", path: "/n.typ", text: "y\n" }] }
         : {};
-      const result = await client.callTool({ name, arguments: args });
+      const result = await client.callTool({ name, arguments: { project: "current", ...args } });
       expect(result.isError).toBeFalsy();
       const payload = JSON.parse(firstText(result)) as { status: string; message: string };
       expect(payload.status).toBe("no_project_attached");
@@ -115,16 +120,21 @@ describe("galley mcp kernel — static tool surface (ADR-0024 §2)", () => {
     }
   });
 
-  it("compile with NO project attached keeps its existing not_configured status", async () => {
-    const client = await staticSurfaceClient(() => undefined);
-    const result = await client.callTool({ name: "compile", arguments: {} });
+  it("compile with NO project attached relays the lookup's refusal", async () => {
+    const calls: [string, string][] = [];
+    const client = await staticSurfaceClient((project, tool) => {
+      calls.push([project, tool]);
+      return unattached;
+    });
+    const result = await client.callTool({ name: "compile", arguments: { project: "current" } });
     expect(result.isError).toBeFalsy();
-    expect((JSON.parse(firstText(result)) as { status: string }).status).toBe("not_configured");
+    expect(result.content).toEqual(unattached.refusal.content);
+    expect(calls).toEqual([["current", "compile"]]);
   });
 
   it("the registered tool set is IDENTICAL before and after a simulated attach→detach reconnect", async () => {
     let attachment: ProjectAttachment | undefined;
-    const client = await staticSurfaceClient(() => attachment);
+    const client = await staticSurfaceClient(() => attachment ?? unattached);
 
     const before = (await client.listTools()).tools.map((t) => t.name).sort();
     expect(before).toEqual(PER_PROJECT);
@@ -135,14 +145,14 @@ describe("galley mcp kernel — static tool surface (ADR-0024 §2)", () => {
     const attached = (await client.listTools()).tools.map((t) => t.name).sort();
     expect(attached).toEqual(before);
     // The tool actually serves the project now.
-    const read = await client.callTool({ name: "read_document", arguments: {} });
+    const read = await client.callTool({ name: "read_file", arguments: { project: "current", path: "/main.typ" } });
     expect(JSON.parse(firstText(read)).text).toBe("= Title\nbody\n");
 
     attachment = undefined; // teardown
     const detached = (await client.listTools()).tools.map((t) => t.name).sort();
     expect(detached).toEqual(before);
     // …and it fails soft again, never a missing tool.
-    const idle = await client.callTool({ name: "read_document", arguments: {} });
+    const idle = await client.callTool({ name: "read_file", arguments: { project: "current", path: "/main.typ" } });
     expect(JSON.parse(firstText(idle)).status).toBe("no_project_attached");
   });
 
@@ -155,7 +165,7 @@ describe("galley mcp kernel — static tool surface (ADR-0024 §2)", () => {
     const client = await staticSurfaceClient(() => attachment);
     const result = await client.callTool({
       name: "propose_edit",
-      arguments: { request: "x", edits: [{ search: "body\n", replace: "body!\n" }] },
+      arguments: { project: "current", path: "/main.typ", request: "x", edits: [{ search: "body\n", replace: "body!\n" }] },
     });
     const payload = JSON.parse(firstText(result)) as { status: string; note: string };
     expect(payload.status).toBe("pending_review_unwatched");
@@ -174,10 +184,10 @@ describe("galley mcp kernel — readiness gate (serve before the file replicates
 
     // Introspection never waits on the gate: no Galley open, tools still listed.
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name)).toContain("read_document");
+    expect(tools.map((t) => t.name)).toContain("read_file");
 
     let settled = false;
-    const pending = client.callTool({ name: "read_document", arguments: {} }).finally(() => {
+    const pending = client.callTool({ name: "read_file", arguments: { project: "current", path: "/main.typ" } }).finally(() => {
       settled = true;
     });
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -194,7 +204,7 @@ describe("galley mcp kernel — readiness gate (serve before the file replicates
     });
     const result = await client.callTool({
       name: "propose_edit",
-      arguments: { request: "x", edits: [{ search: "body\n", replace: "body!\n" }] },
+      arguments: { project: "current", path: "/main.typ", request: "x", edits: [{ search: "body\n", replace: "body!\n" }] },
     });
     expect(result.isError).toBe(true);
     expect(firstText(result)).toMatch(/has not replicated/);
@@ -217,6 +227,38 @@ describe("galley mcp kernel — unconfigured (no joined room)", () => {
 });
 
 describe("galley mcp kernel — the three sacred tools over the wrapped surface", () => {
+  it("room mode list_projects returns the current project and its main file", async () => {
+    const { surface } = projectFixture();
+    const client = await connectedClient({ surface });
+    const result = await client.callTool({ name: "list_projects", arguments: {} });
+    expect(result.isError).toBeFalsy();
+    expect(ROOM_PROJECT_ID).toBe("current");
+    expect(JSON.parse(firstText(result))).toEqual({
+      projects: [{ projectId: ROOM_PROJECT_ID, mainFile: "/main.typ" }],
+      truncated: false,
+    });
+  });
+
+  it("room mode rejects an unknown project for every project tool", async () => {
+    const { project, surface } = projectFixture();
+    const client = await connectedClient({ surface });
+    for (const call of [
+      { name: "list_files", arguments: {} },
+      { name: "read_file", arguments: { path: "/main.typ" } },
+      { name: "project_context", arguments: { query: "body" } },
+      { name: "compile", arguments: {} },
+      { name: "propose_edit", arguments: { path: "/main.typ", request: "x", edits: [{ search: "body", replace: "new" }] } },
+      { name: "propose_files", arguments: { request: "x", ops: [{ kind: "create", path: "/new.typ", text: "new" }] } },
+    ]) {
+      const result = await client.callTool({ ...call, arguments: { ...call.arguments, project: "unknown" } });
+      expect(result.isError).toBe(true);
+      expect(firstText(result)).toBe(`${call.name}: no project has that id. Call list_projects to see the one this session can reach.`);
+    }
+    expect(getPendingProposals(project)).toHaveLength(0);
+    expect(getPendingFileProposals(project)).toHaveLength(0);
+    expect(surface.readFile("/main.typ")).toEqual({ ok: true, path: "/main.typ", text: "= Title\nbody\n" });
+  });
+
   it("lists ping + the three sacred tools + the #16.2a/#16.2b read-context tools when configured", async () => {
     const { surface } = projectFixture();
     const client = await connectedClient({ surface });
@@ -225,27 +267,27 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
       "compile",
       "galley_ping",
       "list_files",
+      "list_projects",
       "project_context",
       "propose_edit",
       "propose_files",
-      "read_document",
       "read_file",
     ]);
   });
 
-  it("read_document returns the scoped file's current text", async () => {
+  it("read_file returns the scoped file's current text", async () => {
     const { surface } = projectFixture("= Title\nbody\n");
     const client = await connectedClient({ surface });
-    const result = await client.callTool({ name: "read_document", arguments: {} });
+    const result = await client.callTool({ name: "read_file", arguments: { project: "current", path: "/main.typ" } });
     expect(result.isError).toBeFalsy();
     expect(firstText(result)).toBe("= Title\nbody\n");
   });
 
-  it("read_document fails honestly when the scoped file is absent", async () => {
+  it("read_file fails honestly when the scoped file is absent", async () => {
     const project = new CollabProject();
     const surface = createToolSurface(project, "/missing.typ", MCP);
     const client = await connectedClient({ surface });
-    const result = await client.callTool({ name: "read_document", arguments: {} });
+    const result = await client.callTool({ name: "read_file", arguments: { project: "current", path: "/missing.typ" } });
     expect(result.isError).toBe(true);
     expect(firstText(result)).toContain("/missing.typ");
   });
@@ -257,6 +299,8 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     const result = await client.callTool({
       name: "propose_edit",
       arguments: {
+        project: "current",
+        path: "/main.typ",
         request: "Add a closing line",
         edits: [{ search: "body\n", replace: "body\nThe end.\n" }],
       },
@@ -291,6 +335,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     const result = await client.callTool({
       name: "propose_files",
       arguments: {
+        project: "current",
         request: "Add an intro chapter",
         ops: [
           { kind: "create", path: "/chapters/intro.typ", text: "= Introduction\nHello.\n" },
@@ -326,6 +371,42 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     expect(pending[0]!.ops[1]!.proposedText).toBe('= Title\nbody\n#include "chapters/intro.typ"\n');
   });
 
+  it("propose_edit refuses an unsafe path as invalid_path without publishing", async () => {
+    const { project, surface } = projectFixture();
+    const client = await connectedClient({ surface });
+    const result = await client.callTool({
+      name: "propose_edit",
+      arguments: { project: "current", path: "/../escape.typ", request: "x", edits: [{ search: "body", replace: "new" }] },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(firstText(result))).toEqual({
+      status: "invalid_path",
+      path: "/../escape.typ",
+      message: "No proposal was published: /../escape.typ is not a safe in-tree project path (needs a leading slash, no traversal, not under /.galley).",
+    });
+    expect(getPendingProposals(project)).toHaveLength(0);
+    expect(surface.readFile("/main.typ")).toEqual({ ok: true, path: "/main.typ", text: "= Title\nbody\n" });
+  });
+
+  it("propose_edit refuses a missing file with the buildTextOp payload", async () => {
+    const { project, surface } = projectFixture();
+    const client = await connectedClient({ surface });
+    const read = surface.readFile("/missing.typ");
+    expect(read.ok).toBe(false);
+    if (read.ok) throw new Error("missing file unexpectedly readable");
+    const result = await client.callTool({
+      name: "propose_edit",
+      arguments: { project: "current", path: "/missing.typ", request: "x", edits: [{ search: "body", replace: "new" }] },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(firstText(result))).toEqual({
+      status: "file_unreadable",
+      path: "/missing.typ",
+      message: `No proposal was published: could not read /missing.typ — ${read.error}.`,
+    });
+    expect(getPendingProposals(project)).toHaveLength(0);
+  });
+
   it("propose_files returns structured edit_failed (no proposal, no mutation) on a bad match", async () => {
     const { project, surface } = projectFixture("= Title\nbody\n");
     const client = await connectedClient({ surface });
@@ -333,6 +414,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     const result = await client.callTool({
       name: "propose_files",
       arguments: {
+        project: "current",
         request: "x",
         ops: [
           { kind: "create", path: "/new.typ", text: "ok\n" },
@@ -356,7 +438,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     const client = await connectedClient({ surface });
     const result = await client.callTool({
       name: "propose_files",
-      arguments: { request: "x", ops: [{ kind: "create", path: "/../escape.typ", text: "x\n" }] },
+      arguments: { project: "current", request: "x", ops: [{ kind: "create", path: "/../escape.typ", text: "x\n" }] },
     });
     const payload = JSON.parse(firstText(result)) as { status: string; path: string };
     expect(payload.status).toBe("invalid_path");
@@ -370,6 +452,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     const result = await client.callTool({
       name: "propose_files",
       arguments: {
+        project: "current",
         request: "x",
         ops: [
           { kind: "create", path: "/dup.typ", text: "a\n" },
@@ -390,6 +473,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     const result = await client.callTool({
       name: "propose_files",
       arguments: {
+        project: "current",
         request: "Reorganize the project",
         ops: [
           { kind: "rename", path: "/main.typ", newPath: "/paper.typ" },
@@ -425,6 +509,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     const result = await client.callTool({
       name: "propose_files",
       arguments: {
+        project: "current",
         request: "x",
         ops: [{ kind: "rename", path: "/main.typ", newPath: "/../escape.typ" }],
       },
@@ -450,7 +535,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     }));
     const result = await client.callTool({
       name: "propose_files",
-      arguments: { request: "huge", ops },
+      arguments: { project: "current", request: "huge", ops },
     });
     const payload = JSON.parse(firstText(result)) as { status: string; message: string };
     expect(payload.status).toBe("proposal_too_large");
@@ -467,7 +552,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     }));
     const result = await client.callTool({
       name: "propose_files",
-      arguments: { request: "x", ops },
+      arguments: { project: "current", request: "x", ops },
     });
     expect(result.isError).toBe(true);
     expect(firstText(result)).toContain("validation");
@@ -480,7 +565,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
 
     const result = await client.callTool({
       name: "propose_edit",
-      arguments: { request: "x", edits: [{ search: "no such text", replace: "y" }] },
+      arguments: { project: "current", path: "/main.typ", request: "x", edits: [{ search: "no such text", replace: "y" }] },
     });
     const payload = JSON.parse(firstText(result)) as {
       status: string;
@@ -488,6 +573,11 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     };
     expect(payload.status).toBe("edit_failed");
     expect(payload.failures).toEqual([{ reason: "no_match", search: "no such text" }]);
+    expect(JSON.parse(firstText(result))).toMatchObject({
+      path: "/main.typ",
+      message: "No proposal was published: one or more blocks did not apply to /main.typ. Fix the failing blocks and retry.",
+    });
+    expect(getPendingProposals(project)).toHaveLength(0);
     expect(project.snapshot().files.find((f) => f.path === "/main.typ")!.text).toBe(
       "= Title\nbody\n",
     );
@@ -507,7 +597,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     }));
     const overCount = await client.callTool({
       name: "propose_edit",
-      arguments: { request: "x", edits: tooManyBlocks },
+      arguments: { project: "current", path: "/main.typ", request: "x", edits: tooManyBlocks },
     });
     expect(overCount.isError).toBe(true);
     expect(firstText(overCount)).toContain("validation");
@@ -515,6 +605,8 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     const overBlockSize = await client.callTool({
       name: "propose_edit",
       arguments: {
+        project: "current",
+        path: "/main.typ",
         request: "x",
         edits: [{ search: "y".repeat(PROPOSAL_LIMITS.maxBlockBytes + 1), replace: "z" }],
       },
@@ -524,6 +616,8 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     const overRequest = await client.callTool({
       name: "propose_edit",
       arguments: {
+        project: "current",
+        path: "/main.typ",
         request: "r".repeat(PROPOSAL_LIMITS.maxRequestChars + 1),
         edits: [{ search: "body\n", replace: "body!\n" }],
       },
@@ -547,6 +641,8 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     const result = await client.callTool({
       name: "propose_edit",
       arguments: {
+        project: "current",
+        path: "/main.typ",
         request: "grow it",
         edits: [{ search: "END\n", replace: `END\n${"y".repeat(1024)}\n` }],
       },
@@ -565,7 +661,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     const longMiss = "M".repeat(10_000); // in-cap but huge; it will not match
     const result = await client.callTool({
       name: "propose_edit",
-      arguments: { request: "x", edits: [{ search: longMiss, replace: "y" }] },
+      arguments: { project: "current", path: "/main.typ", request: "x", edits: [{ search: longMiss, replace: "y" }] },
     });
     const payload = JSON.parse(firstText(result)) as {
       status: string;
@@ -579,7 +675,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
   it("compile reports not_configured when no compile URL was given", async () => {
     const { surface } = projectFixture();
     const client = await connectedClient({ surface });
-    const result = await client.callTool({ name: "compile", arguments: {} });
+    const result = await client.callTool({ name: "compile", arguments: { project: "current" } });
     expect(result.isError).toBeFalsy();
     const payload = JSON.parse(firstText(result)) as { status: string; message: string };
     expect(payload.status).toBe("not_configured");
@@ -601,7 +697,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
       },
     };
     const client = await connectedClient({ surface, compileService: fake });
-    const result = await client.callTool({ name: "compile", arguments: {} });
+    const result = await client.callTool({ name: "compile", arguments: { project: "current" } });
     const payload = JSON.parse(firstText(result)) as {
       status: string;
       ok: boolean;
@@ -624,7 +720,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     project.delete(gone, HUMAN);
 
     const client = await connectedClient({ surface });
-    const result = await client.callTool({ name: "list_files", arguments: {} });
+    const result = await client.callTool({ name: "list_files", arguments: { project: "current" } });
     expect(result.isError).toBeFalsy();
     expect(JSON.parse(firstText(result))).toEqual({
       files: [
@@ -640,7 +736,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     const { project, surface } = projectFixture();
     project.create("/notes.typ", "notes body\n", HUMAN);
     const client = await connectedClient({ surface });
-    const result = await client.callTool({ name: "read_file", arguments: { path: "/notes.typ" } });
+    const result = await client.callTool({ name: "read_file", arguments: { project: "current", path: "/notes.typ" } });
     expect(result.isError).toBeFalsy();
     expect(firstText(result)).toBe("notes body\n");
   });
@@ -654,7 +750,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
       { path: 42 },
       { path: `/${"p".repeat(READ_LIMITS.maxPathChars)}` },
     ]) {
-      const result = await client.callTool({ name: "read_file", arguments: args });
+      const result = await client.callTool({ name: "read_file", arguments: { project: "current", ...args } });
       expect(result.isError).toBe(true);
       expect(firstText(result)).toContain("validation");
     }
@@ -665,7 +761,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     project.create("/notes.typ", "notes\n", HUMAN);
     const client = await connectedClient({ surface });
     for (const path of ["/missing.typ", "notes.typ", "/a/../notes.typ"]) {
-      const result = await client.callTool({ name: "read_file", arguments: { path } });
+      const result = await client.callTool({ name: "read_file", arguments: { project: "current", path } });
       expect(result.isError).toBe(true);
       expect(firstText(result)).toContain(path);
       expect(firstText(result)).toContain("not present");
@@ -678,7 +774,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     project.create("/huge.typ", huge, HUMAN);
     const client = await connectedClient({ surface });
 
-    const result = await client.callTool({ name: "read_file", arguments: { path: "/huge.typ" } });
+    const result = await client.callTool({ name: "read_file", arguments: { project: "current", path: "/huge.typ" } });
     expect(result.isError).toBe(true);
     const text = firstText(result);
     expect(text).toContain(`${READ_LIMITS.maxFileBytes}-byte read cap`);
@@ -688,7 +784,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
 
     // …but list_files still surfaces it (bounded entry: path + size only), so
     // the client can see WHY the read was refused.
-    const listed = await client.callTool({ name: "list_files", arguments: {} });
+    const listed = await client.callTool({ name: "list_files", arguments: { project: "current" } });
     expect(JSON.parse(firstText(listed)).files).toContainEqual({
       path: "/huge.typ",
       sizeBytes: READ_LIMITS.maxFileBytes + 1,
@@ -703,7 +799,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     project.create("/dup.typ", "second\n", HUMAN);
     const client = await connectedClient({ surface });
 
-    const result = await client.callTool({ name: "read_file", arguments: { path: "/dup.typ" } });
+    const result = await client.callTool({ name: "read_file", arguments: { project: "current", path: "/dup.typ" } });
     expect(result.isError).toBe(true);
     expect(firstText(result)).toContain("duplicate-path conflict");
     // Neither candidate's content leaks through the refusal.
@@ -711,7 +807,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     expect(firstText(result)).not.toContain("second");
 
     // list_files shows the conflict so the agent can see project state honestly.
-    const listed = await client.callTool({ name: "list_files", arguments: {} });
+    const listed = await client.callTool({ name: "list_files", arguments: { project: "current" } });
     const files = (JSON.parse(firstText(listed)) as {
       files: { path: string; duplicate: boolean }[];
     }).files;
@@ -722,34 +818,44 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     const { surface } = projectFixture();
     const client = await connectedClient({ surface });
     const hostile = "/evil\n\r.typ";
-    const result = await client.callTool({ name: "read_file", arguments: { path: hostile } });
+    const result = await client.callTool({ name: "read_file", arguments: { project: "current", path: hostile } });
     expect(result.isError).toBe(true);
     const text = firstText(result);
     expect(text).not.toMatch(/[\n\r\u0000-\u001f]/);
     expect(text).toContain(JSON.stringify(hostile));
   });
 
-  it("read context adds NO write surface: propose_edit stays pinned to the session's one target file (a smuggled `path` arg is inert)", async () => {
+  it("propose_edit targets a non-main text file by path, publishing only a proposal", async () => {
     const { project, surface } = projectFixture("= Title\nbody\n");
     project.create("/notes.typ", "notes\n", HUMAN);
     const client = await connectedClient({ surface });
 
-    // Read a sibling first, then try to aim the proposal at it.
-    await client.callTool({ name: "read_file", arguments: { path: "/notes.typ" } });
+    // Read a sibling first, then aim the proposal at that file.
+    await client.callTool({ name: "read_file", arguments: { project: "current", path: "/notes.typ" } });
     const result = await client.callTool({
       name: "propose_edit",
       arguments: {
-        path: "/notes.typ", // not part of the schema — must be ignored
-        filePath: "/notes.typ", // likewise
+        project: "current",
+        path: "/notes.typ",
+        filePath: "/main.typ", // not part of the schema — must be ignored
         request: "x",
-        edits: [{ search: "body\n", replace: "body!\n" }],
+        edits: [{ search: "notes\n", replace: "notes!\n" }],
       },
     });
-    const payload = JSON.parse(firstText(result)) as { status: string; proposalId: string };
+    expect(result.isError).toBeFalsy();
+    const payload = JSON.parse(firstText(result)) as { status: string; proposalId: string; filePath: string };
     expect(payload.status).toBe("pending_review");
+    expect(payload.filePath).toBe("/notes.typ");
     const pending = getPendingProposals(project);
     expect(pending).toHaveLength(1);
-    expect(pending[0]!.filePath).toBe("/main.typ");
+    expect(pending[0]).toMatchObject({
+      id: payload.proposalId,
+      filePath: "/notes.typ",
+      baseText: "notes\n",
+      proposedText: "notes!\n",
+      blocks: [{ search: "notes\n", replace: "notes!\n" }],
+      request: "x",
+    });
     // And no file text changed anywhere, sibling included.
     expect(
       project
@@ -774,7 +880,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     const client = await connectedClient({ surface });
     const result = await client.callTool({
       name: "project_context",
-      arguments: { query: "quantum entanglement", budget: 256 },
+      arguments: { project: "current", query: "quantum entanglement", budget: 256 },
     });
     expect(result.isError).toBeFalsy();
     const payload = JSON.parse(firstText(result)) as {
@@ -806,7 +912,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
       { query: "ok", budget: 1.5 },
       { query: "ok", budget: "6000" },
     ]) {
-      const result = await client.callTool({ name: "project_context", arguments: args });
+      const result = await client.callTool({ name: "project_context", arguments: { project: "current", ...args } });
       expect(result.isError).toBe(true);
       expect(firstText(result)).toContain("validation");
     }
@@ -820,7 +926,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     const client = await connectedClient({ surface });
     const result = await client.callTool({
       name: "project_context",
-      arguments: { query: "anything" },
+      arguments: { project: "current", query: "anything" },
     });
     expect(result.isError).toBeFalsy();
     const text = firstText(result);
@@ -840,7 +946,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     project.create("/notes.typ", "notes\n", HUMAN);
     const before = project.snapshot();
     const client = await connectedClient({ surface });
-    await client.callTool({ name: "project_context", arguments: { query: "notes" } });
+    await client.callTool({ name: "project_context", arguments: { project: "current", query: "notes" } });
     expect(project.snapshot()).toEqual(before);
     expect(getPendingProposals(project)).toHaveLength(0);
   });
@@ -874,9 +980,9 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     const client = await connectedClient({ surface, compileService: fake, liveness: watched });
 
     for (const call of [
-      { name: "list_files", arguments: {} },
-      { name: "project_context", arguments: { query: "notes" } },
-      { name: "compile", arguments: {} },
+      { name: "list_files", arguments: { project: "current" } },
+      { name: "project_context", arguments: { project: "current", query: "notes" } },
+      { name: "compile", arguments: { project: "current" } },
     ]) {
       const result = await client.callTool(call);
       const payload = JSON.parse(firstText(result)) as { liveness?: typeof watched extends () => infer R ? R : never };
@@ -884,17 +990,17 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     }
   });
 
-  it("read_document / read_file return text PLUS a liveness sidecar when a provider is given", async () => {
+  it("read_file returns main and sibling text PLUS a liveness sidecar when a provider is given", async () => {
     const { project, surface } = projectFixture("= Title\nbody\n");
     project.create("/notes.typ", "notes\n", HUMAN);
     const client = await connectedClient({ surface, liveness: watched });
 
-    const doc = await client.callTool({ name: "read_document", arguments: {} });
+    const doc = await client.callTool({ name: "read_file", arguments: { project: "current", path: "/main.typ" } });
     const docPayload = JSON.parse(firstText(doc)) as { text: string; liveness: unknown };
     expect(docPayload.text).toBe("= Title\nbody\n");
     expect(docPayload.liveness).toEqual(watched());
 
-    const file = await client.callTool({ name: "read_file", arguments: { path: "/notes.typ" } });
+    const file = await client.callTool({ name: "read_file", arguments: { project: "current", path: "/notes.typ" } });
     const filePayload = JSON.parse(firstText(file)) as { text: string; liveness: unknown };
     expect(filePayload.text).toBe("notes\n");
     expect(filePayload.liveness).toEqual(watched());
@@ -905,7 +1011,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     const attached = await connectedClient({ surface: a.surface, liveness: watched });
     const r1 = await attached.callTool({
       name: "propose_edit",
-      arguments: { request: "x", edits: [{ search: "body\n", replace: "body!\n" }] },
+      arguments: { project: "current", path: "/main.typ", request: "x", edits: [{ search: "body\n", replace: "body!\n" }] },
     });
     const p1 = JSON.parse(firstText(r1)) as { status: string; liveness: unknown; note?: string };
     expect(p1.status).toBe("pending_review");
@@ -916,7 +1022,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     const lonely = await connectedClient({ surface: b.surface, liveness: unwatched });
     const r2 = await lonely.callTool({
       name: "propose_edit",
-      arguments: { request: "x", edits: [{ search: "body\n", replace: "body!\n" }] },
+      arguments: { project: "current", path: "/main.typ", request: "x", edits: [{ search: "body\n", replace: "body!\n" }] },
     });
     const p2 = JSON.parse(firstText(r2)) as { status: string; liveness: unknown; note: string };
     expect(p2.status).toBe("pending_review_unwatched");
@@ -931,7 +1037,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
     const client = await connectedClient({ surface, liveness: unwatched });
     const result = await client.callTool({
       name: "propose_files",
-      arguments: { request: "x", ops: [{ kind: "create", path: "/new.typ", text: "ok\n" }] },
+      arguments: { project: "current", request: "x", ops: [{ kind: "create", path: "/new.typ", text: "ok\n" }] },
     });
     const payload = JSON.parse(firstText(result)) as { status: string; note: string; liveness: unknown };
     expect(payload.status).toBe("pending_review_unwatched");
@@ -966,7 +1072,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
       },
     };
     const client = await connectedClient({ surface, compileService: fake });
-    const result = await client.callTool({ name: "compile", arguments: {} });
+    const result = await client.callTool({ name: "compile", arguments: { project: "current" } });
     expect(result.isError).toBe(true);
     expect(firstText(result)).toBe("compile: compile service responded 503: compile unavailable");
     expect(firstText(result)).not.toContain("at "); // no stack frames
@@ -979,7 +1085,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
   it("compile keeps not_configured when neither loopback service nor browser seam is present", async () => {
     const { surface } = projectFixture();
     const client = await connectedClient({ surface });
-    const result = await client.callTool({ name: "compile", arguments: {} });
+    const result = await client.callTool({ name: "compile", arguments: { project: "current" } });
     expect(result.isError).toBeFalsy();
     const payload = JSON.parse(firstText(result)) as { status: string };
     expect(payload.status).toBe("not_configured");
@@ -991,7 +1097,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
       surface,
       compileBrowser: async () => ({ ok: true, pageCount: 3, diagnostics: [] }),
     });
-    const result = await client.callTool({ name: "compile", arguments: {} });
+    const result = await client.callTool({ name: "compile", arguments: { project: "current" } });
     expect(result.isError).toBeFalsy();
     expect(JSON.parse(firstText(result))).toEqual({
       status: "ok",
@@ -1012,7 +1118,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
         diagnostics: [{ severity: "error", message: "unknown variable: x" }],
       }),
     });
-    const result = await client.callTool({ name: "compile", arguments: {} });
+    const result = await client.callTool({ name: "compile", arguments: { project: "current" } });
     const payload = JSON.parse(firstText(result)) as {
       status: string;
       source: string;
@@ -1033,7 +1139,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
       surface,
       compileBrowser: async () => ({ error: "the browser refused the compile" }),
     });
-    const result = await client.callTool({ name: "compile", arguments: {} });
+    const result = await client.callTool({ name: "compile", arguments: { project: "current" } });
     expect(result.isError).toBe(true);
     expect(firstText(result)).toBe("compile: the browser refused the compile");
   });
@@ -1044,7 +1150,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
       surface,
       compileBrowser: async () => ({ unavailable: true }),
     });
-    const result = await client.callTool({ name: "compile", arguments: {} });
+    const result = await client.callTool({ name: "compile", arguments: { project: "current" } });
     expect(result.isError).toBeFalsy();
     const payload = JSON.parse(firstText(result)) as { status: string };
     expect(payload.status).toBe("not_configured");
@@ -1058,7 +1164,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
         throw new Error("control RPC timed out after 10000ms");
       },
     });
-    const result = await client.callTool({ name: "compile", arguments: {} });
+    const result = await client.callTool({ name: "compile", arguments: { project: "current" } });
     expect(result.isError).toBe(true);
     expect(firstText(result)).toBe("compile: control RPC timed out after 10000ms");
     expect(firstText(result)).not.toContain("at "); // no stack frames
@@ -1083,7 +1189,7 @@ describe("galley mcp kernel — the three sacred tools over the wrapped surface"
         return { ok: false, pageCount: null, diagnostics: [] };
       },
     });
-    const result = await client.callTool({ name: "compile", arguments: {} });
+    const result = await client.callTool({ name: "compile", arguments: { project: "current" } });
     const payload = JSON.parse(firstText(result)) as { status: string; source: string };
     expect(payload.status).toBe("ok");
     expect(payload.source).toBe("loopback");
@@ -1113,7 +1219,7 @@ describe("galley mcp kernel — honest propose_* disposition (F5)", () => {
 
     const result = await client.callTool({
       name: "propose_edit",
-      arguments: { request: "Add a line", edits: [{ search: "body\n", replace: "body\nmore\n" }] },
+      arguments: { project: "current", path: "/main.typ", request: "Add a line", edits: [{ search: "body\n", replace: "body\nmore\n" }] },
     });
     const payload = JSON.parse(firstText(result)) as { status: string; filePath: string; message: string };
     expect(payload.status).toBe("applied");
@@ -1135,7 +1241,7 @@ describe("galley mcp kernel — honest propose_* disposition (F5)", () => {
     // never claim a human-only manual gate.
     const result = await client.callTool({
       name: "propose_edit",
-      arguments: { request: "Add a line", edits: [{ search: "body\n", replace: "body\nmore\n" }] },
+      arguments: { project: "current", path: "/main.typ", request: "Add a line", edits: [{ search: "body\n", replace: "body\nmore\n" }] },
     });
     const payload = JSON.parse(firstText(result)) as { status: string; message: string };
     expect(payload.status).toBe("pending_review");
@@ -1160,7 +1266,7 @@ describe("galley mcp kernel — honest propose_* disposition (F5)", () => {
 
     const result = await client.callTool({
       name: "propose_edit",
-      arguments: { request: "Add a line", edits: [{ search: "body\n", replace: "body\nmore\n" }] },
+      arguments: { project: "current", path: "/main.typ", request: "Add a line", edits: [{ search: "body\n", replace: "body\nmore\n" }] },
     });
     const payload = JSON.parse(firstText(result)) as { status: string; message: string };
     expect(payload.status).toBe("rejected");
@@ -1177,7 +1283,7 @@ describe("galley mcp kernel — honest propose_* disposition (F5)", () => {
 
     const result = await client.callTool({
       name: "propose_edit",
-      arguments: { request: "Add a line", edits: [{ search: "body\n", replace: "body\nmore\n" }] },
+      arguments: { project: "current", path: "/main.typ", request: "Add a line", edits: [{ search: "body\n", replace: "body\nmore\n" }] },
     });
     const payload = JSON.parse(firstText(result)) as { status: string; message: string };
     expect(payload.status).toBe("pending_review");
@@ -1199,6 +1305,7 @@ describe("galley mcp kernel — honest propose_* disposition (F5)", () => {
     const result = await client.callTool({
       name: "propose_files",
       arguments: {
+        project: "current",
         request: "Add an intro",
         ops: [{ kind: "create", path: "/intro.typ", text: "= Intro\n" }],
       },
@@ -1221,6 +1328,7 @@ describe("galley mcp kernel — honest propose_* disposition (F5)", () => {
     const result = await client.callTool({
       name: "propose_files",
       arguments: {
+        project: "current",
         request: "Add an intro",
         ops: [{ kind: "create", path: "/intro.typ", text: "= Intro\n" }],
       },
@@ -1270,6 +1378,7 @@ describe("galley mcp kernel — propose_files create-binary (A2)", () => {
     const result = await client.callTool({
       name: "propose_files",
       arguments: {
+        project: "current",
         request: "Add a logo",
         ops: [
           { kind: "create", path: "/main2.typ", text: "#image(\"/logo.png\")\n" },
@@ -1302,7 +1411,7 @@ describe("galley mcp kernel — propose_files create-binary (A2)", () => {
     const client = await connectedClient({ surface });
     const result = await client.callTool({
       name: "propose_files",
-      arguments: { request: "Add a logo", ops: [{ kind: "create-binary", path: "/logo.png", bytes: PNG_B64 }] },
+      arguments: { project: "current", request: "Add a logo", ops: [{ kind: "create-binary", path: "/logo.png", bytes: PNG_B64 }] },
     });
     const payload = JSON.parse(firstText(result)) as { status: string };
     expect(payload.status).toBe("binary_unsupported");
@@ -1319,6 +1428,7 @@ describe("galley mcp kernel — propose_files create-binary (A2)", () => {
     const result = await client.callTool({
       name: "propose_files",
       arguments: {
+        project: "current",
         request: "Add a logo",
         ops: [
           { kind: "create", path: "/main2.typ", text: "x\n" },
@@ -1342,7 +1452,7 @@ describe("galley mcp kernel — propose_files create-binary (A2)", () => {
     const client = await connectedClient(tools);
     const result = await client.callTool({
       name: "propose_files",
-      arguments: { request: "x", ops: [{ kind: "create-binary", path: "/logo.png", bytes: "not!base64!!" }] },
+      arguments: { project: "current", request: "x", ops: [{ kind: "create-binary", path: "/logo.png", bytes: "not!base64!!" }] },
     });
     const payload = JSON.parse(firstText(result)) as { status: string };
     expect(payload.status).toBe("invalid_bytes");
@@ -1356,6 +1466,7 @@ describe("galley mcp kernel — propose_files create-binary (A2)", () => {
     const result = await client.callTool({
       name: "propose_files",
       arguments: {
+        project: "current",
         request: "x",
         ops: [
           { kind: "create", path: "/logo.png", text: "x\n" },
@@ -1387,6 +1498,7 @@ describe("galley mcp kernel — propose_files create-binary (A2)", () => {
     const result = await client.callTool({
       name: "propose_files",
       arguments: {
+        project: "current",
         request: "x",
         ops: [
           { kind: "create-binary", path: "/ok.png", bytes: PNG_B64 },
@@ -1427,6 +1539,7 @@ describe("galley mcp kernel — propose_files create-binary (A2)", () => {
     const result = await client.callTool({
       name: "propose_files",
       arguments: {
+        project: "current",
         request: "two big images",
         ops: [
           { kind: "create-binary", path: "/a.png", bytes: b64 },
@@ -1462,6 +1575,7 @@ describe("galley mcp kernel — propose_files create-binary (A2)", () => {
     const result = await client.callTool({
       name: "propose_files",
       arguments: {
+        project: "current",
         request: "two images",
         ops: [
           { kind: "create-binary", path: "/a.png", bytes: A },
@@ -1497,7 +1611,7 @@ describe("galley mcp kernel — propose_files create-binary (A2)", () => {
     const client = await connectedClient(tools);
     const result = await client.callTool({
       name: "propose_files",
-      arguments: { request: "img", ops: [{ kind: "create-binary", path: "/a.png", bytes: PNG_B64 }] },
+      arguments: { project: "current", request: "img", ops: [{ kind: "create-binary", path: "/a.png", bytes: PNG_B64 }] },
     });
     const payload = JSON.parse(firstText(result)) as { status: string };
     expect(payload.status).toBe("publish_failed");
@@ -1519,7 +1633,7 @@ describe("galley mcp kernel — propose_files create-binary (A2)", () => {
     // "QQ" is NOT canonical and must be rejected (length not a multiple of 4).
     const result = await client.callTool({
       name: "propose_files",
-      arguments: { request: "x", ops: [{ kind: "create-binary", path: "/a.png", bytes: "QQ" }] },
+      arguments: { project: "current", request: "x", ops: [{ kind: "create-binary", path: "/a.png", bytes: "QQ" }] },
     });
     const payload = JSON.parse(firstText(result)) as { status: string };
     expect(payload.status).toBe("invalid_bytes");
@@ -1568,6 +1682,7 @@ describe("galley mcp kernel — propose_files create-binary-path (F8, local-path
     const result = await client.callTool({
       name: "propose_files",
       arguments: {
+        project: "current",
         request: "Add a logo from disk",
         ops: [
           { kind: "create", path: "/main2.typ", text: "#image(\"/logo.png\")\n" },
@@ -1598,7 +1713,7 @@ describe("galley mcp kernel — propose_files create-binary-path (F8, local-path
     const client = await connectedClient(tools);
     const result = await client.callTool({
       name: "propose_files",
-      arguments: { request: "x", ops: [{ kind: "create-binary-path", path: "/logo.png", srcPath: "relative/logo.png" }] },
+      arguments: { project: "current", request: "x", ops: [{ kind: "create-binary-path", path: "/logo.png", srcPath: "relative/logo.png" }] },
     });
     const payload = JSON.parse(firstText(result)) as { status: string };
     expect(payload.status).toBe("invalid_src_path");
@@ -1612,7 +1727,7 @@ describe("galley mcp kernel — propose_files create-binary-path (F8, local-path
     const client = await connectedClient(tools);
     const result = await client.callTool({
       name: "propose_files",
-      arguments: { request: "x", ops: [{ kind: "create-binary-path", path: "/logo.png", srcPath: missing }] },
+      arguments: { project: "current", request: "x", ops: [{ kind: "create-binary-path", path: "/logo.png", srcPath: missing }] },
     });
     const payload = JSON.parse(firstText(result)) as { status: string };
     expect(payload.status).toBe("src_unreadable");
@@ -1625,7 +1740,7 @@ describe("galley mcp kernel — propose_files create-binary-path (F8, local-path
     const client = await connectedClient(tools);
     const result = await client.callTool({
       name: "propose_files",
-      arguments: { request: "x", ops: [{ kind: "create-binary-path", path: "/logo.png", srcPath: os.tmpdir() }] },
+      arguments: { project: "current", request: "x", ops: [{ kind: "create-binary-path", path: "/logo.png", srcPath: os.tmpdir() }] },
     });
     const payload = JSON.parse(firstText(result)) as { status: string };
     expect(payload.status).toBe("src_unreadable");
@@ -1647,7 +1762,7 @@ describe("galley mcp kernel — propose_files create-binary-path (F8, local-path
     const client = await connectedClient(tools);
     const result = await client.callTool({
       name: "propose_files",
-      arguments: { request: "x", ops: [{ kind: "create-binary-path", path: "/big.bin", srcPath: big }] },
+      arguments: { project: "current", request: "x", ops: [{ kind: "create-binary-path", path: "/big.bin", srcPath: big }] },
     });
     const payload = JSON.parse(firstText(result)) as { status: string };
     expect(payload.status).toBe("blob_too_large");
@@ -1662,7 +1777,7 @@ describe("galley mcp kernel — propose_files create-binary-path (F8, local-path
     const client = await connectedClient({ surface });
     const result = await client.callTool({
       name: "propose_files",
-      arguments: { request: "x", ops: [{ kind: "create-binary-path", path: "/logo.png", srcPath: src }] },
+      arguments: { project: "current", request: "x", ops: [{ kind: "create-binary-path", path: "/logo.png", srcPath: src }] },
     });
     const payload = JSON.parse(firstText(result)) as { status: string };
     expect(payload.status).toBe("binary_unsupported");
@@ -1681,6 +1796,7 @@ describe("galley mcp kernel — propose_files create-binary-path (F8, local-path
     const result = await client.callTool({
       name: "propose_files",
       arguments: {
+        project: "current",
         request: "x",
         ops: [
           { kind: "create", path: "/main2.typ", text: "x\n" },

@@ -85,10 +85,10 @@ describe("galley-mcp bin — starts with no Galley running", () => {
         "compile",
         "galley_ping",
         "list_files",
+        "list_projects",
         "project_context",
         "propose_edit",
         "propose_files",
-        "read_document",
         "read_file",
       ]);
     } finally {

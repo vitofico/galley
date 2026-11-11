@@ -48,7 +48,6 @@ describe("kernel tool surface — read + proposal-write ONLY", () => {
       "projectContext",
       "publishFileProposal",
       "publishProposal",
-      "readDocument",
       "readFile",
     ]);
     // Every capability is a read except the two proposal writes; none returns the project.
@@ -57,9 +56,9 @@ describe("kernel tool surface — read + proposal-write ONLY", () => {
     }
   });
 
-  it("readDocument is a value copy — mutating the result cannot reach the doc", () => {
+  it("readFile is a value copy — mutating the result cannot reach the doc", () => {
     const { project, surface } = fixture();
-    const read = surface.readDocument();
+    const read = surface.readFile("/main.typ");
     expect(read).toEqual({ ok: true, path: "/main.typ", text: "= Title\nbody\n" });
     if (read.ok) (read as { text: string }).text = "clobbered";
     expect(project.getFile(project.mainFileId()!)?.text).toBe("= Title\nbody\n");
@@ -69,6 +68,7 @@ describe("kernel tool surface — read + proposal-write ONLY", () => {
     const { project, surface } = fixture();
     const before = project.snapshot().files.map((f) => [f.path, f.text]);
     const id = await surface.publishProposal({
+      filePath: "/main.typ",
       baseText: "= Title\nbody\n",
       proposedText: "= Title\nbody\nmore\n",
       blocks: [{ search: "body\n", replace: "body\nmore\n" }],
@@ -76,8 +76,29 @@ describe("kernel tool surface — read + proposal-write ONLY", () => {
     });
     expect(project.snapshot().files.map((f) => [f.path, f.text])).toEqual(before);
     expect(getPendingProposals(project).map((p) => p.id)).toEqual([id]);
-    // The record is scoped to the session's one file — the path is not caller-chosen.
+    // The record preserves the caller-supplied path.
     expect(getPendingProposals(project)[0]!.filePath).toBe("/main.typ");
+  });
+
+  it("publishProposal preserves an explicit non-main filePath", async () => {
+    const { project, surface } = fixture();
+    project.create("/notes.typ", "notes\n", HUMAN);
+    const before = project.snapshot().files.map((f) => [f.path, f.text]);
+    const id = await surface.publishProposal({
+      filePath: "/notes.typ",
+      baseText: "notes\n",
+      proposedText: "notes!\n",
+      blocks: [{ search: "notes\n", replace: "notes!\n" }],
+      request: "notes",
+    });
+    expect(project.snapshot().files.map((f) => [f.path, f.text])).toEqual(before);
+    expect(getPendingProposals(project)).toHaveLength(1);
+    expect(getPendingProposals(project)[0]).toMatchObject({
+      id,
+      filePath: "/notes.typ",
+      baseText: "notes\n",
+      proposedText: "notes!\n",
+    });
   });
 
   it("publishFileProposal writes ONLY the sibling mailbox — no file text, no created file", async () => {
@@ -112,6 +133,7 @@ describe("kernel tool surface — read + proposal-write ONLY", () => {
       mailbox === "mcpProposals" ? "AAAA" : "BBBB",
     );
     await surface.publishProposal({
+      filePath: "/main.typ",
       baseText: "= Title\nbody\n",
       proposedText: "= Title\nbody\nmore\n",
       blocks: [{ search: "body\n", replace: "body\nmore\n" }],
@@ -128,6 +150,7 @@ describe("kernel tool surface — read + proposal-write ONLY", () => {
   it("with NO signer (local/un-paired join) proposals publish unsigned — sig absent", async () => {
     const { project, surface } = fixture();
     await surface.publishProposal({
+      filePath: "/main.typ",
       baseText: "= Title\nbody\n",
       proposedText: "= Title\nbody\nx\n",
       blocks: [{ search: "body\n", replace: "body\nx\n" }],
@@ -154,6 +177,7 @@ describe("kernel tool surface — read + proposal-write ONLY", () => {
     const signer: ProposalSigner = async () => "AAAA";
     const surface = createToolSurface(project, "/main.typ", MCP, signer);
     const id = await surface.publishProposal({
+      filePath: "/main.typ",
       baseText: "= Title\nbody\n",
       proposedText: "= Title\nbody\nx\n",
       blocks: [{ search: "body\n", replace: "body\nx\n" }],
@@ -170,6 +194,7 @@ describe("kernel tool surface — read + proposal-write ONLY", () => {
     const signer: ProposalSigner = async () => "AAAA";
     const surface = createToolSurface(project, "/main.typ", MCP, signer);
     const id = await surface.publishProposal({
+      filePath: "/main.typ",
       baseText: "= Title\nbody\n",
       proposedText: "= Title\nbody\nx\n",
       blocks: [{ search: "body\n", replace: "body\nx\n" }],
@@ -184,6 +209,7 @@ describe("kernel tool surface — read + proposal-write ONLY", () => {
   it("awaitProposalResolution times out when no verdict arrives (single)", async () => {
     const { project, surface } = fixture();
     const id = await surface.publishProposal({
+      filePath: "/main.typ",
       baseText: "= Title\nbody\n",
       proposedText: "= Title\nbody\nx\n",
       blocks: [{ search: "body\n", replace: "body\nx\n" }],
@@ -920,6 +946,7 @@ describe("kernel tool surface — retrieval-aware project context (projectContex
  */
 describe("kernel tool surface — run boundaries (runId tagging + idle-close)", () => {
   const SINGLE = {
+    filePath: "/main.typ",
     baseText: "= Title\nbody\n",
     proposedText: "= Title\nbody\nmore\n",
     blocks: [{ search: "body\n", replace: "body\nmore\n" }],

@@ -12,6 +12,8 @@ import {
 } from "./control-tools.js";
 import { COMPILE_PENDING_REFUSAL, type ControlRpcOutcome } from "./control.js";
 import type { KernelSession } from "./session.js";
+import { CollabProject } from "@galley/collab";
+import { createToolSurface } from "./surface.js";
 
 /**
  * The open_project handoff posture (#16.3a, ADR-0021), pinned pure: the
@@ -131,7 +133,7 @@ describe("projectGrantViolation — the open_project grantId gate (ADR-0023 §1)
  * inspect the RPC timeout it passes — no client/transport plumbing needed.
  */
 function captureControlTools(deps: ControlToolDeps): {
-  open: (args: { projectId: string }) => Promise<unknown>;
+  open: (args: { project: string }) => Promise<unknown>;
   create: (args: { name: string }) => Promise<unknown>;
 } {
   const tools = new Map<string, (args: Record<string, unknown>) => Promise<unknown>>();
@@ -165,7 +167,7 @@ describe("open_project RPC timeout (#16.3)", () => {
       controlRoom: CONTROL_ROOM,
       responseKey: RESPONSE_KEY,
     });
-    await tools.open({ projectId: "proj-1" });
+    await tools.open({ project: "proj-1" });
     const openCall = calls.find((c) => c.op === "open_project");
     expect(openCall).toBeDefined();
     expect(openCall!.timeoutMs).toBe(OPEN_PROJECT_RPC_TIMEOUT_MS);
@@ -189,7 +191,7 @@ describe("open_project RPC timeout (#16.3)", () => {
       responseKey: RESPONSE_KEY,
       openProjectRpcTimeoutMs: 5_000,
     });
-    await tools.open({ projectId: "proj-1" });
+    await tools.open({ project: "proj-1" });
     expect(seen).toBe(5_000);
   });
 });
@@ -277,7 +279,7 @@ type ToolResultLike = { isError?: boolean; content: { type: string; text: string
 
 /**
  * A duplicate-name-refusing fake McpServer whose registerTool returns a
- * REMOVABLE handle (the real SDK contract), so the retire-on-bind path is
+ * REMOVABLE handle (the real SDK contract), so unintended removal is
  * observable: a duplicate registration throws exactly like the SDK would.
  */
 function captureContentTools(deps: ControlToolDeps): {
@@ -319,6 +321,103 @@ const okRpc =
   };
 
 describe("control-mode content tools — registration + dispatch (#1 slice 1)", () => {
+  it("project operations before open return no_project_attached without calling the browser", async () => {
+    const calls: Array<{ op: string; params: Record<string, unknown> }> = [];
+    const t = captureContentTools({
+      rpc: okRpc(calls),
+      configuredSyncUrl: CONFIGURED,
+      controlRoom: CONTROL_ROOM,
+      responseKey: RESPONSE_KEY,
+    });
+    for (const [name, args] of [
+      ["project_context", { query: "body" }],
+      ["compile", {}],
+      ["propose_edit", { path: "/main.typ", request: "x", edits: [{ search: "body", replace: "new" }] }],
+      ["propose_files", { request: "x", ops: [{ kind: "create", path: "/new.typ", text: "new" }] }],
+      ["export_compiled", {}],
+    ] as const) {
+      const result = await t.call(name, { project: "proj-1", ...args });
+      expect(result.isError).toBeFalsy();
+      expect(JSON.parse(result.content[0]!.text)).toEqual({
+        status: "no_project_attached",
+        message: "Call open_project with this project first; a person approves it in Galley.",
+      });
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it("reads the open project from its session and non-open projects through the browser", async () => {
+    const project = new CollabProject();
+    project.create("/main.typ", "session text\n", { kind: "human", userId: "u1" });
+    const surface = createToolSurface(project, "/main.typ", { kind: "agent", runId: "mcp" });
+    const calls: Array<{ op: string; params: Record<string, unknown> }> = [];
+    const fakeSession = {
+      surface,
+      whenFileReady: async () => undefined,
+      liveness: () => ({ relayConnected: true, browserAttached: true, humanPeers: 1, lastBrowserSeenMs: 1 }),
+      destroy: () => undefined,
+    } as unknown as KernelSession;
+    const t = captureContentTools({
+      rpc: async (op, params) => {
+        calls.push({ op, params });
+        return op === "open_project"
+          ? { ok: true, result: {
+              syncUrl: "ws://localhost:1234", room: `share-${"a1".repeat(16)}`,
+              projectId: "proj-1", mainFile: "/main.typ", grantId: "g0aBcDeF1234_-ZyXwVu",
+            } }
+          : { ok: true, result: { text: "browser text", summary: "1 lines" } };
+      },
+      configuredSyncUrl: CONFIGURED,
+      controlRoom: CONTROL_ROOM,
+      responseKey: RESPONSE_KEY,
+      joinProject: () => fakeSession,
+    });
+    const opened = await t.call("open_project", { project: "proj-1" });
+    expect(opened.isError).toBeFalsy();
+    expect(calls).toEqual([{ op: "open_project", params: { projectId: "proj-1" } }]);
+    calls.length = 0;
+
+    const listed = await t.call("list_files", { project: "proj-1" });
+    expect(listed.isError).toBeFalsy();
+    const payload = JSON.parse(listed.content[0]!.text);
+    expect(payload.files).toEqual([{
+      path: "/main.typ", sizeBytes: 13, sizeExact: true, duplicate: false,
+    }]);
+    expect(payload.liveness).toEqual(fakeSession.liveness());
+    const read = await t.call("read_file", { project: "proj-1", path: "/main.typ" });
+    expect(read.isError).toBeFalsy();
+    expect(JSON.parse(read.content[0]!.text)).toEqual({ text: "session text\n", liveness: fakeSession.liveness() });
+    expect(calls).toEqual([]);
+
+    for (const [name, params] of [["list_files", {}], ["read_file", { path: "/notes.typ" }]] as const) {
+      const result = await t.call(name, { project: "proj-other", ...params });
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0]!.text).toBe("browser text");
+    }
+    expect(calls).toEqual([
+      { op: "list_files", params: { projectId: "proj-other" } },
+      { op: "read_file", params: { projectId: "proj-other", path: "/notes.typ" } },
+    ]);
+
+    for (const [name, args] of [
+      ["project_context", { query: "body" }],
+      ["compile", {}],
+      ["propose_edit", { path: "/main.typ", request: "x", edits: [{ search: "body", replace: "new" }] }],
+      ["propose_files", { request: "x", ops: [{ kind: "create", path: "/new.typ", text: "new" }] }],
+      ["export_compiled", {}],
+    ] as const) {
+      const result = await t.call(name, { project: "proj-other", ...args });
+      expect(result.isError).toBeFalsy();
+      expect(JSON.parse(result.content[0]!.text)).toEqual({
+        status: "already_open",
+        projectId: "proj-1",
+        message: "this kernel session is already bound to another project — restart the kernel to work on a different one",
+      });
+    }
+    expect(calls).toHaveLength(2);
+    project.destroy();
+  });
+
   it("control mode registers search_project / list_files / read_file alongside the metadata tools", () => {
     const t = captureContentTools({
       rpc: okRpc(),
@@ -349,7 +448,7 @@ describe("control-mode content tools — registration + dispatch (#1 slice 1)", 
       controlRoom: CONTROL_ROOM,
       responseKey: RESPONSE_KEY,
     });
-    const result = await t.call("list_bibliography", { projectId: "proj-1" });
+    const result = await t.call("list_bibliography", { project: "proj-1" });
     expect(calls).toEqual([{ op: "list_bibliography", params: { projectId: "proj-1" } }]);
     expect(result.isError).toBeUndefined();
     expect(result.content[0]!.text).toBe("1| hello from the project");
@@ -366,7 +465,7 @@ describe("control-mode content tools — registration + dispatch (#1 slice 1)", 
       controlRoom: CONTROL_ROOM,
       responseKey: RESPONSE_KEY,
     });
-    const out = await t.call("list_bibliography", { projectId: "proj-1" });
+    const out = await t.call("list_bibliography", { project: "proj-1" });
     expect(out.isError).toBe(true);
     expect(out.content[0]!.text).toMatch(/Settings → Agent Access/);
   });
@@ -379,7 +478,7 @@ describe("control-mode content tools — registration + dispatch (#1 slice 1)", 
       controlRoom: CONTROL_ROOM,
       responseKey: RESPONSE_KEY,
     });
-    const result = await t.call("read_file", { projectId: "proj-1", path: "/main.typ" });
+    const result = await t.call("read_file", { project: "proj-1", path: "/main.typ" });
     expect(calls).toEqual([{ op: "read_file", params: { projectId: "proj-1", path: "/main.typ" } }]);
     expect(result.isError).toBeUndefined();
     expect(result.content[0]!.text).toBe("1| hello from the project");
@@ -407,7 +506,7 @@ describe("control-mode content tools — registration + dispatch (#1 slice 1)", 
       controlRoom: CONTROL_ROOM,
       responseKey: RESPONSE_KEY,
     });
-    const result = await t.call("list_version_files", { projectId: "proj-1", versionId: "v1" });
+    const result = await t.call("list_version_files", { project: "proj-1", versionId: "v1" });
     expect(calls).toEqual([
       { op: "list_version_files", params: { projectId: "proj-1", versionId: "v1" } },
     ]);
@@ -438,7 +537,7 @@ describe("control-mode content tools — registration + dispatch (#1 slice 1)", 
       responseKey: RESPONSE_KEY,
     });
     const result = await t.call("read_version_file", {
-      projectId: "proj-1",
+      project: "proj-1",
       versionId: "v1",
       path: "/main.typ",
     });
@@ -464,7 +563,7 @@ describe("control-mode content tools — registration + dispatch (#1 slice 1)", 
       responseKey: RESPONSE_KEY,
     });
     const out = await t.call("read_version_file", {
-      projectId: "proj-1",
+      project: "proj-1",
       versionId: "v1",
       path: "/main.typ",
     });
@@ -480,8 +579,8 @@ describe("control-mode content tools — registration + dispatch (#1 slice 1)", 
       controlRoom: CONTROL_ROOM,
       responseKey: RESPONSE_KEY,
     });
-    await t.call("search_project", { projectId: "proj-1", query: "hello" });
-    await t.call("list_files", { projectId: "proj-1" });
+    await t.call("search_project", { project: "proj-1", query: "hello" });
+    await t.call("list_files", { project: "proj-1" });
     expect(calls).toEqual([
       { op: "search_project", params: { projectId: "proj-1", query: "hello" } },
       { op: "list_files", params: { projectId: "proj-1" } },
@@ -502,7 +601,7 @@ describe("control-mode content tools — registration + dispatch (#1 slice 1)", 
       controlRoom: CONTROL_ROOM,
       responseKey: RESPONSE_KEY,
     });
-    const result = await t.call("read_file", { projectId: "proj-1", path: "/main.typ" });
+    const result = await t.call("read_file", { project: "proj-1", path: "/main.typ" });
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toContain("Settings → Agent Access");
     expect(result.content[0]!.text).toContain("Allow file access (this session)");
@@ -520,7 +619,7 @@ describe("control-mode content tools — registration + dispatch (#1 slice 1)", 
       controlRoom: CONTROL_ROOM,
       responseKey: RESPONSE_KEY,
     });
-    const result = await t.call("read_file", { projectId: "proj-1", path: "/main.typ" });
+    const result = await t.call("read_file", { project: "proj-1", path: "/main.typ" });
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toMatch(/^read_file: no responder answered/);
   });
@@ -538,7 +637,7 @@ describe("control-mode content tools — registration + dispatch (#1 slice 1)", 
       controlRoom: CONTROL_ROOM,
       responseKey: RESPONSE_KEY,
     });
-    const out = await t.call("read_file", { projectId: "proj-1", path: "/main.typ" });
+    const out = await t.call("read_file", { project: "proj-1", path: "/main.typ" });
     expect(out.isError).toBe(true);
     expect(out.content[0]!.text).toContain("invalid response");
   });
@@ -565,7 +664,7 @@ describe("control-mode content tools — registration + dispatch (#1 slice 1)", 
       controlRoom: CONTROL_ROOM,
       responseKey: RESPONSE_KEY,
     });
-    const out = await t.call("request_restore_version", { projectId: "proj-1", versionId: "v1" });
+    const out = await t.call("request_restore_version", { project: "proj-1", versionId: "v1" });
     // The kernel ONLY triggers the proposal — exactly one control RPC, no join/write.
     expect(calls).toEqual([
       { op: "request_restore_version", params: { projectId: "proj-1", versionId: "v1" } },
@@ -586,7 +685,7 @@ describe("control-mode content tools — registration + dispatch (#1 slice 1)", 
       controlRoom: CONTROL_ROOM,
       responseKey: RESPONSE_KEY,
     });
-    const out = await t.call("request_restore_version", { projectId: "proj-1", versionId: "v1" });
+    const out = await t.call("request_restore_version", { project: "proj-1", versionId: "v1" });
     expect(out.isError).toBeUndefined();
     const json = JSON.parse(out.content[0]!.text) as { status: string };
     expect(json.status).toBe("no_changes");
@@ -603,7 +702,7 @@ describe("control-mode content tools — registration + dispatch (#1 slice 1)", 
       controlRoom: CONTROL_ROOM,
       responseKey: RESPONSE_KEY,
     });
-    const out = await t.call("request_restore_version", { projectId: "proj-1", versionId: "v1" });
+    const out = await t.call("request_restore_version", { project: "proj-1", versionId: "v1" });
     expect(out.isError).toBe(true);
     expect(out.content[0]!.text).toMatch(/Settings → Agent Access/);
   });
@@ -624,7 +723,7 @@ describe("control-mode content tools — registration + dispatch (#1 slice 1)", 
       controlRoom: CONTROL_ROOM,
       responseKey: RESPONSE_KEY,
     });
-    const out = await t.call("request_restore_version", { projectId: "proj-1", versionId: "v1" });
+    const out = await t.call("request_restore_version", { project: "proj-1", versionId: "v1" });
     // NOT an error result — a structured status the agent can branch on.
     expect(out.isError).toBeUndefined();
     const json = JSON.parse(out.content[0]!.text) as { status: string; message: string };
@@ -647,12 +746,12 @@ describe("control-mode content tools — registration + dispatch (#1 slice 1)", 
       controlRoom: CONTROL_ROOM,
       responseKey: RESPONSE_KEY,
     });
-    const out = await t.call("request_restore_version", { projectId: "proj-1", versionId: "v1" });
+    const out = await t.call("request_restore_version", { project: "proj-1", versionId: "v1" });
     expect(out.isError).toBe(true);
     expect(out.content[0]!.text).toContain("invalid response");
   });
 
-  it("a successful open_project RETIRES the content tools before registering the per-project set", async () => {
+  it("a successful open_project preserves the entire static tool list without retiring content tools", async () => {
     let openCalls = 0;
     const rpc = async (op: string): Promise<ControlRpcOutcome> => {
       if (op === "open_project") {
@@ -683,36 +782,23 @@ describe("control-mode content tools — registration + dispatch (#1 slice 1)", 
       joinProject: () => fakeSession,
       projectReadyTimeoutMs: 100,
     });
-    const result = await t.call("open_project", { projectId: "proj-1" });
+    const before = t.names().sort();
+    const result = await t.call("open_project", { project: "proj-1" });
     expect(result.isError).not.toBe(true);
-    // The content tools were removed (so the duplicate-refusing fake did not
-    // throw when the per-project tools claimed list_files / read_file)…
-    expect(t.removed.sort()).toEqual([
-      "list_bibliography",
-      "list_files",
-      "list_version_files",
-      "read_file",
-      "read_version_file",
-      "request_restore_version",
-      "search_project",
+    expect(t.removed).toEqual([]);
+    expect(t.names().sort()).toEqual(before);
+    expect(before).toEqual([
+      "compile", "create_project", "export_compiled", "list_bibliography", "list_files",
+      "list_projects", "list_version_files", "list_versions", "open_project", "project_context",
+      "propose_edit", "propose_files", "read_file", "read_version_file", "request_restore_version",
+      "save_artifact", "search_project",
     ]);
-    // …and the per-project tools are registered in their place.
-    for (const name of ["read_document", "list_files", "read_file", "project_context", "propose_edit", "propose_files", "compile"]) {
-      expect(t.names()).toContain(name);
-    }
-    expect(t.names()).not.toContain("search_project");
-    // list_bibliography has NO per-project equivalent (accepted asymmetry) — it is
-    // retired on bind and does not come back on the per-project surface.
-    expect(t.names()).not.toContain("list_bibliography");
-    expect(t.names()).not.toContain("list_version_files");
-    expect(t.names()).not.toContain("read_version_file");
-    expect(t.names()).not.toContain("request_restore_version");
-    const reused = await t.call("open_project", { projectId: "proj-1" });
+    const reused = await t.call("open_project", { project: "proj-1" });
     expect(JSON.parse(reused.content[0]!.text)).toMatchObject({
       status: "opened", projectId: "proj-1", mainFile: "/main.typ", reused: true,
     });
     expect(openCalls).toBe(1);
-    const other = await t.call("open_project", { projectId: "proj-other" });
+    const other = await t.call("open_project", { project: "proj-other" });
     expect(JSON.parse(other.content[0]!.text).status).toBe("already_open");
     expect(openCalls).toBe(1);
   });
@@ -753,7 +839,7 @@ describe("control-mode content tools — registration + dispatch (#1 slice 1)", 
       },
       projectReadyTimeoutMs: 100,
     });
-    const result = await t.call("open_project", { projectId: "proj-1" });
+    const result = await t.call("open_project", { project: "proj-1" });
     expect(result.isError).not.toBe(true);
     // The kernel joins the room CARRYING the full signing scope — Task 4 derives
     // the per-grant signing key from these: grantId + controlRoom + projectId +
@@ -796,7 +882,7 @@ describe("control-mode content tools — registration + dispatch (#1 slice 1)", 
       },
       projectReadyTimeoutMs: 100,
     });
-    const result = await t.call("open_project", { projectId: "proj-1" });
+    const result = await t.call("open_project", { project: "proj-1" });
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toMatch(/grantId/);
     expect(joined).toBe(false); // never joined a room with a malformed grant
@@ -852,9 +938,9 @@ describe("control-mode content tools — registration + dispatch (#1 slice 1)", 
       projectReadyTimeoutMs: 100,
       // NO compileService → the browser fallback is wired.
     });
-    const opened = await t.call("open_project", { projectId: "proj-1" });
+    const opened = await t.call("open_project", { project: "proj-1" });
     expect(opened.isError).not.toBe(true);
-    const result = await t.call("compile", {});
+    const result = await t.call("compile", { project: "proj-1" });
     expect(result.isError).not.toBe(true);
     // The compile RPC went to the browser for the BOUND project.
     expect(calls).toEqual([{ op: "compile", params: { projectId: "proj-1" } }]);
@@ -891,8 +977,8 @@ describe("control-mode content tools — registration + dispatch (#1 slice 1)", 
       projectReadyTimeoutMs: 100,
       compileService: loopback,
     });
-    await t.call("open_project", { projectId: "proj-1" });
-    const result = await t.call("compile", {});
+    await t.call("open_project", { project: "proj-1" });
+    const result = await t.call("compile", { project: "proj-1" });
     const payload = JSON.parse(result.content[0]!.text) as { status: string; source: string; pageCount: number | null };
     expect(payload.status).toBe("ok");
     expect(payload.source).toBe("loopback");
@@ -1031,7 +1117,7 @@ function captureExportTool(deps: ExportCompiledToolDeps): {
   registerExportCompiledTool(fakeServer, deps);
   return {
     exportCompiled: () =>
-      tools.get("export_compiled")!({}) as Promise<{ content: { text: string }[]; isError?: boolean }>,
+      tools.get("export_compiled")!({ project: "p" }) as Promise<{ content: { text: string }[]; isError?: boolean }>,
   };
 }
 
@@ -1156,15 +1242,25 @@ describe("export_compiled (A1) — the kernel both-must-match handshake", () => 
     const blob = fakeBlobSession();
     const rpc = async (op: string, params: Record<string, unknown>): Promise<ControlRpcOutcome> => {
       expect(op).toBe("export_compiled");
+      expect(params["projectId"]).toBe("p");
       expect(params["transferId"]).toBe(MINT);
       // Simulate the browser pushing the bytes under the SAME transferId BEFORE it
       // returns the descriptor (the reservation is already live).
       blob.deliver({ bytes: new Uint8Array([1, 2, 3]), hash: HASH, size: 3, mime: "application/pdf", transferId: MINT });
       return { ok: true, result: { transferId: MINT, hash: HASH, size: 3, mime: "application/pdf" } };
     };
-    const { exportCompiled } = captureExportTool({ rpc, blob, projectId: "p", mintTransferId: () => MINT });
+    const resolved: string[] = [];
+    const { exportCompiled } = captureExportTool({
+      rpc,
+      blob: (project) => {
+        resolved.push(project);
+        return blob;
+      },
+      mintTransferId: () => MINT,
+    });
     const res = await exportCompiled();
     expect(blob.connected()).toBe(true);
+    expect(resolved).toEqual(["p"]);
     expect(res.isError).toBeFalsy();
     const out = JSON.parse(res.content[0]!.text);
     expect(out).toMatchObject({ status: "exported", hash: HASH, size: 3, mime: "application/pdf" });
@@ -1182,8 +1278,7 @@ describe("export_compiled (A1) — the kernel both-must-match handshake", () => 
     };
     const { exportCompiled } = captureExportTool({
       rpc,
-      blob,
-      projectId: "p",
+      blob: () => blob,
       mintTransferId: () => MINT,
       timeoutMs: 30,
     });
@@ -1200,7 +1295,7 @@ describe("export_compiled (A1) — the kernel both-must-match handshake", () => 
   it("FAILS CLOSED + releases the reservation on an RPC refusal", async () => {
     const blob = fakeBlobSession();
     const rpc = async (): Promise<ControlRpcOutcome> => ({ ok: false, error: "consent-required" });
-    const { exportCompiled } = captureExportTool({ rpc, blob, projectId: "p", mintTransferId: () => MINT });
+    const { exportCompiled } = captureExportTool({ rpc, blob: () => blob, mintTransferId: () => MINT });
     const res = await exportCompiled();
     expect(res.isError).toBe(true);
     expect(blob.reservations()).toEqual([]); // released
@@ -1215,8 +1310,7 @@ describe("export_compiled (A1) — the kernel both-must-match handshake", () => 
     });
     const { exportCompiled } = captureExportTool({
       rpc,
-      blob,
-      projectId: "p",
+      blob: () => blob,
       mintTransferId: () => MINT,
       timeoutMs: 30,
     });
@@ -1232,7 +1326,7 @@ describe("export_compiled (A1) — the kernel both-must-match handshake", () => 
       ok: true,
       result: { transferId: "other-id", hash: HASH, size: 3, mime: "application/pdf" },
     });
-    const { exportCompiled } = captureExportTool({ rpc, blob, projectId: "p", mintTransferId: () => MINT });
+    const { exportCompiled } = captureExportTool({ rpc, blob: () => blob, mintTransferId: () => MINT });
     const res = await exportCompiled();
     expect(res.isError).toBe(true);
     expect(res.content[0]!.text).toMatch(/different transfer/);
@@ -1248,8 +1342,7 @@ describe("export_compiled (A1) — the kernel both-must-match handshake", () => 
     };
     const { exportCompiled } = captureExportTool({
       rpc,
-      blob,
-      projectId: "p",
+      blob: () => blob,
       mintTransferId: () => MINT,
       timeoutMs: 30,
     });
@@ -1266,7 +1359,7 @@ describe("export_compiled (A1) — the kernel both-must-match handshake", () => 
       blob.deliver({ bytes: new Uint8Array([5]), hash: HASH, size: 1, mime: "application/pdf", transferId: MINT });
       return { ok: false, error: "declined" };
     };
-    const { exportCompiled } = captureExportTool({ rpc, blob, projectId: "p", mintTransferId: () => MINT });
+    const { exportCompiled } = captureExportTool({ rpc, blob: () => blob, mintTransferId: () => MINT });
     const res = await exportCompiled();
     expect(res.isError).toBe(true);
     // The buffered candidate is drained on the failure exit — no orphan, no reservation.
@@ -1280,7 +1373,7 @@ describe("export_compiled (A1) — the kernel both-must-match handshake", () => 
       ok: true,
       result: { transferId: MINT, hash: HASH, size: 3, mime: "text/plain" },
     });
-    const { exportCompiled } = captureExportTool({ rpc, blob, projectId: "p", mintTransferId: () => MINT });
+    const { exportCompiled } = captureExportTool({ rpc, blob: () => blob, mintTransferId: () => MINT });
     const res = await exportCompiled();
     expect(res.isError).toBe(true);
     expect(res.content[0]!.text).toMatch(/invalid response/);
@@ -1296,7 +1389,7 @@ describe("export_compiled (A1) — the kernel both-must-match handshake", () => 
       blob.deliver({ bytes: new Uint8Array([1, 2, 3]), hash: HASH, size: 3, mime: "application/pdf", transferId: MINT });
       return { ok: true, result: { transferId: MINT, hash: HASH, size: 3, mime: "application/pdf" } };
     };
-    const { exportCompiled } = captureExportTool({ rpc, blob, projectId: "p", mintTransferId: () => MINT });
+    const { exportCompiled } = captureExportTool({ rpc, blob: () => blob, mintTransferId: () => MINT });
     const res = await exportCompiled();
     expect(res.isError).toBeFalsy();
     expect(JSON.parse(res.content[0]!.text)).toMatchObject({ status: "exported", hash: HASH, size: 3 });
@@ -1319,8 +1412,7 @@ describe("export_compiled (A1) — the kernel both-must-match handshake", () => 
     };
     const { exportCompiled } = captureExportTool({
       rpc,
-      blob,
-      projectId: "p",
+      blob: () => blob,
       mintTransferId: () => MINT,
       timeoutMs: 200,
     });
@@ -1336,7 +1428,7 @@ describe("export_compiled (A1) — the kernel both-must-match handshake", () => 
       blob.deliver({ bytes: new Uint8Array([1, 2, 3]), hash: HASH, size: 3, mime: "application/pdf", transferId: MINT });
       return { ok: true, result: { transferId: MINT, hash: HASH, size: 3, mime: "application/pdf" } };
     };
-    const { exportCompiled } = captureExportTool({ rpc, blob, projectId: "p", mintTransferId: () => MINT });
+    const { exportCompiled } = captureExportTool({ rpc, blob: () => blob, mintTransferId: () => MINT });
     const res = await exportCompiled();
     expect(res.isError).toBeFalsy();
     const out = JSON.parse(res.content[0]!.text);
@@ -1431,7 +1523,7 @@ describe("save_artifact (F11) — write held artifact bytes to local disk", () =
       captured.path = path;
       captured.data = data;
     };
-    const { saveArtifact } = captureSaveArtifactTool({ blob, writeFile });
+    const { saveArtifact } = captureSaveArtifactTool({ blob: () => blob, writeFile });
 
     const res = await saveArtifact({ hash: HASH, destPath: DEST });
     expect(res.isError).toBeFalsy();
@@ -1445,13 +1537,26 @@ describe("save_artifact (F11) — write held artifact bytes to local disk", () =
     expect(second.content[0]!.text).toMatch(/run export_compiled first/);
   });
 
+  it("FAILS CLOSED before a blob session is attached and never writes", async () => {
+    let wrote = false;
+    const { saveArtifact } = captureSaveArtifactTool({
+      blob: () => undefined,
+      writeFile: async () => { wrote = true; },
+    });
+    const res = await saveArtifact({ hash: HASH, destPath: DEST });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toMatch(/no held artifact with that hash/);
+    expect(res.content[0]!.text).toMatch(/run export_compiled first/);
+    expect(wrote).toBe(false);
+  });
+
   it("FAILS CLOSED on an unknown hash and never writes", async () => {
     const blob = fakeHashBlobSession(); // nothing seeded
     let wrote = false;
     const writeFile = async (): Promise<void> => {
       wrote = true;
     };
-    const { saveArtifact } = captureSaveArtifactTool({ blob, writeFile });
+    const { saveArtifact } = captureSaveArtifactTool({ blob: () => blob, writeFile });
 
     const res = await saveArtifact({ hash: HASH, destPath: DEST });
     expect(res.isError).toBe(true);
@@ -1469,7 +1574,7 @@ describe("save_artifact (F11) — write held artifact bytes to local disk", () =
       if (attempts === 1) throw new Error("EACCES: permission denied, open '/root/x.pdf'");
       captured.data = data;
     };
-    const { saveArtifact } = captureSaveArtifactTool({ blob, writeFile });
+    const { saveArtifact } = captureSaveArtifactTool({ blob: () => blob, writeFile });
 
     const res = await saveArtifact({ hash: HASH, destPath: "/root/x.pdf" });
     expect(res.isError).toBe(true);
