@@ -65,15 +65,27 @@ importers:
       '@galley/agent':
         specifier: workspace:*
         version: link:../../packages/agent
+      '@galley/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@galley/collab':
         specifier: workspace:*
         version: link:../../packages/collab
+      '@galley/persistence':
+        specifier: workspace:*
+        version: link:../../packages/persistence
       '@galley/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@hono/node-server':
+        specifier: ^1.13.0
+        version: 1.19.14(hono@4.12.26)
       '@modelcontextprotocol/sdk':
         specifier: ^1.32.2
         version: 1.32.2(zod@4.6.7)
+      hono:
+        specifier: ^4.12.25
+        version: 4.12.26
       tsx:
         specifier: ^4.19.0
         version: 4.22.4

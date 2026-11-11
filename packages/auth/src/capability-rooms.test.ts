@@ -602,6 +602,28 @@ describe("connector rooms (ADR-0033)", () => {
     expect((await connect(store, { roomId: room(2), projectId: "p1" })).status).toBe(200);
   });
 
+  it("keeps the project's name as a label, on connector rooms only", async () => {
+    const store = new MemStore();
+    await connect(store, { roomId: room(1), projectId: "p1", projectName: "My novel" });
+    expect(store.map.get(room(1))?.projectName).toBe("My novel");
+    expect(await listConnectedProjects(store, "alice", NOW)).toEqual([
+      { roomId: room(1), projectId: "p1", name: "My novel", reviewMode: "ask", connectedAtMs: NOW },
+    ]);
+    for (const projectName of ["", "x".repeat(121), "two\nlines", 7])
+      expect(
+        (await connect(store, { roomId: room(2), projectId: "p2", projectName })).status,
+      ).toBe(400);
+    expect(
+      (
+        await register(
+          store,
+          { roomId: room(3), kind: "share", projectName: "nope" },
+          { allowConnector: true },
+        )
+      ).status,
+    ).toBe(400);
+  });
+
   it("caps the number of connected projects", async () => {
     const store = new MemStore();
     for (let i = 0; i < MAX_ACTIVE_CONNECTOR_ROOMS_PER_USER; i++)

@@ -29,6 +29,7 @@ TARGETS=(
   "$K8S_DIR/overlays/auth"
   "$K8S_DIR/overlays/auth-compile"
   "$K8S_DIR/overlays/auth-compile-registry"
+  "$K8S_DIR/overlays/auth-compile-connector"
 )
 
 # --- pick a renderer ---------------------------------------------------------

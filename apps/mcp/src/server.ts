@@ -16,9 +16,17 @@ import { isAbsolute as pathIsAbsolute } from "node:path";
 import type { CompileService } from "./compile-client.js";
 import { READ_LIMITS, type ToolSurface } from "./surface.js";
 import {
-  summarizeListTruncation,
-  summarizeContextTruncation,
-} from "./truncation-summary.js";
+  compileServiceResult,
+  errorResult,
+  jsonResult,
+  listFilesResult,
+  projectContextResult,
+  readFileResult,
+  textOrJson,
+  textResult,
+  withLiveness,
+  type ToolResult,
+} from "./read-tools.js";
 import type { Liveness } from "./session.js";
 
 /**
@@ -153,22 +161,7 @@ const NO_PROJECT_RESULT = {
   message: "call open_project first",
 } as const;
 
-export type ToolResult = {
-  content: { type: "text"; text: string }[];
-  isError?: boolean;
-};
-
-export function textResult(text: string): ToolResult {
-  return { content: [{ type: "text", text }] };
-}
-
-export function jsonResult(value: unknown): ToolResult {
-  return textResult(JSON.stringify(value, null, 2));
-}
-
-export function errorResult(message: string): ToolResult {
-  return { isError: true, content: [{ type: "text", text: message }] };
-}
+export { textResult, jsonResult, errorResult, type ToolResult };
 
 /**
  * The honesty note (ADR-0024 §1) attached to a propose_* result when no browser
@@ -397,23 +390,6 @@ export function registerProjectTools(
     return att;
   };
 
-  // ADR-0024 §1 honesty helpers, resolved per call. When a liveness provider is
-  // present on the live attachment, EVERY per-project result carries the current
-  // room status; when ABSENT (the surface-only fixtures), results are
-  // byte-for-byte as before.
-  //
-  // - `withLiveness` merges the field into a JSON payload (read at send time so
-  //   it reflects the live roster).
-  // - `textOrJson` keeps the historical PLAIN-TEXT read result when there is no
-  //   liveness provider, and upgrades to a `{ text, liveness }` JSON sidecar when
-  //   there is (a read must never imply a browser is attached — ADR-0024 §1).
-  const withLiveness = (
-    att: ProjectAttachment,
-    value: Record<string, unknown>,
-  ): ToolResult =>
-    jsonResult(att.liveness === undefined ? value : { ...value, liveness: att.liveness() });
-  const textOrJson = (att: ProjectAttachment, text: string): ToolResult =>
-    att.liveness === undefined ? textResult(text) : jsonResult({ text, liveness: att.liveness() });
 
   server.registerTool(
     "read_document",
@@ -448,22 +424,7 @@ export function registerProjectTools(
     async () => {
       const att = await attached();
       if (att === undefined) return jsonResult(NO_PROJECT_RESULT);
-      const listed = att.surface.listFiles();
-      if (!listed.ok) return errorResult(`list_files: ${listed.error}`);
-      // D1: one human-readable line when the listing was cut (entry cap, hidden
-      // forged paths, or sizes reported as lower bounds). Null ⇒ omitted, so a
-      // complete listing's result is byte-for-byte unchanged.
-      const truncationSummary = summarizeListTruncation({
-        truncated: listed.truncated,
-        omitted: listed.omitted,
-        inexactSizes: listed.files.filter((f) => !f.sizeExact).length,
-      });
-      return withLiveness(att, {
-        files: listed.files,
-        truncated: listed.truncated,
-        omitted: listed.omitted,
-        ...(truncationSummary !== null ? { truncationSummary } : {}),
-      });
+      return listFilesResult(att);
     },
   );
 
@@ -488,26 +449,7 @@ export function registerProjectTools(
     async ({ path }) => {
       const att = await attached();
       if (att === undefined) return jsonResult(NO_PROJECT_RESULT);
-      // ALL read_file bounding lives in the surface (Security round 2): the
-      // byte cap is enforced BEFORE the text is materialized (O(1) length
-      // pre-check), duplicate-path conflicts are a structured refusal, and
-      // hostile path echoes come back JSON-escaped. The tool layer only
-      // relays the structured outcome.
-      const read = att.surface.readFile(path);
-      if (!read.ok) return errorResult(`read_file: ${read.error}`);
-      // A3: a binary file has no text — return its structured pointer
-      // ({ kind:"binary", path, hash, size, mime }) so the agent learns it is
-      // binary + its content-address, without bytes (no transport for them yet).
-      if ("kind" in read) {
-        return withLiveness(att, {
-          kind: "binary",
-          path: read.path,
-          hash: read.hash,
-          size: read.size,
-          mime: read.mime,
-        });
-      }
-      return textOrJson(att, read.text);
+      return readFileResult(att, path);
     },
   );
 
@@ -542,34 +484,7 @@ export function registerProjectTools(
     async ({ query, budget }) => {
       const att = await attached();
       if (att === undefined) return jsonResult(NO_PROJECT_RESULT);
-      // ALL context bounding lives in the surface (the read_file pattern): the
-      // metadata-first scan, the per-file cap, the cumulative materialization
-      // budget, and the response budget are enforced there — the tool layer
-      // only relays the structured outcome. Surface errors echo no
-      // caller-controlled text (the query is ranking input, never an echo).
-      const ctx = att.surface.projectContext(query, budget);
-      if (!ctx.ok) return errorResult(`project_context: ${ctx.error}`);
-      // D1: one human-readable line aggregating what was left out of the ranking
-      // / selection (file cap, hidden forged paths, per-reason skips, response
-      // budget). Null ⇒ omitted, so an untruncated result is unchanged.
-      const truncationSummary = summarizeContextTruncation({
-        omitted: ctx.omitted,
-        filesTruncated: ctx.filesTruncated,
-        scanTruncated: ctx.scanTruncated,
-        chunksTruncated: ctx.chunksTruncated,
-        selectionTruncated: ctx.selectionTruncated,
-        skippedReasons: ctx.skipped.map((s) => s.reason),
-      });
-      return withLiveness(att, {
-        excerpts: ctx.excerpts,
-        skipped: ctx.skipped,
-        omitted: ctx.omitted,
-        filesTruncated: ctx.filesTruncated,
-        scanTruncated: ctx.scanTruncated,
-        chunksTruncated: ctx.chunksTruncated,
-        selectionTruncated: ctx.selectionTruncated,
-        ...(truncationSummary !== null ? { truncationSummary } : {}),
-      });
+      return projectContextResult(att, query, budget);
     },
   );
 
@@ -1259,31 +1174,7 @@ export function registerProjectTools(
           return errorResult(`compile: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
-      const input = att.surface.compileInput();
-      if (typeof input === "object" && input !== null && "error" in input) {
-        return errorResult(`compile: ${input.error}`);
-      }
-      try {
-        const check = await compileService.check(input);
-        return withLiveness(att, {
-          status: "ok",
-          // ADDITIVE (F9): symmetry with the browser-routed path so an agent can
-          // tell which diagnostics source answered.
-          source: "loopback",
-          ok: check.ok,
-          pageCount: check.pageCount,
-          diagnostics: check.diagnostics,
-          durationMs: check.durationMs,
-          // ADDITIVE (D3): when the compile produced output bytes, surface a
-          // descriptor (size + sha256 + mime) so the agent knows the build
-          // genuinely succeeded and how big it is. Omitted on a failed/empty
-          // compile or a service that predates the field.
-          ...(check.artifact !== undefined ? { artifact: check.artifact } : {}),
-        });
-      } catch (err) {
-        // Honest message, no stack: the client sees what failed, not our internals.
-        return errorResult(`compile: ${err instanceof Error ? err.message : String(err)}`);
-      }
+      return compileServiceResult(att, compileService, "loopback");
     },
   );
 }

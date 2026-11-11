@@ -83,6 +83,12 @@ export interface CapabilityRoomRecord {
   projectId?: string;
   /** Connector rooms only: the grant's review mode. Absent reads as `"ask"`. */
   reviewMode?: ConnectorReviewMode;
+  /**
+   * Connector rooms only: the project's name when it was connected, so the
+   * connector can tell an AI client which project is which. A label, never an
+   * identifier: it is not kept in step with later renames.
+   */
+  projectName?: string;
   /** Tombstone marker: set on revoke, never cleared. */
   revokedAtMs?: number;
   revokedBy?: string;

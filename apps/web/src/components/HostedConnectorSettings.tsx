@@ -75,7 +75,7 @@ export function HostedConnectorSettings() {
     ...local,
     ...elsewhere.map((c) => ({
       id: c.projectId,
-      name: `${c.projectId} (not on this device)`,
+      name: `${c.name ?? c.projectId} (not on this device)`,
     })),
   ];
 
@@ -91,9 +91,10 @@ export function HostedConnectorSettings() {
         connect one here.
       </p>
       <p className="settings-note" data-testid="hosted-connector-status-note">
-        This release keeps the server copy and issues access tokens. The address
-        an AI client connects to arrives in a following release, so a token
-        cannot be used yet.
+        This release lets an AI client <strong>read</strong> a connected
+        project: list its files, read them, search them and compile. Proposing
+        and applying changes arrive in a following release, so Ask and Auto have
+        no effect yet.
       </p>
       <p className="settings-note">
         <strong>Ask</strong>: a change from the connector waits for you to
@@ -133,7 +134,9 @@ export function HostedConnectorSettings() {
                     data-testid="hosted-connector-connect"
                     data-project-id={p.id}
                     disabled={busy !== null}
-                    onClick={() => void run(p.id, () => connectProject(p.id))}
+                    onClick={() =>
+                      void run(p.id, () => connectProject(p.id, p.name))
+                    }
                   >
                     Connect
                   </button>
@@ -205,7 +208,9 @@ function ConnectorTokens() {
   const [days, setDays] = useState(LIFETIMES[0]!.days);
   // The secret of the token just created. Lives only in this component.
   const [secret, setSecret] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"token" | "address" | null>(null);
+  // The connector answers on this site, at /mcp.
+  const endpoint = `${window.location.origin}/mcp`;
 
   const refresh = async () => {
     const listed = await listConnectorTokens();
@@ -227,7 +232,7 @@ function ConnectorTokens() {
 
   const create = async () => {
     setSecret(null);
-    setCopied(false);
+    setCopied(null);
     setBusy(true);
     setError(null);
     const result = await createConnectorToken(name.trim(), days);
@@ -239,11 +244,13 @@ function ConnectorTokens() {
     setBusy(false);
   };
 
-  const copy = async () => {
+  const copy = async (what: "token" | "address") => {
     if (secret === null) return;
     try {
-      await navigator.clipboard.writeText(secret);
-      setCopied(true);
+      await navigator.clipboard.writeText(
+        what === "token" ? secret : `${endpoint}/${secret}`,
+      );
+      setCopied(what);
     } catch {
       // Clipboard can be blocked; the token stays selectable in the field.
     }
@@ -257,6 +264,12 @@ function ConnectorTokens() {
         Create one per client, so each can be revoked on its own. Treat it like
         a password: anyone holding it can read those projects, and change them
         where a project is set to Auto.
+      </p>
+      <p className="settings-note" data-testid="connector-endpoint">
+        The connector's address is <code>{endpoint}</code>. A client that can
+        send a header uses that address with <code>Authorization: Bearer</code>{" "}
+        and the token. A chat app that only takes an address gets the token
+        inside it; that form is offered once, when you create a token.
       </p>
       {error !== null && (
         <p
@@ -348,9 +361,32 @@ function ConnectorTokens() {
               type="button"
               className="settings-primary"
               data-testid="connector-token-copy"
-              onClick={() => void copy()}
+              onClick={() => void copy("token")}
             >
-              {copied ? "Copied" : "Copy"}
+              {copied === "token" ? "Copied" : "Copy"}
+            </button>
+          </div>
+          <p className="settings-note">
+            For a chat app that only takes an address, paste this one instead.
+            It contains the token, so treat the whole address as the password.
+          </p>
+          <div className="settings-identity-row">
+            <input
+              type="text"
+              readOnly
+              autoComplete="off"
+              aria-label="Connector address with the token"
+              data-testid="connector-token-address"
+              value={`${endpoint}/${secret}`}
+              onFocus={(e) => e.currentTarget.select()}
+            />
+            <button
+              type="button"
+              className="settings-primary"
+              data-testid="connector-token-address-copy"
+              onClick={() => void copy("address")}
+            >
+              {copied === "address" ? "Copied" : "Copy"}
             </button>
           </div>
         </>

@@ -122,8 +122,21 @@ room to be **registered and active**:
   person's connected projects **at the time of each call**, so disconnecting
   a project removes it from every token at once. It expires (90 days by
   default, at most 365) and revoking it deletes the record. Because some chat
-  clients cannot send a header, the connector will also accept the token in
+  clients cannot send a header, the connector also accepts the token in
   the URL path; treat the whole connector address as a secret there.
+- **The connector service** is the one component that answers the open
+  internet with no browser session. Its rules: `POST /mcp` only; every request
+  is authenticated before anything else and a missing, malformed, unknown,
+  expired or revoked token, or one whose account is closed, gets the same
+  `401`; no session is kept, so a revoked token or a disconnected project
+  stops at the next request; a project is named by its id and resolved against
+  the caller's own connected projects on every call, so a guessed id or a
+  leaked room id opens nothing; it reaches a project only by joining its room
+  on the relay as a peer, and reads the data volume read-only; the only
+  addresses it dials are the operator-configured relay and compile service;
+  request bodies are capped at 1 MiB and concurrent calls at 8; it logs no
+  request line, since the path may be a token, and no document text. In this
+  release it registers read tools only.
 - **Authorization at the upgrade, never per message** — the relay's order is:
   parse room → Origin policy (an absent Origin proceeds only for a capability
   room, preserving the cookie-less Node kernel; browsers always send Origin

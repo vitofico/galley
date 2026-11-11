@@ -1,0 +1,24 @@
+# +auth +compile +connector overlay — base PLUS OIDC login, the sandbox-only
+# compile service, and the hosted connector (ADR-0033): an MCP endpoint at /mcp
+# for AI clients, working with no Galley tab open. Apply with:
+#
+#   kubectl apply -k deploy/k8s/overlays/auth-compile-connector
+#
+# The connector requires auth. Compile is optional for it: to leave compile out,
+# drop that component here and remove GALLEY_CONNECTOR_COMPILE_URL from
+# components/connector/connector.yaml.
+#
+# Before applying: everything the auth overlay asks for, plus the host in the
+# connector Ingress (components/connector/connector.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: galley
+
+resources:
+  - ../../base
+
+components:
+  - ../../components/auth
+  - ../../components/compile
+  - ../../components/connector

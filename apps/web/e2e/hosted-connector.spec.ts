@@ -144,6 +144,10 @@ test("enabled: a token is created, shown once, listed without its secret, and re
   await create.click();
 
   await expect(page.getByTestId("connector-token-secret")).toHaveValue(secret);
+  // The paste-ready address for chat apps that cannot send a header.
+  await expect(page.getByTestId("connector-token-address")).toHaveValue(
+    new RegExp(`^https?://[^/]+/mcp/${secret}$`),
+  );
   await expect(page.getByTestId("connector-token-created")).toContainText(
     "only this once",
   );
