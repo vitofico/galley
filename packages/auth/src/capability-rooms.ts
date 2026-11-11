@@ -435,7 +435,12 @@ export async function listConnectedProjects(
       connectedAtMs: r.createdAtMs,
     });
   }
-  return out.sort((a, b) => a.connectedAtMs - b.connectedAtMs);
+  // Oldest first; two connected in the same millisecond keep a fixed order
+  // instead of the directory listing's.
+  return out.sort(
+    (a, b) =>
+      a.connectedAtMs - b.connectedAtMs || (a.roomId < b.roomId ? -1 : 1),
+  );
 }
 
 export interface SetConnectorReviewModeInput {

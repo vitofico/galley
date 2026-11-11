@@ -21,7 +21,7 @@
  *
  * Testid/behavior contract preserved from the toolbar era: `preview-zoom-level`
  * shows "NNN%", buttons keep their accessible names ("Zoom out", "Zoom in",
- * "Fit width"), zoom persists, and 100% renders no transform (no data-zoomed).
+ * "Fit width"), zoom persists, and 100% renders un-zoomed (no data-zoomed).
  */
 import { useEffect, useRef, type RefObject } from "react";
 import "./preview-zoom.css";

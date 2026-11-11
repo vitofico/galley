@@ -3,7 +3,7 @@
  * floating bottom-center pill over the preview pane that auto-fades when idle
  * (see ZoomPill.tsx for the wake/sleep contract). Scoped class names only,
  * design tokens only (no hardcoded colors). At 100% the page wrapper carries
- * no transform, so the rendered preview is byte-for-byte unchanged.
+ * no zoom rule, so the rendered preview is byte-for-byte unchanged.
  */
 
 /* The non-scrolling positioning context the pill floats in; the scrolling
@@ -146,9 +146,24 @@
   background: var(--line);
 }
 
-/* The page wrapper scales around its top-center; the .preview container's
- * overflow:auto provides pan when the scaled page exceeds the viewport. */
-.preview-page[data-zoomed="true"] {
-  transform: scale(var(--preview-zoom, 1));
-  transform-origin: top center;
+/* Zoom is LAYOUT, not a transform: a zoomed page gets a real width, so the
+ * pane's scroll range always covers all of it. (A `transform: scale()` only
+ * repainted the pixels: scaled about the centre it pushed the left of the page
+ * out of the scroll range, and Chromium stopped growing that range after the
+ * first zoom step, so a zoomed page could not be panned at all.)
+ *
+ * The zoom is relative to what 100% shows: the page at actual size, or shrunk to
+ * the pane when the pane is narrower (`max-width: 100%` in styles.css). That
+ * base is min(page width, pane width); `--preview-page-w` is the page's actual
+ * width (set by Preview.tsx) and `100cqw` is the pane's content width. */
+.preview {
+  container-type: inline-size;
+}
+.preview-page[data-zoomed="true"],
+.preview-page[data-zoomed="true"] .preview-page-frame {
+  max-width: none;
+}
+.preview-page[data-zoomed="true"] :where(svg) {
+  width: calc(min(var(--preview-page-w, 100cqw), 100cqw) * var(--preview-zoom, 1));
+  max-width: none;
 }

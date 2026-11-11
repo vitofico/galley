@@ -334,14 +334,21 @@ test("real stdio kernel reuses one approval and uploads a mixed binary project",
     await client.listTools();
     const { projects } = await call("list_projects");
     const projectId = projects[0].projectId;
-    const opening = call("open_project", { projectId });
+    const project = projectId;
+    const readMain = () => call("read_file", { project, path: "/main.typ" });
+    // The tool list is static: it is the same before and after a project opens.
+    const toolsBefore = (await client.listTools()).tools.map((t: { name: string }) => t.name);
+    expect(await call("propose_edit", { project, path: "/main.typ", request: "too early", edits: [
+      { search: "x", replace: "y" },
+    ] })).toMatchObject({ status: "no_project_attached" });
+    const opening = call("open_project", { project });
     await expect(page.getByTestId("agent-open-consent")).toBeVisible();
     await page.getByTestId("agent-open-consent-auto").check();
     await page.getByTestId("agent-open-consent-background").check();
     await page.getByTestId("agent-open-consent-approve").click();
     expect((await opening).status).toBe("opened");
-    await client.listTools();
-    expect(await call("open_project", { projectId })).toMatchObject({ status: "opened", reused: true });
+    expect((await client.listTools()).tools.map((t: { name: string }) => t.name)).toEqual(toolsBefore);
+    expect(await call("open_project", { project })).toMatchObject({ status: "opened", reused: true });
     await expect(page.getByTestId("agent-open-consent")).toBeHidden();
 
     // A name refresh replaces awareness presence; it must retain Auto ownership.
@@ -350,12 +357,12 @@ test("real stdio kernel reuses one approval and uploads a mixed binary project",
     await page.getByTestId("share-display-name-save").click();
     await page.getByTestId("share-button").click();
 
-    const before = await call("read_document");
-    await call("propose_edit", { request: "First kernel single-file edit", edits: [
+    const before = await readMain();
+    await call("propose_edit", { project, path: "/main.typ", request: "First kernel single-file edit", edits: [
       { search: before.text, replace: before.text + "\n// First kernel sequence check\n" },
     ] });
-    await expect.poll(async () => (await call("read_document")).text).toContain("First kernel sequence check");
-    const original = await call("read_document");
+    await expect.poll(async () => (await readMain()).text).toContain("First kernel sequence check");
+    const original = await readMain();
     const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
     const pdf = Buffer.from("%PDF-1.4\n%%EOF\n");
     const font = await readFile(fileURLToPath(new URL("../public/fonts/NewCMMath-Book.otf", import.meta.url)));
@@ -365,6 +372,7 @@ test("real stdio kernel reuses one approval and uploads a mixed binary project",
       { path: "/CV.pdf", bytes: pdf },
     ];
     const proposal = await call("propose_files", {
+      project,
       request: "Import a Typst document with its photo, font and PDF in one approval",
       ops: [
         { kind: "edit", path: "/main.typ", edits: [{ search: original.text, replace: '= CV import\n#image("photo.png")\n' }] },
@@ -375,7 +383,7 @@ test("real stdio kernel reuses one approval and uploads a mixed binary project",
     for (const asset of assets) {
       const hash = createHash("sha256").update(asset.bytes).digest("hex");
       await expect.poll(async () => {
-        const result = await client.callTool({ name: "read_file", arguments: { path: asset.path } });
+        const result = await client.callTool({ name: "read_file", arguments: { project, path: asset.path } });
         if (result.isError) return null;
         return JSON.parse(result.content[0].text).hash;
       }).toBe(hash);
@@ -387,19 +395,19 @@ test("real stdio kernel reuses one approval and uploads a mixed binary project",
     client = new Client({ name: "galley-reconnect-e2e", version: "1.0.0" });
     await client.connect(makeTransport());
     await client.listTools();
-    expect((await call("open_project", { projectId })).status).toBe("opened");
-    await client.listTools();
+    expect((await call("open_project", { project })).status).toBe("opened");
     await expect(page.getByTestId("agent-open-consent")).toBeHidden();
-    expect((await call("read_document")).text).toContain("= CV import");
-    await call("propose_edit", { request: "Fresh kernel single-file edit without tab reload", edits: [
+    expect((await readMain()).text).toContain("= CV import");
+    await call("propose_edit", { project, path: "/main.typ", request: "Fresh kernel single-file edit without tab reload", edits: [
       { search: "CV import", replace: "CV import resumed" },
     ] });
-    await expect.poll(async () => (await call("read_document")).text).toContain("CV import resumed");
+    await expect.poll(async () => (await readMain()).text).toContain("CV import resumed");
     await page.getByTestId("share-button").click();
     await page.getByTestId("share-display-name").fill("CV reconnected host");
     await page.getByTestId("share-display-name-save").click();
     await page.getByTestId("share-button").click();
     await call("propose_files", {
+      project,
       request: "Reuse the approved project after reconnect",
       ops: [
         {
@@ -415,15 +423,15 @@ test("real stdio kernel reuses one approval and uploads a mixed binary project",
       ],
     });
     await expect
-      .poll(async () => (await call("read_document")).text)
+      .poll(async () => (await readMain()).text)
       .toContain("CV reconnected");
-    expect((await call("read_file", { path: "/fonts/renamed.otf" })).hash).toBe(
+    expect((await call("read_file", { project, path: "/fonts/renamed.otf" })).hash).toBe(
       createHash("sha256").update(font).digest("hex"),
     );
     await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, {
       timeout: 60_000,
     });
-    expect(await call("compile")).toMatchObject({
+    expect(await call("compile", { project })).toMatchObject({
       ok: true,
       source: "browser",
     });

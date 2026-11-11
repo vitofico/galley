@@ -228,6 +228,35 @@ test("capture: narrow editor (light)", async ({ page }) => {
   await page.screenshot({ path: `${SHOTS}/editor-narrow.png`, fullPage: true });
 });
 
+// The phone layout (390px, touch): the page a phone opens on, and a proposal
+// waiting for Accept/Reject in the agent tab.
+test.describe("phone", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+  for (const theme of ["light", "dark"] as const) {
+    test(`capture: phone preview (${theme})`, async ({ page }) => {
+      await gotoEditor(page);
+      await settle(page);
+      await setTheme(page, theme);
+      await freeze(page);
+      await page.waitForTimeout(150);
+      await page.screenshot({ path: `${SHOTS}/phone-preview-${theme}.png` });
+    });
+  }
+
+  test("capture: phone agent proposal (light)", async ({ page }) => {
+    await gotoEditor(page);
+    await settle(page);
+    await page.locator('[data-testid="tab"][data-tab="agent"]').click();
+    await page.getByTestId("agent-send").click();
+    await expect(page.getByTestId("diff-review")).toBeVisible({ timeout: 90_000 });
+    await page.getByTestId("accept").scrollIntoViewIfNeeded();
+    await freeze(page);
+    await page.waitForTimeout(150);
+    await page.screenshot({ path: `${SHOTS}/phone-agent-proposal.png` });
+  });
+});
+
 // Wave-1 closeout surfaces (#6 citation paste, E2 compile-mode, #18.5 focus mode).
 const BIBTEX_SHOT = `@article{knuth1984,
   title = {Literate Programming},

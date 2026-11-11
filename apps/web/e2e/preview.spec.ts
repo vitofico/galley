@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { gotoEditor } from "./app-helpers.js";
+import { gotoEditor, suppressCoachOverlay } from "./app-helpers.js";
 
 /**
  * M0 acceptance e2e: the editor → live preview loop works in a real browser with
@@ -39,12 +39,17 @@ test("preview 'fit' follows a pane resize (B16)", async ({ page }) => {
   // observe. A wide viewport puts the fitted zoom well inside the unclamped band
   // (~90%), leaving headroom for a narrowing drag to drop it meaningfully (to
   // ~65%) while staying above the 50% floor — a genuine re-fit, not a clamp.
+  //
+  // The zoom is relative to what 100% shows, and 100% already shrinks a page
+  // wider than the pane to the pane: such a page "fits" at exactly 100% and a
+  // resize has nothing to recompute. So this uses the demo's A5 page (~560px),
+  // NARROWER than the pane, where the fitted zoom is a real number above 100%.
   await page.setViewportSize({ width: 2560, height: 1440 });
-  await gotoEditor(page);
+  await suppressCoachOverlay(page);
+  await page.goto("/?seed=einstein");
   await expect(page.getByTestId("status")).toHaveText(/page\(s\)/, { timeout: 60_000 });
   await expect(page.locator('[data-testid="preview"] svg').first()).toBeVisible();
 
-  const preview = page.getByTestId("preview");
   const zoomLevel = page.getByTestId("preview-zoom-level");
 
   // Read the current "NNN%" as a number (the readout stays in the DOM even when
@@ -83,7 +88,7 @@ test("preview 'fit' follows a pane resize (B16)", async ({ page }) => {
   let fitted = 0;
   await expect
     .poll(async () => (fitted = await readZoom()), { timeout: 10_000 })
-    .toBeGreaterThan(0);
+    .toBeGreaterThan(100);
 
   // Drag the editor|preview splitter to the RIGHT, widening the editor and so
   // NARROWING the preview pane. SplitPanes only mutates `--col-*` CSS variables —

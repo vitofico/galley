@@ -5,8 +5,8 @@
  * The zoom controls live in a floating bottom-center `ZoomPill` (#19.3) that
  * auto-fades when idle; it sits OUTSIDE the scroll container (in the
  * `.preview-host` wrapper) so it floats over the page regardless of scroll.
- * Zoom is applied as a CSS transform on `.preview-page` and persisted to
- * localStorage. At the default 100% the page carries no transform, so the
+ * Zoom sizes the page (a real width, see preview-zoom.css) and is persisted to
+ * localStorage. At the default 100% the page carries no zoom rule, so the
  * rendered DOM/visual is byte-for-byte identical to the un-zoomed pane — the
  * e2e suite depends on this and on the data-testid / class hooks below.
  */
@@ -37,7 +37,7 @@ import "./preview-zoom.css";
 import "./preview-source-map.css";
 import { ZoomPill } from "./ZoomPill.js";
 import { sanitizeCompiledSvg } from "./sanitize-svg.js";
-import { scaleSvgToPhysicalPx } from "./preview-svg-size.js";
+import { PT_TO_CSS_PX, scaleSvgToPhysicalPx } from "./preview-svg-size.js";
 import { insertPageSeparators } from "./preview-page-separators.js";
 import { pageAnchor, anchorY, type PageAnchor } from "./preview-orientation.js";
 import { previewScrollTarget } from "./preview-scroll.js";
@@ -191,7 +191,7 @@ export function Preview({
   // Fit-width: scale so the rendered page fills the available container width.
   // Memoized so the resize-driven auto-fit effect (B16) can depend on a stable
   // reference; `zoom` is read live so the layout-width back-out uses the current
-  // transform scale.
+  // zoom scale.
   const fitWidth = useCallback(() => {
     const container = previewRef.current;
     const page = pageRef.current;
@@ -222,7 +222,10 @@ export function Preview({
           ? svgLayoutW
           : page.offsetWidth || avail;
     if (natural <= 0 || avail <= 0) return;
-    setZoom(clampZoom((avail / natural) * 100));
+    // Zoom is relative to what 100% shows, and 100% already shrinks a page that
+    // is wider than the pane to the pane. So such a page fits AT 100%; scaling
+    // by avail/natural on top of that shrink left it smaller than the pane.
+    setZoom(clampZoom((avail / Math.min(natural, avail)) * 100));
   }, [zoom]);
 
   const atActual = isActualSize(zoom);
@@ -253,10 +256,10 @@ export function Preview({
 
   // Scroll the highlighted region into view when it changes. The region rect is in
   // Typst POINTS; rather than reconstruct its on-screen position from points (which
-  // must track the SVG's `max-width` shrink AND the zoom transform), read the live
+  // must track the SVG's `max-width` shrink AND the zoom), read the live
   // rendered geometry of the SVG frame and map the rect into it as a fraction of
-  // the viewBox. `getBoundingClientRect` already folds in the shrink, the zoom
-  // transform, and the page offset, so the target stays consistent with the overlay
+  // the viewBox. `getBoundingClientRect` already folds in the shrink, the zoom,
+  // and the page offset, so the target stays consistent with the overlay
   // at any pane width. Best-effort: bails if refs/region/docSize are absent, never
   // disturbs scrolling when forward-sync is off.
   useEffect(() => {
@@ -345,8 +348,8 @@ export function Preview({
   //
   // We map the DOM click to the page's document (SVG user-space) coordinates by
   // measuring the rendered <svg>'s live bounding rect and reading its viewBox.
-  // `getBoundingClientRect()` already reflects the applied zoom CSS transform
-  // (scale + `transform-origin: top center`) and the page's layout offset, so the
+  // `getBoundingClientRect()` already reflects the applied zoom (the page's
+  // zoomed width) and the page's layout offset, so the
   // fraction-of-rect → fraction-of-viewBox mapping inverts BOTH the zoom and the
   // offset without any manual matrix math — keeping it consistent with how the
   // page (and the forward-sync highlight inside it) is rendered.
@@ -385,13 +388,19 @@ export function Preview({
       }
     : {};
 
-  // Drive the CSS custom property used by the [data-zoomed] rule. Using a layout
-  // effect keeps the transform in sync before paint when the level changes.
+  // Drive the CSS custom properties used by the [data-zoomed] rule: the level,
+  // and the page's actual width (viewBox points -> CSS px) it multiplies. Using a
+  // layout effect keeps the page width in sync before paint when either changes.
   useLayoutEffect(() => {
     const page = pageRef.current;
     if (!page) return;
     page.style.setProperty("--preview-zoom", String(scale));
-  }, [scale, svg]);
+    if (docSize) {
+      page.style.setProperty("--preview-page-w", `${docSize.w * PT_TO_CSS_PX}px`);
+    } else {
+      page.style.removeProperty("--preview-page-w");
+    }
+  }, [scale, svg, docSize]);
 
   return (
     <div className="preview-host">
@@ -438,7 +447,7 @@ export function Preview({
                     // The rect is in Typst points (viewBox space). Express it as a
                     // percentage of the document so the overlay scales EXACTLY with
                     // the rendered SVG — both the `max-width` shrink (pane narrower
-                    // than the page) and the `.preview-page` zoom transform apply to
+                    // than the page) and the `.preview-page` zoom apply to
                     // the frame, and the overlay follows as a fraction of it.
                     style={{
                       left: `${(region.rect.x / docSize.w) * 100}%`,
