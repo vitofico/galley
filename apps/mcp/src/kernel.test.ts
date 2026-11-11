@@ -74,11 +74,12 @@ function browserPeer(room: string) {
  * A "background agent-apply HOST" peer (F13): a browser editor that carries a
  * normal `human` author but advertises the honest `agentWorker: true` presence
  * marker — so the kernel's liveness count must NOT treat it as a watching human.
- * It seeds the file like browserPeer so the room has content to apply against.
+ * It creates no file of its own: a second peer creating /main.typ would make
+ * two files share that path, which propose_edit refuses. It receives the
+ * project from the peer that seeded the room.
  */
 function workerPeer(room: string) {
   const project = new CollabProject();
-  project.create("/main.typ", "= Title\nbody\n", HUMAN);
   const url = `ws://127.0.0.1:${server.port}/${room}`;
   const connection = new CollabConnection(
     project,
@@ -112,14 +113,14 @@ function firstText(result: unknown): string {
 }
 
 describe("mcp kernel ⇄ real sync relay", () => {
-  it("read_document round-trips the replicated file text", async () => {
+  it("read_file round-trips the replicated file text", async () => {
     const room = "kernel-read";
     const browser = browserPeer(room);
     let session: KernelSession | undefined;
     try {
       const k = await kernelClient(room);
       session = k.session;
-      const result = await k.client.callTool({ name: "read_document", arguments: {} });
+      const result = await k.client.callTool({ name: "read_file", arguments: { project: "current", path: "/main.typ" } });
       expect(firstText(result)).toBe("= Title\nbody\n");
     } finally {
       session?.destroy();
@@ -139,6 +140,8 @@ describe("mcp kernel ⇄ real sync relay", () => {
       const result = await k.client.callTool({
         name: "propose_edit",
         arguments: {
+          project: "current",
+          path: "/main.typ",
           request: "Add a closing line",
           edits: [{ search: "body\n", replace: "body\nThe end.\n" }],
         },
@@ -174,7 +177,7 @@ describe("mcp kernel ⇄ real sync relay", () => {
       ]);
       // Kernel side: the only view it has is the read-only surface, and it
       // reports the same unchanged text.
-      const kernelRead = session.surface.readDocument();
+      const kernelRead = session.surface.readFile("/main.typ");
       expect(kernelRead).toEqual({ ok: true, path: "/main.typ", text: "= Title\nbody\n" });
 
       // The browser's verdict replicates back to the kernel's surface.
@@ -198,7 +201,7 @@ describe("mcp kernel ⇄ real sync relay", () => {
       session = k.session;
 
       // The kernel sees the whole live project, not just its target file.
-      const listed = await k.client.callTool({ name: "list_files", arguments: {} });
+      const listed = await k.client.callTool({ name: "list_files", arguments: { project: "current" } });
       expect(JSON.parse(firstText(listed))).toEqual({
         files: [
           { path: "/main.typ", sizeBytes: 13, sizeExact: true, duplicate: false },
@@ -211,7 +214,7 @@ describe("mcp kernel ⇄ real sync relay", () => {
       // …and can read a sibling by exact path.
       const sibling = await k.client.callTool({
         name: "read_file",
-        arguments: { path: "/notes.typ" },
+        arguments: { project: "current", path: "/notes.typ" },
       });
       expect(sibling.isError).toBeFalsy();
       expect(firstText(sibling)).toBe("notes\n");
@@ -221,7 +224,7 @@ describe("mcp kernel ⇄ real sync relay", () => {
       browser.project.create("/huge.typ", "x".repeat(hugeBytes), HUMAN);
       await vi.waitFor(async () => {
         const again = JSON.parse(
-          firstText(await k.client.callTool({ name: "list_files", arguments: {} })),
+          firstText(await k.client.callTool({ name: "list_files", arguments: { project: "current" } })),
         ) as { files: { path: string; sizeBytes: number; sizeExact: boolean }[] };
         expect(again.files).toContainEqual({
           path: "/huge.typ",
@@ -234,7 +237,7 @@ describe("mcp kernel ⇄ real sync relay", () => {
       // …but a read of it is REFUSED within bounds — never an unbounded dump.
       const refused = await k.client.callTool({
         name: "read_file",
-        arguments: { path: "/huge.typ" },
+        arguments: { project: "current", path: "/huge.typ" },
       });
       expect(refused.isError).toBe(true);
       expect(firstText(refused)).toContain("read cap");
@@ -257,7 +260,7 @@ describe("mcp kernel ⇄ real sync relay", () => {
       // A query about the sibling's topic surfaces ITS text, with provenance.
       const result = await k.client.callTool({
         name: "project_context",
-        arguments: { query: "notes" },
+        arguments: { project: "current", query: "notes" },
       });
       expect(result.isError).toBeFalsy();
       const payload = JSON.parse(firstText(result)) as {
@@ -280,7 +283,7 @@ describe("mcp kernel ⇄ real sync relay", () => {
       await vi.waitFor(async () => {
         const again = await k.client.callTool({
           name: "project_context",
-          arguments: { query: "notes" },
+          arguments: { project: "current", query: "notes" },
         });
         const p = JSON.parse(firstText(again)) as { skipped: { path: string; reason: string }[] };
         expect(p.skipped).toContainEqual({ path: "/huge.typ", reason: "over-cap" });
@@ -290,7 +293,7 @@ describe("mcp kernel ⇄ real sync relay", () => {
       // never a dump of the oversized file.
       const after = await k.client.callTool({
         name: "project_context",
-        arguments: { query: "notes" },
+        arguments: { project: "current", query: "notes" },
       });
       const text = firstText(after);
       expect(text.length).toBeLessThan(20_000);
@@ -316,7 +319,7 @@ describe("mcp kernel ⇄ real sync relay", () => {
       };
       const k = await kernelClient(room, { compileService: fake });
       session = k.session;
-      const result = await k.client.callTool({ name: "compile", arguments: {} });
+      const result = await k.client.callTool({ name: "compile", arguments: { project: "current" } });
       const payload = JSON.parse(firstText(result)) as { status: string; pageCount: number };
       expect(payload.status).toBe("ok");
       expect(payload.pageCount).toBe(1);
@@ -391,7 +394,7 @@ describe("mcp kernel ⇄ real sync relay", () => {
       // While the seeder (a human) is present, list_files carries browserAttached:true.
       await vi.waitFor(async () => {
         const listed = JSON.parse(
-          firstText(await client.callTool({ name: "list_files", arguments: {} })),
+          firstText(await client.callTool({ name: "list_files", arguments: { project: "current" } })),
         ) as { liveness: { browserAttached: boolean } };
         expect(listed.liveness.browserAttached).toBe(true);
       }, settle);
@@ -405,7 +408,7 @@ describe("mcp kernel ⇄ real sync relay", () => {
 
       const result = await client.callTool({
         name: "propose_edit",
-        arguments: { request: "x", edits: [{ search: "body\n", replace: "body!\n" }] },
+        arguments: { project: "current", path: "/main.typ", request: "x", edits: [{ search: "body\n", replace: "body!\n" }] },
       });
       const payload = JSON.parse(firstText(result)) as {
         status: string;
@@ -428,8 +431,8 @@ describe("mcp kernel ⇄ real sync relay", () => {
     const room = "kernel-liveness-worker";
     let session: KernelSession | undefined;
     try {
-      // Seed the file with a short-lived human, then drop it; the worker (which
-      // also seeds /main.typ) stays attached for the assertions.
+      // Seed the file with a short-lived human, then drop it; the worker stays
+      // attached for the assertions.
       const seeder = browserPeer(room);
       const worker = workerPeer(room);
       const k = await kernelClient(room);
@@ -455,7 +458,7 @@ describe("mcp kernel ⇄ real sync relay", () => {
 
       const result = await client.callTool({
         name: "propose_edit",
-        arguments: { request: "x", edits: [{ search: "body\n", replace: "body!\n" }] },
+        arguments: { project: "current", path: "/main.typ", request: "x", edits: [{ search: "body\n", replace: "body!\n" }] },
       });
       const payload = JSON.parse(firstText(result)) as {
         status: string;

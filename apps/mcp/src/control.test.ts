@@ -26,7 +26,7 @@ import { startFakeControlResponder, type FakeResponderOptions } from "./fake-con
  *   MCP client ⇄ kernel control session ⇄ real ws relay ⇄ fake browser responder
  *
  * The headline pin: control-room pairing → list_projects → open_project → the
- * kernel JOINS the project room the browser minted → read_document serves the
+ * kernel JOINS the project room the browser minted → read_file serves the
  * project's text — the full ADR-0021 handoff to the existing 16.1/16.2
  * machinery. Plus the hostile cases: silence (timeout), forged oversized
  * responses, malformed bodies, room/syncUrl redirect attempts.
@@ -159,7 +159,7 @@ describe("mcp kernel control mode ⇄ real relay ⇄ fake browser responder", ()
     try {
       const result = await k.client.callTool({
         name: "list_versions",
-        arguments: { projectId: "proj-aaaa" },
+        arguments: { project: "proj-aaaa" },
       });
       expect(JSON.parse(firstText(result))).toEqual({
         projectId: "proj-aaaa",
@@ -172,7 +172,7 @@ describe("mcp kernel control mode ⇄ real relay ⇄ fake browser responder", ()
 
       const unknown = await k.client.callTool({
         name: "list_versions",
-        arguments: { projectId: "proj-nope" },
+        arguments: { project: "proj-nope" },
       });
       expect(unknown.isError).toBe(true);
       // MEDIUM-3: even this VERIFIED browser refusal surfaces only as the
@@ -206,7 +206,7 @@ describe("mcp kernel control mode ⇄ real relay ⇄ fake browser responder", ()
     try {
       const out = await k.client.callTool({
         name: "request_restore_version",
-        arguments: { projectId: "proj-aaaa", versionId: "ver-1" },
+        arguments: { project: "proj-aaaa", versionId: "ver-1" },
       });
       // The status reached the agent — NOT the generic "the responder refused" line.
       expect(out.isError).toBeFalsy();
@@ -231,7 +231,7 @@ describe("mcp kernel control mode ⇄ real relay ⇄ fake browser responder", ()
     });
     const k = await controlClient(room);
     try {
-      const result = await k.client.callTool({ name: "open_project", arguments: { projectId: "proj-aaaa" } });
+      const result = await k.client.callTool({ name: "open_project", arguments: { project: "proj-aaaa" } });
       expect(JSON.parse(firstText(result))).toMatchObject({
         status: "open_required", projectId: "proj-aaaa", projectPath: "/p/proj-aaaa",
       });
@@ -258,7 +258,7 @@ describe("mcp kernel control mode ⇄ real relay ⇄ fake browser responder", ()
     });
     const k = await controlClient(room);
     try {
-      const result = await k.client.callTool({ name: "open_project", arguments: { projectId: "proj-aaaa" } });
+      const result = await k.client.callTool({ name: "open_project", arguments: { project: "proj-aaaa" } });
       expect(result.isError).toBe(true);
       expect(firstText(result)).toMatch(expected);
       // The browser's own wording never reaches the MCP client.
@@ -292,7 +292,7 @@ describe("mcp kernel control mode ⇄ real relay ⇄ fake browser responder", ()
     try {
       const out = await k.client.callTool({
         name: "request_restore_version",
-        arguments: { projectId: "proj-aaaa", versionId: "ver-1" },
+        arguments: { project: "proj-aaaa", versionId: "ver-1" },
       });
       expect(out.isError).toBe(true);
       expect(firstText(out)).toMatch(/Settings → Agent Access/);
@@ -307,13 +307,12 @@ describe("mcp kernel control mode ⇄ real relay ⇄ fake browser responder", ()
     const responder = startFakeControlResponder({ syncUrl, controlRoom: room, projects: PROJECTS, responseKey: RESPONSE_KEY });
     const k = await controlClient(room);
     try {
-      // Before the open, the per-project tools are NOT served — the control
-      // surface is the metadata trio plus the consent-gated content tools
-      // (#1 slice 1: search_project / list_files / read_file; B4:
-      // list_version_files / read_version_file, all projectId-keyed).
+      // The complete tool list is registered before any project is open.
       const before = (await k.client.listTools()).tools.map((t) => t.name).sort();
       expect(before).toEqual([
+        "compile",
         "create_project",
+        "export_compiled",
         "galley_ping",
         "list_bibliography",
         "list_files",
@@ -321,18 +320,25 @@ describe("mcp kernel control mode ⇄ real relay ⇄ fake browser responder", ()
         "list_version_files",
         "list_versions",
         "open_project",
+        "project_context",
+        "propose_edit",
+        "propose_files",
         "read_file",
         "read_version_file",
         "request_restore_version",
+        "save_artifact",
         "search_project",
       ]);
-      const missing = await k.client.callTool({ name: "read_document", arguments: {} });
-      expect(missing.isError).toBe(true);
-      expect(firstText(missing)).toContain("not found");
+      const missing = await k.client.callTool({ name: "compile", arguments: { project: "proj-aaaa" } });
+      expect(missing.isError).toBeFalsy();
+      expect(JSON.parse(firstText(missing))).toEqual({
+        status: "no_project_attached",
+        message: "Call open_project with this project first; a person approves it in Galley.",
+      });
 
       const opened = await k.client.callTool({
         name: "open_project",
-        arguments: { projectId: "proj-aaaa" },
+        arguments: { project: "proj-aaaa" },
       });
       expect(opened.isError).toBeFalsy();
       const payload = JSON.parse(firstText(opened)) as { status: string; mainFile: string };
@@ -344,28 +350,12 @@ describe("mcp kernel control mode ⇄ real relay ⇄ fake browser responder", ()
       expect([...responder.openedRooms.keys()]).toHaveLength(1);
       expect([...responder.openedRooms.keys()][0]).toMatch(/^share-/);
 
-      // …and the EXISTING per-project machinery now serves the six tools there.
-      // The control-mode content tools are RETIRED on bind (#1 slice 1): the
-      // per-project set owns list_files/read_file from here on, and
-      // search_project is gone — pinned by the exact list below.
+      // Opening a project changes dispatch, never registration.
       const after = (await k.client.listTools()).tools.map((t) => t.name).sort();
-      expect(after).toEqual([
-        "compile",
-        "create_project",
-        "galley_ping",
-        "list_files",
-        "list_projects",
-        "list_versions",
-        "open_project",
-        "project_context",
-        "propose_edit",
-        "propose_files",
-        "read_document",
-        "read_file",
-      ]);
-      // ADR-0024 §1: the open_project path wires honest liveness, so read_document
+      expect(after).toEqual(before);
+      // ADR-0024 §1: the open_project path wires honest liveness, so read_file
       // now returns a { text, liveness } sidecar (a read must never imply a watcher).
-      const read = await k.client.callTool({ name: "read_document", arguments: {} });
+      const read = await k.client.callTool({ name: "read_file", arguments: { project: "proj-aaaa", path: "/main.typ" } });
       const readPayload = JSON.parse(firstText(read)) as {
         text: string;
         liveness: { relayConnected: boolean; browserAttached: boolean };
@@ -373,7 +363,7 @@ describe("mcp kernel control mode ⇄ real relay ⇄ fake browser responder", ()
       expect(readPayload.text).toBe("= Paper A\nbody\n");
       expect(typeof readPayload.liveness.relayConnected).toBe("boolean");
       expect(typeof readPayload.liveness.browserAttached).toBe("boolean");
-      const listed = await k.client.callTool({ name: "list_files", arguments: {} });
+      const listed = await k.client.callTool({ name: "list_files", arguments: { project: "proj-aaaa" } });
       expect(JSON.parse(firstText(listed)).files.map((f: { path: string }) => f.path)).toEqual([
         "/main.typ",
         "/notes.typ",
@@ -391,13 +381,13 @@ describe("mcp kernel control mode ⇄ real relay ⇄ fake browser responder", ()
     try {
       const first = await k.client.callTool({
         name: "open_project",
-        arguments: { projectId: "proj-aaaa" },
+        arguments: { project: "proj-aaaa" },
       });
       expect(JSON.parse(firstText(first)).status).toBe("opened");
 
       const second = await k.client.callTool({
         name: "open_project",
-        arguments: { projectId: "proj-bbbb" },
+        arguments: { project: "proj-bbbb" },
       });
       expect(JSON.parse(firstText(second))).toMatchObject({
         status: "already_open",
@@ -519,7 +509,7 @@ describe("mcp kernel control mode ⇄ real relay ⇄ fake browser responder", ()
       try {
         const result = await k.client.callTool({
           name: "open_project",
-          arguments: { projectId: "proj-aaaa" },
+          arguments: { project: "proj-aaaa" },
         });
         expect(result.isError).toBe(true);
         expect(firstText(result)).toMatch(want);
@@ -530,10 +520,13 @@ describe("mcp kernel control mode ⇄ real relay ⇄ fake browser responder", ()
         expect(firstText(result)).not.toContain(room);
         expect(firstText(result)).not.toContain(syncUrl);
         expect(firstText(result)).not.toContain("attacker.example");
-        // The handoff was refused BEFORE any join: no per-project tools exist.
-        const missing = await k.client.callTool({ name: "read_document", arguments: {} });
-        expect(missing.isError).toBe(true);
-        expect(firstText(missing)).toContain("not found");
+        // The handoff was refused BEFORE any join: the static tools stay unattached.
+        const missing = await k.client.callTool({ name: "compile", arguments: { project: "proj-aaaa" } });
+        expect(missing.isError).toBeFalsy();
+        expect(JSON.parse(firstText(missing))).toEqual({
+          status: "no_project_attached",
+          message: "Call open_project with this project first; a person approves it in Galley.",
+        });
       } finally {
         k.destroy();
         responder.stop();
@@ -567,7 +560,7 @@ describe("mcp kernel control mode ⇄ real relay ⇄ fake browser responder", ()
     try {
       const result = await k.client.callTool({
         name: "open_project",
-        arguments: { projectId: "proj-aaaa" },
+        arguments: { project: "proj-aaaa" },
       });
       expect(result.isError).toBe(true);
       expect(firstText(result)).toMatch(/DIFFERENT project/);
@@ -604,7 +597,7 @@ describe("mcp kernel control mode ⇄ real relay ⇄ fake browser responder", ()
     try {
       const result = await k.client.callTool({
         name: "open_project",
-        arguments: { projectId: "proj-aaaa" },
+        arguments: { project: "proj-aaaa" },
       });
       expect(result.isError).toBe(true);
       expect(firstText(result)).toMatch(/unsafe mainFile/);
@@ -638,7 +631,7 @@ describe("mcp kernel control mode ⇄ real relay ⇄ fake browser responder", ()
     try {
       const result = await k.client.callTool({
         name: "open_project",
-        arguments: { projectId: "proj-aaaa" },
+        arguments: { project: "proj-aaaa" },
       });
       expect(result.isError).toBe(true);
       const text = firstText(result);
@@ -800,7 +793,7 @@ describe("mcp kernel control mode — response authentication (HIGH-1)", () => {
     try {
       const opened = await k.client.callTool({
         name: "open_project",
-        arguments: { projectId: "proj-aaaa" },
+        arguments: { project: "proj-aaaa" },
       });
       expect(opened.isError).toBeFalsy();
       expect(JSON.parse(firstText(opened))).toMatchObject({ status: "opened" });

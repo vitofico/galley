@@ -1,6 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { applyEdits } from "@galley/agent";
 import {
   PROPOSAL_LIMITS,
   proposalSizeViolation,
@@ -10,14 +9,13 @@ import {
   sha256Hex,
   type FileProposalOp,
 } from "@galley/collab";
-import type { Diagnostic, EditBlock } from "@galley/shared";
+import type { Diagnostic } from "@galley/shared";
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
 import { isAbsolute as pathIsAbsolute } from "node:path";
 import type { CompileService } from "./compile-client.js";
 import {
   buildTextOp,
   claimPath,
-  describeEditFailures,
   TEXT_OP_SCHEMAS,
 } from "./propose-build.js";
 import { READ_LIMITS, type ToolSurface } from "./surface.js";
@@ -28,7 +26,6 @@ import {
   listFilesResult,
   projectContextResult,
   readFileResult,
-  textOrJson,
   textResult,
   withLiveness,
   type ToolResult,
@@ -36,48 +33,39 @@ import {
 import type { Liveness } from "./session.js";
 
 /**
- * The Galley MCP local kernel (#16.1, ADR-0020).
+ * The Galley MCP local kernel (#16.1, ADR-0020): the LOCAL BRIDGE.
  *
  * A LOCAL stdio MCP server that joins a shared project's Yjs room as a peer
- * (session.ts) and exposes the three sacred tools over a WRAPPED capability
- * surface (surface.ts) that can only read file text and write pending-proposal
- * records:
+ * (session.ts) and serves its tools over a WRAPPED capability surface
+ * (surface.ts) that can only read file text and write pending-proposal records.
  *
- *   - `read_document` reads the scoped file from the replicated project.
- *   - `list_files` / `read_file` (#16.2a) give READ-ONLY single-project
- *     context: list the live files (path + size) and read any of them by
- *     exact path. Responses are bounded by READ_LIMITS (surface.ts) — an
- *     over-cap file is refused with an honest error, never dumped — and the
- *     WRITE scope is unchanged: `propose_edit` still targets only the
- *     session's one configured file.
- *   - `project_context` (#16.2b) is retrieval-aware READ-ONLY context across
- *     the WHOLE project: structural chunks ranked against a query (BM25, the
- *     in-app agent's retrieval substrate) and selected under a response
- *     budget, with provenance (path + line range + heading path) and honest
- *     skip/truncation accounting. Work AND output are hard-bounded
- *     (READ_LIMITS): metadata-first scan, per-file cap, cumulative
- *     materialization budget, excerpt count cap.
- *   - `propose_edit` NEVER mutates file text: it applies the agent's
- *     search/replace contract (`applyEdits` — unique-match, all-or-nothing) to
- *     a scratch copy and publishes a pending-proposal record into the shared
- *     mailbox. The browser's mandatory DiffReview Accept gate is the only path
- *     that can land it; the kernel returns `pending_review` and waits for a
- *     human.
- *   - `compile` POSTs the document to the explicitly configured loopback
- *     compile service and relays its diagnostics; unconfigured → a structured
- *     `not_configured` result.
+ * The project tools carry the SAME names and input shapes as the hosted
+ * connector's (hosted/tools.ts, ADR-0033 §5), so one set of instructions works
+ * on both ways in: every call names its `project`, a projectId from
+ * `list_projects`.
  *
- * Without `tools` (no joined room) the server exposes only the `galley_ping`
- * liveness tool — an unconfigured kernel has no document surface to serve.
- * Failure discipline: operational failures (file missing, service down) are
- * `isError` results with an honest one-line message — never a stack; contract
- * failures from `propose_edit` (`no_match` etc.) are structured DATA the
- * client model uses to retry, exactly like the in-app agent loop.
+ *   - `list_files` / `read_file` (#16.2a): READ-ONLY context, bounded by
+ *     READ_LIMITS (surface.ts). An over-cap file is refused, never dumped.
+ *   - `project_context` (#16.2b): retrieval-aware READ-ONLY context across the
+ *     whole project, with provenance and honest skip/truncation accounting.
+ *   - `propose_edit` / `propose_files` NEVER mutate file text: they apply the
+ *     agent's search/replace contract to a scratch copy and publish a
+ *     pending-proposal record. The browser's review gate (or its own
+ *     auto-accept, ADR-0023) is the only path that can land it.
+ *   - `compile` type-checks through the configured loopback compile service,
+ *     else through the paired browser's preview compiler.
+ *
+ * The tool list is STATIC: a tool whose project this session is not attached
+ * to answers with a structured refusal, never by disappearing. Without `tools`
+ * (no joined room) the server exposes only `galley_ping`. Failure discipline:
+ * operational failures are `isError` results with an honest one-line message,
+ * never a stack; contract failures (`edit_failed` etc.) are structured DATA the
+ * client model uses to retry.
  */
 export const GALLEY_MCP_SERVER_NAME = "galley";
 export const GALLEY_MCP_SERVER_VERSION = "0.0.0";
 
-/** The document capabilities the three sacred tools serve (absent = ping only). */
+/** What serves one attached project's tools (absent = ping only). */
 export interface KernelTools {
   surface: ToolSurface;
   /** The compile seam; absent → `compile` reports `not_configured`. */
@@ -148,24 +136,38 @@ export interface KernelTools {
   releaseBinary?: (hashes: { hash: string; size: number }[]) => Promise<void>;
 }
 
-/**
- * The live project binding a STATIC per-project tool resolves at call time
- * (ADR-0024 §2). It is exactly {@link KernelTools} by shape, but the static
- * surface reads it through a `() => ProjectAttachment | undefined` provider so
- * the tools stay registered (and the tool list stays byte-stable across
- * reconnect/teardown) while the project they serve attaches and detaches.
- */
+/** The live binding of one project to this session. Same shape as {@link KernelTools}. */
 export type ProjectAttachment = KernelTools;
 
 /**
- * The structured idle result a STATIC per-project tool returns when no project
- * is attached (ADR-0024 §2): non-throwing DATA, never a missing tool. `compile`
- * keeps its own `not_configured` (it has always been a structured no-op).
+ * Find what serves the project a call names (ADR-0033 §5: every call names its
+ * project). Answers with the attachment, or with the result to send back when
+ * this session does not serve that project. Read on every call, so the STATIC
+ * tool list follows a project attaching and detaching.
  */
-const NO_PROJECT_RESULT = {
-  status: "no_project_attached",
-  message: "call open_project first",
-} as const;
+export type ProjectLookup = (
+  project: string,
+  tool: string,
+) => ProjectAttachment | { refusal: ToolResult };
+
+export interface ProjectToolOptions {
+  /**
+   * Read a project this session is NOT attached to. Control mode answers
+   * through the browser, under that project's file-access grant; without this
+   * seam the lookup's refusal is the answer.
+   */
+  readElsewhere?: (
+    tool: "list_files" | "read_file",
+    project: string,
+    params: Record<string, unknown>,
+  ) => Promise<ToolResult>;
+}
+
+/**
+ * The projectId `list_projects` gives the ONE project of a kernel started on a
+ * room (`--room`): the kernel knows the room, not the library's id for it.
+ */
+export const ROOM_PROJECT_ID = "current";
 
 export { textResult, jsonResult, errorResult, type ToolResult };
 
@@ -293,7 +295,7 @@ async function proposalDisposition(
       // "accepted" too, so don't claim the apply was automatic — only that the
       // document changed.
       message:
-        "Accepted in Galley — the document has changed; re-read it (read_document / list_files) to see the result.",
+        "Accepted in Galley — the document has changed; re-read it (read_file / list_files) to see the result.",
     });
   }
   if (resolution === "rejected") {
@@ -313,7 +315,7 @@ async function proposalDisposition(
     ...identity,
     message:
       "Published to Galley (no accepted/rejected verdict within 750ms). Auto-accept may still be in flight, " +
-      "or the proposal may await a manual Accept — re-check with read_document / list_files.",
+      "or the proposal may await a manual Accept — re-check with read_file / list_files.",
   });
 }
 
@@ -359,52 +361,60 @@ export function createGalleyMcpServer(tools?: KernelTools): McpServer {
   );
 
   if (tools === undefined) return server;
-  registerProjectTools(server, tools);
+  server.registerTool(
+    "list_projects",
+    {
+      title: "List the projects this session can reach",
+      description:
+        "Returns the one project this kernel was started on, as " +
+        `{ projectId: "${ROOM_PROJECT_ID}", mainFile }. Pass that projectId as \`project\` to the other tools.`,
+      inputSchema: {},
+    },
+    async () =>
+      jsonResult({
+        projects: [{ projectId: ROOM_PROJECT_ID, mainFile: tools.surface.filePath }],
+        truncated: false,
+      }),
+  );
+  registerProjectTools(server, (project, tool) =>
+    project === ROOM_PROJECT_ID
+      ? tools
+      : {
+          refusal: errorResult(
+            `${tool}: no project has that id. Call list_projects to see the one this session can reach.`,
+          ),
+        },
+  );
   return server;
 }
 
+/** The `project` every project tool takes, as on the hosted connector. */
+const projectParam = z
+  .string()
+  .min(1)
+  .max(256)
+  .describe("The projectId of the project to work on, as returned by list_projects.");
+
 /**
- * Register the per-project document tools for one joined session. Split out of
- * {@link createGalleyMcpServer} for control mode (#16.3a, ADR-0021): there the
- * kernel starts with only the control tools and registers THESE dynamically
- * after a successful `open_project` handed it a project room (the MCP SDK
- * notifies connected clients that the tool list changed).
+ * Register the project tools. The list is STATIC: `lookup` decides per call
+ * whether this session serves the named project, so the same tools answer
+ * before, during and after a project is attached (control mode, ADR-0021).
  */
 export function registerProjectTools(
   server: McpServer,
-  tools: KernelTools | (() => ProjectAttachment | undefined),
+  lookup: ProjectLookup,
+  options: ProjectToolOptions = {},
 ): void {
-  // The static surface (ADR-0024 §2) reads the live binding through a provider so
-  // the tools stay registered while the project attaches/detaches; the existing
-  // eager path passes a concrete {@link KernelTools}, which we wrap in a constant
-  // provider — one code path, byte-for-byte behavior for the eager callers.
-  const provider: () => ProjectAttachment | undefined =
-    typeof tools === "function" ? tools : () => tools;
   // Resolve the attachment for one call, first waiting out its readiness gate
   // (if any). A failed gate throws, which the SDK returns as an isError result.
-  const attached = async (): Promise<ProjectAttachment | undefined> => {
-    const att = provider();
-    await att?.whenReady?.();
-    return att;
+  const on = async (
+    project: string,
+    tool: string,
+  ): Promise<ProjectAttachment | { refusal: ToolResult }> => {
+    const found = lookup(project, tool);
+    if (!("refusal" in found)) await found.whenReady?.();
+    return found;
   };
-
-
-  server.registerTool(
-    "read_document",
-    {
-      title: "Read the Galley document",
-      description:
-        "Returns the current text of the session's target file from the live shared project.",
-      inputSchema: {},
-    },
-    async () => {
-      const att = await attached();
-      if (att === undefined) return jsonResult(NO_PROJECT_RESULT);
-      const read = att.surface.readDocument();
-      if (!read.ok) return errorResult(`read_document: ${read.error}`);
-      return textOrJson(att, read.text);
-    },
-  );
 
   server.registerTool(
     "list_files",
@@ -415,13 +425,14 @@ export function registerProjectTools(
         "(UTF-8 bytes when sizeExact, else a cheap lower bound), deterministic order; " +
         "duplicate-path conflicts are flagged per entry. BINARY files (images/PDFs) appear " +
         'too, carrying a { kind:"binary", hash, mime } pointer descriptor with an exact ' +
-        "sizeBytes — pass that path to read_file to get the pointer. Read-only context: edits " +
-        "still go through propose_edit and target only the session's file.",
-      inputSchema: {},
+        "sizeBytes — pass that path to read_file to get the pointer. Read-only: changes go " +
+        "through propose_edit / propose_files.",
+      inputSchema: { project: projectParam },
     },
-    async () => {
-      const att = await attached();
-      if (att === undefined) return jsonResult(NO_PROJECT_RESULT);
+    async ({ project }) => {
+      const att = await on(project, "list_files");
+      if ("refusal" in att)
+        return (await options.readElsewhere?.("list_files", project, {})) ?? att.refusal;
       return listFilesResult(att);
     },
   );
@@ -437,6 +448,7 @@ export function registerProjectTools(
         "A BINARY file (image/PDF) returns structured metadata { kind: \"binary\", path, hash, " +
         "size, mime } instead of text — its bytes are not available through this tool.",
       inputSchema: {
+        project: projectParam,
         path: z
           .string()
           .min(1)
@@ -444,9 +456,10 @@ export function registerProjectTools(
           .describe("Exact file path as returned by list_files, e.g. /notes.typ."),
       },
     },
-    async ({ path }) => {
-      const att = await attached();
-      if (att === undefined) return jsonResult(NO_PROJECT_RESULT);
+    async ({ project, path }) => {
+      const att = await on(project, "read_file");
+      if ("refusal" in att)
+        return (await options.readElsewhere?.("read_file", project, { path })) ?? att.refusal;
       return readFileResult(att, path);
     },
   );
@@ -463,6 +476,7 @@ export function registerProjectTools(
         "with a reason), and `selectionTruncated` reports when relevant chunks did not fit " +
         "the budget. Use read_file for a complete file.",
       inputSchema: {
+        project: projectParam,
         query: z
           .string()
           .min(1)
@@ -479,9 +493,9 @@ export function registerProjectTools(
           ),
       },
     },
-    async ({ query, budget }) => {
-      const att = await attached();
-      if (att === undefined) return jsonResult(NO_PROJECT_RESULT);
+    async ({ project, query, budget }) => {
+      const att = await on(project, "project_context");
+      if ("refusal" in att) return att.refusal;
       return projectContextResult(att, query, budget);
     },
   );
@@ -489,18 +503,25 @@ export function registerProjectTools(
   server.registerTool(
     "propose_edit",
     {
-      title: "Propose an edit (published for review)",
+      title: "Propose an edit to one file (published for review)",
       description:
-        "Applies search/replace edits to a scratch copy of the session's file and publishes the result " +
+        "Applies search/replace edits to a scratch copy of ONE existing text file and publishes the result " +
         "as a proposal. It never edits the document directly: the change is published for review — if this " +
         "project has agent auto-accept armed it may apply automatically (the response says status \"applied\"), " +
         "otherwise it awaits a human Accept in Galley. Inspect the returned `status` to know what happened. " +
-        "Each `search` must match the current text exactly once; failures come back as structured data " +
-        "(status: \"edit_failed\") — refine and retry.",
+        "Each `search` must match the file's current text exactly once; failures come back as structured data " +
+        "(status: \"edit_failed\") — refine and retry. To create, rename or delete files, or to change " +
+        "several at once, use propose_files.",
       inputSchema: {
         // Input caps mirror PROPOSAL_LIMITS (finding 1): the protocol boundary
         // rejects oversized requests before any work; the byte-exact check
         // below (proposalSizeViolation) is the authoritative second gate.
+        project: projectParam,
+        path: z
+          .string()
+          .min(1)
+          .max(READ_LIMITS.maxPathChars)
+          .describe("Exact path of the EXISTING file to edit (as listed by list_files)."),
         request: z
           .string()
           .min(1)
@@ -524,34 +545,27 @@ export function registerProjectTools(
           .describe("Search/replace blocks, applied in order against the running text."),
       },
     },
-    async ({ request, edits }) => {
-      const att = await attached();
-      if (att === undefined) return jsonResult(NO_PROJECT_RESULT);
+    async ({ project, path, request, edits }) => {
+      const att = await on(project, "propose_edit");
+      if ("refusal" in att) return att.refusal;
       const surface = att.surface;
-      const read = surface.readDocument();
-      if (!read.ok) return errorResult(`propose_edit: ${read.error}`);
-
-      const blocks: EditBlock[] = edits.map((e) => ({ search: e.search, replace: e.replace }));
-      // The agent edit contract, applied to a SCRATCH copy only (all-or-nothing,
-      // unique-match; apply-edits.ts). The live document is never touched here.
-      const result = applyEdits(read.text, blocks);
-      if (!result.ok) {
-        return withLiveness(att, {
-          status: "edit_failed",
-          message:
-            "No proposal was published: one or more blocks did not apply. Fix the failing blocks and retry.",
-          failures: describeEditFailures(result.failures),
-        });
-      }
+      // The path is caller-supplied: it passes the same in-tree safety gate as
+      // a propose_files op, and the edit is built by the code the hosted
+      // connector shares — on a SCRATCH copy, all-or-nothing, unique-match.
+      const seen = new Set<string>();
+      const pathRefusal = claimPath(seen, path);
+      if (pathRefusal !== null) return withLiveness(att, pathRefusal);
+      const built = buildTextOp(surface, { kind: "edit", path, edits }, seen);
+      if ("refusal" in built) return withLiveness(att, built.refusal);
 
       // Byte-exact size gate (PROPOSAL_LIMITS, shared with the mailbox): an
       // over-limit result — e.g. a near-cap document grown past the cap — is a
       // structured rejection, and nothing is published into the room's CRDT.
       const proposal = {
-        filePath: surface.filePath,
-        baseText: read.text,
-        proposedText: result.source,
-        blocks,
+        filePath: path,
+        baseText: built.op.baseText,
+        proposedText: built.op.proposedText,
+        blocks: built.op.blocks,
         request,
       };
       const violation = proposalSizeViolation(proposal);
@@ -562,24 +576,12 @@ export function registerProjectTools(
         });
       }
 
-      const proposalId = await surface.publishProposal({
-        baseText: read.text,
-        proposedText: result.source,
-        blocks,
-        request,
-      });
-      // The publish side-effect above is byte-for-byte unchanged; we only
-      // report the proposal's HONEST disposition (ADR-0023: signed → await the
+      const proposalId = await surface.publishProposal(proposal);
+      // Report the proposal's HONEST disposition (ADR-0023: signed → await the
       // verdict; unsigned → manual review) with ADR-0024 §1 liveness merged in —
       // a pending proposal downgrades to pending_review_unwatched when no
       // browser is attached to review it.
-      return proposalDisposition(
-        surface,
-        "single",
-        proposalId,
-        { filePath: surface.filePath },
-        att.liveness,
-      );
+      return proposalDisposition(surface, "single", proposalId, { filePath: path }, att.liveness);
     },
   );
 
@@ -604,6 +606,7 @@ export function registerProjectTools(
         "across multiple sequential propose_files calls — each is reviewed and lands independently (there is no " +
         "import-group transaction spanning proposals).",
       inputSchema: {
+        project: projectParam,
         request: z
           .string()
           .min(1)
@@ -662,9 +665,9 @@ export function registerProjectTools(
           .describe("The file operations — applied all-or-nothing on Accept."),
       },
     },
-    async ({ request, ops }) => {
-      const att = await attached();
-      if (att === undefined) return jsonResult(NO_PROJECT_RESULT);
+    async ({ project, request, ops }) => {
+      const att = await on(project, "propose_files");
+      if ("refusal" in att) return att.refusal;
       const surface = att.surface;
       // The fully-built op set, preserving the CALLER'S INPUT ORDER (A2-D3): each
       // entry is filled in below at the SAME index as its input op — a binary op's
@@ -690,9 +693,9 @@ export function registerProjectTools(
       }[] = [];
       for (let i = 0; i < ops.length; i++) {
         const op = ops[i]!;
-        // Every path is caller-supplied here (unlike the session-bound
-        // propose_edit), so it must pass the same in-tree safety gate the
-        // version store and mailbox enforce — fail BEFORE any work, as data.
+        // Every path is caller-supplied, so it must pass the same in-tree
+        // safety gate the version store and mailbox enforce — fail BEFORE any
+        // work, as data.
         const pathRefusal = claimPath(seenPaths, op.path);
         if (pathRefusal !== null) return withLiveness(att, pathRefusal);
 
@@ -981,25 +984,20 @@ export function registerProjectTools(
         "(--compile-url); otherwise falls back to the paired browser's live preview compiler. Call " +
         "this after propose_files/propose_edit to confirm the change set type-checks before asking " +
         "the human to Accept.",
-      inputSchema: {},
+      inputSchema: { project: projectParam },
     },
-    async () => {
-      const att = await attached();
-      // ADR-0024 §2: compile keeps its existing structured not_configured no-op
-      // when nothing is attached (no project ⇒ no compile seam either).
-      const compileService = att?.compileService;
-      // The historical no-op result — emitted when nothing is attached, when no
-      // loopback service AND no browser fallback exist, or when the browser
-      // fallback reports `{unavailable:true}`. Byte-for-byte unchanged.
-      const notConfigured = (): ToolResult => {
-        const base = {
+    async ({ project }) => {
+      const att = await on(project, "compile");
+      if ("refusal" in att) return att.refusal;
+      const compileService = att.compileService;
+      // The structured no-op: no loopback service AND no browser fallback, or
+      // the browser fallback reports `{unavailable:true}`.
+      const notConfigured = (): ToolResult =>
+        withLiveness(att, {
           status: "not_configured",
           message:
             "compile service not configured — start the kernel with --compile-url (e.g. http://localhost:3001).",
-        };
-        return att === undefined ? jsonResult(base) : withLiveness(att, base);
-      };
-      if (att === undefined) return notConfigured();
+        });
       // F9/F5: when no loopback service is configured, route a DIAGNOSTICS-ONLY
       // compile through the paired BROWSER (the loopback service ALWAYS wins when
       // present — checked first below). The browser already compiles its live
