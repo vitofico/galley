@@ -39,6 +39,19 @@ export function isNarrow(width: number, breakpoint: number = DEFAULT_BREAKPOINT)
   return width < breakpoint;
 }
 
+/**
+ * The pane the tabbed layout opens on. A touch-first device (a phone or tablet:
+ * primary pointer is coarse) opens on the typeset page, because reading and
+ * reviewing is what a phone is for; a narrow DESKTOP window keeps the source
+ * editor. Node/SSR-safe like the rest of this module.
+ */
+export function initialPaneTab(): PaneTab {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return "editor";
+  }
+  return window.matchMedia("(pointer: coarse)").matches ? "preview" : "editor";
+}
+
 /** Read the current viewport width, or `undefined` when there is no `window`. */
 function currentWidth(): number | undefined {
   if (typeof window === "undefined") return undefined;

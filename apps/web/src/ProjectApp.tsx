@@ -330,7 +330,7 @@ import {
   writeFilesDockPref,
 } from "./components/files-dock-pref.js";
 import "./components/rail-and-pills.css";
-import { useResponsive, type PaneTab } from "./use-responsive.js";
+import { initialPaneTab, useResponsive, type PaneTab } from "./use-responsive.js";
 import { useSaveState, type SaveStateTarget } from "./use-save-state.js";
 import "./components/save-state-badge.css";
 import "./components/authoring-panels.css";
@@ -1457,7 +1457,7 @@ export function ProjectApp({
   // becomes a tabbed files/editor/preview/agent stack. At/above it the layout is
   // byte-for-byte the wide SplitPanes (existing e2e run wide, so unaffected).
   const { narrow } = useResponsive();
-  const [activeTab, setActiveTab] = useState<PaneTab>("editor");
+  const [activeTab, setActiveTab] = useState<PaneTab>(initialPaneTab);
 
   // The agent model: a configured provider or the offline Demo model. Read
   // through the SHARED provider-storage seam (#19.7): the /settings AI-provider
@@ -7548,7 +7548,8 @@ export function ProjectApp({
               </button>
             </div>
           ) : (
-            showNudge && (
+            showNudge &&
+            !narrow && (
               <button
                 type="button"
                 className="nudge-pill"
@@ -7815,9 +7816,15 @@ export function ProjectApp({
                 ? filesNode
                 : activeTab === "editor"
                   ? editorNode
-                  : activeTab === "agent"
-                    ? sidebarNode
-                    : centerNode}
+                  : activeTab === "preview"
+                    ? centerNode
+                    : null}
+              {/* The agent pane stays MOUNTED while another tab shows (as it is in
+                  the wide layout): unmounting it aborted a running request and
+                  dropped a proposal still waiting for Accept/Reject. */}
+              <div className="tab-pane-keep" hidden={activeTab !== "agent"}>
+                {sidebarNode}
+              </div>
             </div>
           </div>
         ) : (

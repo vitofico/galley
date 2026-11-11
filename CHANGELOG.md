@@ -61,6 +61,13 @@ The first public cut. Everything below is built, tested (2300+ unit tests,
   Auto mode the server applies it with no tab open: it saves a checkpoint of
   the whole project first and records the change, the owner sees the record
   in Settings and can return to the checkpoint from the project's History.
+- **Phone layout** — on a narrow touch screen the tabbed workspace opens on
+  the typeset page, with finger-sized controls and a header that leaves the
+  page most of the screen. A proposal survives switching tabs and its
+  Accept/Reject can be reached; an external proposal opens as a full-height
+  review sheet. Preview zoom now sizes the page (it was a visual scale that
+  could not be panned), so a zoomed page scrolls to every edge at any width,
+  and Fit fills the pane when the page is wider than it.
 
 ### Security & robustness
 

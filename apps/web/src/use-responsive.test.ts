@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { DEFAULT_BREAKPOINT, isNarrow } from "./use-responsive.js";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { DEFAULT_BREAKPOINT, initialPaneTab, isNarrow } from "./use-responsive.js";
 
 /**
  * #11.9 — responsive/tabbed layout. apps/web vitest runs under Node (no jsdom),
@@ -40,5 +40,28 @@ describe("isNarrow", () => {
     expect(isNarrow(Number.NaN)).toBe(false);
     expect(isNarrow(Number.POSITIVE_INFINITY)).toBe(false);
     expect(isNarrow(-1)).toBe(true);
+  });
+});
+
+describe("initialPaneTab", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const withPointer = (coarse: boolean) =>
+    vi.stubGlobal("window", {
+      matchMedia: (query: string) => ({ matches: coarse && query === "(pointer: coarse)" }),
+    });
+
+  it("opens a touch-first device on the typeset page", () => {
+    withPointer(true);
+    expect(initialPaneTab()).toBe("preview");
+  });
+
+  it("keeps a narrow desktop window on the source editor", () => {
+    withPointer(false);
+    expect(initialPaneTab()).toBe("editor");
+  });
+
+  it("falls back to the editor with no window (Node/SSR)", () => {
+    expect(initialPaneTab()).toBe("editor");
   });
 });

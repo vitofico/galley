@@ -294,3 +294,68 @@ test("ADR-0024 §4: a viewer SEES the pending-review count but gets no Accept (a
     await ctxViewer.close();
   }
 });
+
+/**
+ * The same review surface on a PHONE (390px, touch). The pending-review pane
+ * sits above the tabs, so with the desktop sizing an open pane left the page a
+ * sliver. On the narrow layout an open pane is a sheet over the whole space
+ * under the header; answering the last proposal hands the screen back to the tabs.
+ */
+test.describe("phone", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+  test("an external proposal opens as a full-height sheet; Accept returns to the tabs", async ({
+    page,
+  }) => {
+    const { syncUrl, room } = await shareFromUi(page);
+    // On the narrow layout the Share popover spans the screen under the header,
+    // over where the sheet opens: close it, as a tap outside it would.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("share-link")).toHaveCount(0);
+    const peer = joinAsNodePeer(syncUrl, room);
+    try {
+      await expect
+        .poll(() => mainFileText(peer.project)?.text ?? "", { timeout: 30_000 })
+        .toContain("Annus Mirabilis");
+      const main = mainFileText(peer.project)!;
+      const marker = `MCP_PHONE_${Date.now()}`;
+      const proposedText = `${main.text}\n${marker}\n`;
+      await publishProposal(
+        peer.project,
+        {
+          filePath: main.path,
+          baseText: main.text,
+          proposedText,
+          blocks: [{ search: main.text, replace: proposedText }],
+          request: "Add a closing marker line",
+        },
+        MCP_AUTHOR,
+      );
+
+      const card = page.getByTestId("mcp-proposal");
+      await expect(card).toBeVisible({ timeout: 30_000 });
+      // The sheet replaces the tabs while it is open …
+      await expect(page.getByTestId("tab-bar")).toBeHidden();
+      const sheet = await page.evaluate(() => {
+        const rect = (sel: string) => document.querySelector(sel)!.getBoundingClientRect();
+        return {
+          viewportH: window.innerHeight,
+          paneH: rect('[data-testid="pending-review-pane"]').height,
+          acceptH: rect('[data-testid="mcp-proposal"] [data-testid="accept"]').height,
+        };
+      });
+      // … takes most of the screen, and its buttons are finger-sized.
+      expect(sheet.paneH).toBeGreaterThan(sheet.viewportH / 2);
+      expect(sheet.acceptH).toBeGreaterThanOrEqual(44);
+
+      await card.getByTestId("accept").click();
+      await expect(page.getByTestId("mcp-proposal")).toHaveCount(0);
+      await expect(page.getByTestId("tab-bar")).toBeVisible();
+      await expect
+        .poll(() => mainFileText(peer.project)?.text ?? "", { timeout: 30_000 })
+        .toContain(marker);
+    } finally {
+      peer.destroy();
+    }
+  });
+});

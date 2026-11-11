@@ -74,3 +74,17 @@
   flex: 1 1 auto;
   min-width: 0;
 }
+
+/* The agent pane's keep-alive wrapper: it stays in the DOM while another tab
+   shows, so `hidden` must win over the flex display the stretch needs. */
+.tab-pane-keep {
+  display: flex;
+  min-height: 0;
+}
+.tab-pane-keep[hidden] {
+  display: none;
+}
+.tab-pane-keep > * {
+  flex: 1 1 auto;
+  min-width: 0;
+}
