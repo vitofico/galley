@@ -1,6 +1,6 @@
 /**
  * Adversarial property/fuzz harness for the PURE OIDC core + stores
- * (oidc-core.ts, stores.ts, upgrade.ts), wave-33 #22.2 — the LAST light auth
+ * (oidc-core.ts, test-support.ts, upgrade.ts), wave-33 #22.2 — the LAST light auth
  * surfaces. Signature verification lives in verify.fuzz.test.ts (jose-backed).
  *
  * The cores are already adversarially tested (oidc-core.test.ts / stores.test.ts /
@@ -23,7 +23,7 @@
  * DETERMINISM: inputs derive from the loop index — no Math.random / Date.now.
  */
 import { describe, it, expect } from "vitest";
-import type { IdTokenClaims } from "@galley/shared";
+import type { IdTokenClaims, OidcLoginState, SessionRecord } from "@galley/shared";
 import {
   validateIdTokenClaims,
   parseCallback,
@@ -37,7 +37,8 @@ import {
   type RandomSource,
   type ClaimsValidationOptions,
 } from "./index.js";
-import { InMemorySessionStore } from "./test-support.js";
+import { InMemorySessionStore, InMemoryOidcLoginStateStore } from "./test-support.js";
+
 import type { Authorizer, OidcProviderConfig } from "@galley/shared";
 
 const ISSUER = "https://idp.example.com";
@@ -198,6 +199,68 @@ describe("parseCallback / parseCookie — fuzz: AUTH-INV-3 parse totality, no fa
     expect(parseCookie(`  ${name}  =  spaced  `, name)).toBe("spaced");
     expect(parseCookie(`not${name}=decoy; ${name}=real`, name)).toBe("real"); // no prefix confusion
     expect(parseCookie(`${name}`, name)).toBeNull(); // a bare name (no '=') is not a value
+  });
+});
+
+describe("InMemorySessionStore — fuzz: AUTH-INV-2 no fixation, expiry strictly enforced", () => {
+  const rec = (over: Partial<SessionRecord> = {}): SessionRecord => ({
+    userId: "oidc:abc",
+    createdAtMs: 0,
+    expiresAtMs: 10_000,
+    ...over,
+  });
+
+  it("every create across a deterministic batch mints a DISTINCT high-entropy id", async () => {
+    const store = new InMemorySessionStore();
+    const ids = new Set<string>();
+    for (let i = 0; i < 200; i++) {
+      const { id } = await store.create(rec());
+      expect(ids.has(id)).toBe(false); // no reuse → no fixation
+      expect(id).toMatch(/^[A-Za-z0-9_-]+$/);
+      expect(id.length).toBeGreaterThanOrEqual(40);
+      ids.add(id);
+    }
+    expect(ids.size).toBe(200);
+  });
+
+  it("getValid enforces the expiry boundary deterministically (<= now → reaped null)", async () => {
+    for (let i = 0; i < 50; i++) {
+      const store = new InMemorySessionStore(() => `sid-${i}`);
+      const exp = 5_000 + i;
+      await store.create(rec({ expiresAtMs: exp }));
+      expect(await store.getValid(`sid-${i}`, exp - 1)).not.toBeNull(); // still valid
+      expect(await store.getValid(`sid-${i}`, exp)).toBeNull(); // boundary inclusive → expired
+      // Reaped on the expired access: a follow-up plain get is also null.
+      expect(await store.get(`sid-${i}`)).toBeNull();
+    }
+  });
+});
+
+describe("InMemoryOidcLoginStateStore — fuzz: state is one-time, never replayable", () => {
+  const st = (s: string, exp: number): OidcLoginState => ({
+    state: s,
+    codeVerifier: `v-${s}`,
+    nonce: `n-${s}`,
+    returnTo: "/",
+    expiresAtMs: exp,
+  });
+
+  it("consume burns the state exactly once across a deterministic batch (valid + expired)", async () => {
+    const store = new InMemoryOidcLoginStateStore();
+    for (let i = 0; i < 100; i++) {
+      const s = `state-${i}`;
+      const expired = i % 2 === 0;
+      await store.put(st(s, expired ? 1_000 : 9_999));
+      const consumeNow = expired ? 2_000 : 1_000; // expired ones lapse before consume
+      const first = await store.consume(s, consumeNow);
+      if (expired) {
+        expect(first).toBeNull(); // expired → null
+      } else {
+        expect(first).toMatchObject({ state: s });
+      }
+      // ALWAYS burned: a second consume (even with a generous clock) is null → no replay.
+      expect(await store.consume(s, 500)).toBeNull();
+    }
   });
 });
 

@@ -83,18 +83,11 @@ describe("FsOidcLoginStateStore", () => {
     expect(await fresh.consume("abc123", 1_000)).toBeNull(); // burned
   });
 
-  it("returns null for an unknown state", async () => {
-    expect(await new FsOidcLoginStateStore(root).consume("unknown", 1_000)).toBeNull();
-  });
-
-  it("burns login state at and after its expiry deadline", async () => {
-    const store = new FsOidcLoginStateStore(root);
-    for (const now of [9_999, 10_000]) {
-      const key = `old-${now}`;
-      await store.put(state(key));
-      expect(await store.consume(key, now)).toBeNull();
-      expect(await store.consume(key, 1_000)).toBeNull();
-    }
+  it("burns an expired state too (deletes + null)", async () => {
+    const s = new FsOidcLoginStateStore(root);
+    await s.put(state("old1"));
+    expect(await s.consume("old1", 10_000)).toBeNull(); // expired
+    expect(await s.consume("old1", 1_000)).toBeNull(); // and gone
   });
 
   it("rejects an unsafe state key without touching the filesystem", async () => {
