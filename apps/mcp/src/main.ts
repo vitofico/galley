@@ -11,24 +11,10 @@ import { createProposalSequenceAllocator } from "./proposal-sequence.js";
 import { createGalleyMcpServer } from "./server.js";
 import { registerControlTools } from "./control-tools.js";
 
-/**
- * Resolve the control-room authority (B2, ADR-0026). Resolution order:
- *   1. `--pairing-code` HANDSHAKE (prefer-fresh, ADR-0026): if the operator pasted
- *      a fresh one-time code it WINS — the parser already dropped any legacy
- *      room/key (warned) — so we try a MAC-verified durable pairing FIRST (no
- *      re-handshake), else run the handshake, then PERSIST.
- *   2. LEGACY ARGS (`authSource:"args"`, only when NO --pairing-code was given):
- *      room+key straight from argv/env, MEMORY-ONLY, never persisted.
- *   3. `"durable"`: only --sync was supplied; use a MAC-verified saved pairing
- *      or fail with an explicit pairing instruction before joining any room.
- *
- * The PARSER (not this function) enforces precedence; `authSource` already
- * encodes the winner, so the code branches below stay as-is.
- */
+/** A supplied pairing code starts a new handshake. A launch with only a relay resumes the saved pairing. */
 async function resolveControlAuthority(
   config: ControlKernelConfig,
 ): Promise<{ controlRoom: string; responseKey: Uint8Array }> {
-  // 1. Legacy args — ephemeral, never persisted.
   if (config.authSource === "args") {
     if (config.controlRoom === undefined || config.responseKey === undefined) {
       throw new Error("legacy control mode is missing its room/key (internal config error)");
@@ -36,30 +22,27 @@ async function resolveControlAuthority(
     return { controlRoom: config.controlRoom, responseKey: config.responseKey };
   }
 
-  // 2. A durable, MAC-verified pairing from a prior handshake — no re-paste.
-  const durable = await loadPairing(process.env);
-  if (durable !== null) {
-    const responseKey = base64UrlToBytes(durable.responseKey);
-    if (responseKey !== null && responseKey.length === 32) {
-      console.error(
-        "galley mcp kernel: resumed a durable pairing (no re-paste needed) — " +
-          `control room ${roomFingerprint(durable.controlRoom)}`,
-      );
-      return { controlRoom: durable.controlRoom, responseKey };
+  if (config.authSource === "durable") {
+    const durable = await loadPairing(process.env);
+    if (durable !== null) {
+      const responseKey = base64UrlToBytes(durable.responseKey);
+      if (responseKey !== null && responseKey.length === 32) {
+        console.error(
+          "galley mcp kernel: resumed a durable pairing (no re-paste needed). " +
+            `Control room ${roomFingerprint(durable.controlRoom)}`,
+        );
+        return { controlRoom: durable.controlRoom, responseKey };
+      }
     }
-    // A shape-valid-but-bad durable blob falls through to the handshake below.
-  }
-
-  // 3. Run the one-time --pairing-code handshake, then persist the result.
-  if (config.pairingCode === undefined) {
     throw new Error(
       "no durable pairing and no --pairing-code: pair from Settings → Agent Access",
     );
   }
-  console.error(
-    "galley mcp kernel: no durable pairing — running the pairing handshake " +
-      "(open Galley, enable Agent Access, and paste the --pairing-code command once)…",
-  );
+
+  if (config.pairingCode === undefined) {
+    throw new Error("pairing mode is missing its code (internal config error)");
+  }
+  console.error("galley mcp kernel: running the pairing handshake with the supplied code");
   const result = await runPairingHandshake(config.pairingCode, { syncUrl: config.syncUrl });
   // Persist ONLY the control pairing (room + key) — best-effort; a write failure
   // is logged but the in-memory pairing still serves THIS run.
@@ -75,7 +58,7 @@ async function resolveControlAuthority(
   } catch (err) {
     console.error(
       `galley mcp kernel: paired, but could not persist the pairing (${err instanceof Error ? err.message : String(err)}); ` +
-        "this run works, but the next will need the --pairing-code again",
+        "this run works. Generate a new pairing code before the next run.",
     );
   }
   return { controlRoom: result.controlRoom, responseKey: result.responseKey };
@@ -134,9 +117,6 @@ async function main(): Promise<void> {
     config.compileUrl !== undefined ? createHttpCompileService(config.compileUrl) : undefined;
 
   if (config.mode === "control") {
-    // B2 (ADR-0026): resolve the room+key — legacy args → durable pairing →
-    // --pairing-code handshake (persisted). The downstream join + proposal-signing
-    // logic is UNCHANGED; only the KEY's ORIGIN moves out of argv.
     const { controlRoom, responseKey } = await resolveControlAuthority(config);
     const control = joinControlRoom({
       syncUrl: config.syncUrl,
