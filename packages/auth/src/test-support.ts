@@ -1,9 +1,4 @@
-/**
- * In-memory reference stores for auth (roadmap #4, ADR-0018 §3). Validate the
- * seams + drive tests; durable adapters (filesystem/SQLite) land later behind the
- * same `@galley/shared` interfaces. Session/state ids are high-entropy by default
- * (unguessable); injectable for deterministic tests.
- */
+/** In-memory auth fixtures with injectable IDs for deterministic tests. */
 import type {
   OidcLoginState,
   OidcLoginStateStore,

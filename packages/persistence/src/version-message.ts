@@ -1,18 +1,4 @@
-/**
- * The Galley commit-message format (roadmap #11/#12) — the SINGLE encoder every
- * path that writes a Galley commit shares.
- *
- * Lifted out of `git-version-store`, which is Node-only (`node:fs` via
- * isomorphic-git) and therefore excluded from the browser barrel: the web app's
- * GitHub push (REST Git Data API) must stamp the SAME trailer block, or
- * attribution dies at exactly the place `git blame` reads it. Pure string work —
- * no `node:*`, no dependencies — so it is safe on BOTH barrels.
- */
-
-/**
- * The encoder's slice of the version-creation input (structurally a subset of
- * `git-version-store`'s `CreateVersionInput`, so that seam passes straight in).
- */
+/** The shared Galley commit-message format used by GitHub push (roadmap #11/#12). */
 export type VersionMessageInput = {
   name: string;
   message?: string;
