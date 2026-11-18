@@ -45,17 +45,43 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    name: Build & deploy the demo
-    runs-on: ubuntu-latest
-    # Only deploy in the canonical repo (a fork's Release run must never
-    # publish to the fork owner's Pages), and only when the triggering Release
-    # actually succeeded — workflow_dispatch is exempt so a manual redeploy
-    # isn't blocked on re-running Release.
+  release-status:
+    name: Check that Release ran its publish job
     if: >-
       github.repository == 'vitofico/galley' &&
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      publish-succeeded: ${{ steps.release.outputs.publish-succeeded }}
+    steps:
+      - name: Check the triggering Release attempt
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT/jobs")
+          if jq -e '
+            [.jobs[] | select(.name == "Tag, release & publish image")]
+            | length == 1 and .[0].conclusion == "success"
+          ' <<< "$jobs" > /dev/null; then
+            echo 'publish-succeeded=true' >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy:
+    needs: release-status
+    name: Build & deploy the demo
+    runs-on: ubuntu-latest
+    # A docs-only Release succeeds with the publish job skipped. Manual
+    # dispatch still redeploys independently of Release.
+    if: >-
+      !cancelled() && github.repository == 'vitofico/galley' &&
       (github.event_name == 'workflow_dispatch' ||
-       github.event.workflow_run.conclusion == 'success')
+       needs.release-status.outputs.publish-succeeded == 'true')
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

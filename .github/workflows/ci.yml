@@ -12,8 +12,16 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
+  changes:
+    uses: ./.github/workflows/changes.yml
+
   static:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}
     name: Lint & typecheck
     runs-on: ubuntu-latest
     steps:
@@ -39,6 +47,8 @@ jobs:
         run: pnpm -r typecheck
 
   unit:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}
     # Preserve the status-check name used by existing branch protection.
     name: Typecheck + unit (Docker)
     runs-on: ubuntu-latest
@@ -46,10 +56,40 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Record tested merge tree
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          commit=$(git rev-parse HEAD)
+          [[ "$commit" == "$GITHUB_SHA" ]]
+          tree=$(git rev-parse 'HEAD^{tree}')
+          printf '%s\n' "$PR_NUMBER" "$commit" "$tree" > "$RUNNER_TEMP/full-green-gate-tree"
 
       # Exercise the release gate before merge, including PostgreSQL and Chromium.
       - name: Run the full green-gate
+        env:
+          CI_CHECK_JUNIT: 1
         run: scripts/check-ci full
+
+      - name: Upload Vitest and Chromium JUnit
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: full-green-gate-junit-${{ github.run_attempt }}
+          path: .ci-results/junit/*.xml
+          include-hidden-files: true
+          if-no-files-found: error
+
+      - name: Upload tested merge tree
+        uses: actions/upload-artifact@v7
+        with:
+          name: full-green-gate-tree-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/full-green-gate-tree
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload browser failure traces
         if: failure()
@@ -60,17 +100,12 @@ jobs:
           if-no-files-found: ignore
 
   cross-browser-smoke:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}
     name: Cross-browser smoke (Firefox + WebKit)
     runs-on: ubuntu-latest
-    # Roadmap 23.3 — a SMALL smoke subset (preview / offline / save-state) run on
-    # Firefox + WebKit to catch divergences in WASM, Web Workers, IndexedDB, and
-    # font/glyph rendering that the chromium-only gate can't see. NON-BLOCKING for
-    # now: this matrix is freshly introduced, so a newly-surfaced cross-browser
-    # issue should be REPORTED and triaged (see docs/known-issues.md), not hard-
-    # block every PR on day one. Flip `continue-on-error` to false once it is
-    # reliably green on both engines. The canonical chromium green-gate is
-    # unaffected — it lives in the `unit`/release gates and stays chromium-only.
-    continue-on-error: true
+    # Cover browser-specific WASM, Web Worker, IndexedDB, and rendering
+    # regressions alongside the Chromium green-gate.
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -81,9 +116,22 @@ jobs:
       # `--entrypoint sh` overrides the image's default green-gate CMD so ONLY the
       # cross-browser script runs here.
       - name: Build bundle + run Firefox/WebKit smoke
+        env:
+          CI_CHECK_JUNIT: 1
         run: scripts/check-ci cross
 
+      - name: Upload Firefox and WebKit JUnit
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: cross-browser-junit-${{ github.run_attempt }}
+          path: .ci-results/junit/playwright.xml
+          include-hidden-files: true
+          if-no-files-found: error
+
   k8s-manifests:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}
     name: Validate k8s manifests (offline)
     runs-on: ubuntu-latest
     # Pure repo-only check (deploy/k8s + scripts/validate-k8s.sh); isolated from

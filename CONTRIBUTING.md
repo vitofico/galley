@@ -77,11 +77,17 @@ warnings and hints are advisory.
 
 ## CI
 
-- **`.github/workflows/ci.yml`** — every PR: ast-grep + typecheck
-  on the host, plus the full release green-gate in Docker, before merge.
-- **`.github/workflows/release.yml`** — on merge to `main`: the full green-gate,
-  then a [CalVer](scripts/calver.mjs) tag + GitHub release and a runtime image
-  published to GHCR.
+- **`.github/workflows/ci.yml`** runs lint, typecheck, the Docker green-gate,
+  Firefox and WebKit smoke, and offline Kubernetes validation before merge.
+  Changes confined to root Markdown files or Markdown, PNG, and SVG files
+  under `docs/` skip these checks.
+- **`.github/workflows/security.yml`** still scans documentation-only PRs for
+  secrets with gitleaks.
+- **`.github/workflows/release.yml`** skips documentation-only changes. For
+  other pushes to `main`, it reuses a successful full PR green-gate only
+  when it tested the exact tree being released. If evidence is missing, it
+  runs the full gate before creating a [CalVer](scripts/calver.mjs) tag, a
+  GitHub release, and a runtime image published to GHCR.
 
 ## Repo layout
 
