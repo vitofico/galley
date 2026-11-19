@@ -99,6 +99,32 @@ async function openAndType(page: Page, projectId: string, text: string) {
   await page.keyboard.press("ControlOrMeta+End");
   await page.keyboard.type(`\n${text}`);
   await expect(editor).toContainText(text);
+  // Navigating away can abort queued IndexedDB writes. Establish that the
+  // browser actually holds the whole source before testing copy or recovery.
+  await expect.poll(async () => {
+    const updates = await page.evaluate(async id => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const req = indexedDB.open("galley-local-project-v1-" + id);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      try {
+        return await new Promise<number[][]>((resolve, reject) => {
+          const req = db.transaction("updates").objectStore("updates").getAll();
+          req.onsuccess = () => resolve(req.result.map(update => Array.from(new Uint8Array(update))));
+          req.onerror = () => reject(req.error);
+        });
+      } finally {
+        db.close();
+      }
+    }, projectId);
+    const project = new CollabProject(restoreDoc(updates.map(update => Uint8Array.from(update))));
+    try {
+      return project.snapshot().files.map(f => f.text).join("\n");
+    } finally {
+      project.destroy();
+    }
+  }).toContain(text);
 }
 
 test("a signed-in person's project survives a wiped browser", async ({
@@ -271,7 +297,7 @@ test("a project that was never opened since is uploaded from the library", async
   ).toHaveAttribute("data-state", "server");
   const [room] = await liveRoomsOf(projectId);
   expect(room?.kind).toBe("copy");
-  expect(await storedText(room!.roomId)).toContain(marker);
+  await expect.poll(() => storedText(room!.roomId)).toContain(marker);
   await first.context.close();
 });
 
