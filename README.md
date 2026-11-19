@@ -129,10 +129,10 @@ contents and binary bytes through the review-and-Accept flow. See
 Galley uses **path-based routes** (a tiny History-API router):
 
 - **`/`** — the **Projects page**, the landing surface (create / open / import projects).
-- **`/p/<id>`** — a specific **local-first project** (auto-saved to the browser, reload-survivable).
+- **`/p/<id>`** — a specific **local-first project** (auto-saved to the browser, reload-survivable). On a self-hosted instance with sign-in, the server also keeps a copy of its text by default, so clearing the browser's data does not lose it; each project can be kept in the browser only ([ADR-0035](docs/decisions/ADR-0035-server-copy-by-default.md)).
 - **`/library`** — the project dashboard.
 - **`/join/<room>`** — share-link entry (joins a collaboration room; carries `?sync=` / `?role=`).
-- **`/c/<id>`** — one of your connected projects, opened from its server copy on a device that does not hold it (hosted connector only).
+- **`/c/<id>`** — one of your connected projects, opened from its server copy on a device that does not hold it (hosted connector without server copies; with them, the project is restored to `/p/<id>`).
 - **`/settings`** — device-scoped settings.
 - **`/settings/whats-new`** — recent features, linked from Settings.
 

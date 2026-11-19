@@ -45,6 +45,7 @@ Format: lightweight [MADR](https://adr.github.io/madr/)-style. Status is one of
 | [0032](ADR-0032-mcp-open-switches-project.md)    | An agent's `open_project` asks first, then switches the tab                                    | Accepted                                               |
 | [0033](ADR-0033-hosted-connector.md)             | Hosted connector: a server-side agent peer that may apply                                      | Accepted                                               |
 | [0034](ADR-0034-connected-project-second-device.md) | A connected project opens on its owner's other devices                                      | Accepted                                               |
+| [0035](ADR-0035-server-copy-by-default.md)       | A signed-in person's projects are kept on the server by default                                | Accepted; supersedes clauses of 0033 and 0034          |
 
 ## Adding an ADR
 

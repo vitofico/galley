@@ -62,11 +62,14 @@ rebuilt from peers' local replicas after a restart — clients persist locally v
 
 Persistence is opt-in. `GALLEY_SYNC_PERSIST_DIR` makes the relay keep every
 room's CRDT state on that volume, so a restart loses nothing.
-`GALLEY_SYNC_PERSIST_ROOMS=connector` narrows that to the rooms of projects a
-person connected to the hosted connector
-([ADR-0033](decisions/ADR-0033-hosted-connector.md)): those keep a server
-replica while no tab is open, and every other room stays in memory only. When a
-project is disconnected, the relay erases its stored state within about half a
+`GALLEY_SYNC_PERSIST_ROOMS=connector` narrows that to project replicas: the
+server copy every signed-in person's project has by default
+([ADR-0035](decisions/ADR-0035-server-copy-by-default.md)) and the rooms of
+projects connected to the hosted connector
+([ADR-0033](decisions/ADR-0033-hosted-connector.md)). Those are kept while no
+tab is open, and every other room (Share, Agent Access) stays in memory only.
+When a project is opted out, deleted or, on a deployment without server
+copies, disconnected, the relay erases its stored state within about half a
 minute.
 
 Built-in abuse bounds: a ws frame-size cap, a cap on concurrent rooms (empty

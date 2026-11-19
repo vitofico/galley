@@ -111,6 +111,22 @@ room to be **registered and active**:
   returns the caller's own connector room ids to their session, so the browser
   can keep each connected project synced; it is the one route that echoes a
   room id, and only to its creator.
+- **Copy rooms** ([ADR-0035](decisions/ADR-0035-server-copy-by-default.md))
+  are a fourth kind, accepted where the deployment keeps server copies: sign-in,
+  the data volume and `GALLEY_SYNC_PERSIST_DIR` on the web service, unless the
+  operator set `GALLEY_SERVER_COPY=0`. There, **every project of a signed-in
+  person has a plaintext server replica by default**, readable by whoever
+  operates the server, until the person chooses "Keep only in this browser"
+  for it or deletes it; either revokes the room and the relay erases the
+  replica. A copy room is persisted like a connector room and is **not** a
+  connector grant: the connector lists `connector` rooms only, so a copy is
+  out of reach of every access token. Connecting a project switches its copy
+  room to the connector kind in place, and disconnecting switches it back
+  (`POST /auth/project-replicas/:roomId/kind`, creator only).
+  `GET /auth/project-replicas` returns the caller's own replica room ids to
+  their session, on the same terms as the connector route below. The copy is
+  text: images and fonts stay in the browser. Without an account no copy
+  exists and no request is made.
 - **A connected project on another device**
   ([ADR-0034](decisions/ADR-0034-connected-project-second-device.md)). Any
   browser signed in to the same account can open a connected project at

@@ -22,6 +22,7 @@ import {
   resolveInitialTheme,
   STORAGE_KEY as THEME_STORAGE_KEY,
 } from "./theme.js";
+import { requestPersistentStorage } from "./storage-durability.js";
 import "./styles.css";
 import "./theme.css";
 import "./brand-background.css";
@@ -70,6 +71,10 @@ const ConnectedRoot = lazy(() =>
 const SettingsRoot = lazy(() =>
   import("./settings-root.js").then((m) => ({ default: m.SettingsRoot })),
 );
+
+// Ask the browser not to evict this origin's storage, on every route: a person
+// who only ever visits the library must get the grant too (ADR-0035).
+void requestPersistentStorage();
 
 const root = document.getElementById("root");
 if (!root) throw new Error("missing #root");

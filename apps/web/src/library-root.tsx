@@ -10,7 +10,23 @@
  * reload (the project shell keys its CRDT doc by that id).
  */
 import { useEffect, useMemo, useState } from "react";
-import { LibraryApp } from "./components/LibraryApp.js";
+import {
+  LibraryApp,
+  type LibraryServerCopies,
+  type ServerCopyState,
+} from "./components/LibraryApp.js";
+import {
+  deleteLocalProjectDb,
+  eraseServerCopy,
+  isLocalOnly,
+  listServerCopies,
+  restoreServerCopy,
+  serverCopyEnabled,
+  setLocalOnly,
+  uploadServerCopy,
+  type ServerCopy,
+} from "./server-copy.js";
+import { configuredSyncUrlOverride, resolveSyncUrl } from "./share.js";
 import { IdbProjectStore } from "./idb-project-store.js";
 import { loadLocalProfile } from "./local-profile.js";
 import { navigate, routeHref } from "./router.js";
@@ -62,9 +78,132 @@ async function seedEinsteinDemoOnce(store: IdbProjectStore, ownerId: string): Pr
   return true;
 }
 
+/**
+ * Server copies for the library (ADR-0035). On a deployment that keeps them:
+ * lists the account's copies, and brings the copy of every project this
+ * browser holds up to date in the background, one at a time, so a project
+ * needs no opening to be on the server. Undefined where copies are off, and
+ * then nothing here touches the network.
+ */
+function useServerCopies(
+  store: IdbProjectStore,
+  userId: string,
+): LibraryServerCopies | undefined {
+  const enabled = useMemo(() => serverCopyEnabled(), []);
+  const [copies, setCopies] = useState<ServerCopy[] | null>(null);
+  const [states, setStates] = useState<ReadonlyMap<string, ServerCopyState>>(
+    new Map(),
+  );
+  const setState = (id: string, state: ServerCopyState) =>
+    setStates((prev) => new Map(prev).set(id, state));
+  const syncUrl = () =>
+    resolveSyncUrl(configuredSyncUrlOverride(), window.location);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    void (async () => {
+      const [listed, held] = await Promise.all([
+        listServerCopies(),
+        store.listProjectsForUser(userId),
+      ]);
+      if (cancelled) return;
+      // No answer: nothing is known to be on the server, and the cards say so.
+      const onServer = listed.ok ? listed.copies : [];
+      const copyOf = (id: string) => onServer.find((c) => c.projectId === id);
+      // A project kept in this browser only is skipped, unless it is connected
+      // to the hosted connector: that replica exists by the person's choice.
+      const pending = listed.ok
+        ? held.filter((p) => !isLocalOnly(p.id) || copyOf(p.id) !== undefined)
+        : [];
+      setCopies(onServer);
+      setStates(
+        new Map(
+          held.map((p) => [p.id, pending.includes(p) ? "uploading" : "local"]),
+        ),
+      );
+      for (const p of pending) {
+        const result = await uploadServerCopy(p, copyOf(p.id), syncUrl());
+        if (cancelled) return;
+        setState(p.id, result === "synced" ? "server" : "local");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, store, userId]);
+
+  if (!enabled) return undefined;
+  return {
+    copies,
+    states,
+    isLocalOnly,
+    setLocalOnly: async (project, localOnly) => {
+      try {
+        setLocalOnly(project.id, localOnly);
+      } catch {
+        return "This browser could not store the choice, so nothing was changed.";
+      }
+      if (localOnly) {
+        const erased = await eraseServerCopy(project.id);
+        if (!erased.ok) {
+          try {
+            setLocalOnly(project.id, false);
+          } catch {
+            /* the flag stays; the next load retries nothing and says "local" */
+          }
+          return `The server still holds this project. ${erased.error}`;
+        }
+        setCopies((prev) =>
+          prev === null ? prev : prev.filter((c) => c.projectId !== project.id),
+        );
+        setState(project.id, "local");
+        return null;
+      }
+      setState(project.id, "uploading");
+      const result = await uploadServerCopy(project, undefined, syncUrl());
+      setState(project.id, result === "synced" ? "server" : "local");
+      return result === "failed"
+        ? "The server copy could not be written. It is retried when you open the project or this page."
+        : null;
+    },
+    restore: async (copy) => {
+      const held = copies?.find((c) => c.projectId === copy.projectId);
+      if (held === undefined) return "This project is no longer on the server.";
+      const result = await restoreServerCopy(held, syncUrl());
+      if (result === "empty")
+        return "The server has no text for this project yet. Open it once in the browser that holds it.";
+      if (result === "failed")
+        return "The server copy could not be fetched. Nothing was changed; try again.";
+      try {
+        await store.createProject({
+          id: copy.projectId,
+          name: copy.name ?? "Restored project",
+          ownerId: userId,
+        });
+        await store.updateProject(copy.projectId, {
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      } catch {
+        // The row survived under an earlier local identity: join it instead.
+        await store.addMember(copy.projectId, userId, "owner");
+      }
+      return null;
+    },
+    erase: async (projectId) => {
+      const erased = await eraseServerCopy(projectId);
+      return erased.ok
+        ? null
+        : `The project was not deleted, because the server still holds it. ${erased.error}`;
+    },
+  };
+}
+
 export function LibraryRoot() {
   const store = useMemo(() => new IdbProjectStore(), []);
   const userId = useMemo(() => loadLocalProfile().userId, []);
+  const serverCopies = useServerCopies(store, userId);
   // 14-E: the signed-in user, published by the boot AuthGate before any shell
   // mounts. Read once (stable for this mount); null in auth-off runs.
   const authUser = useMemo(() => getActiveAuthUser(), []);
@@ -114,12 +253,13 @@ export function LibraryRoot() {
     };
   }, [seedReady, store, userId]);
 
-  // Hosted connector (ADR-0034): the person's connected projects, so those this
-  // device does not hold can be opened from their server copy. No request is
-  // made where the connector is off.
+  // Hosted connector without server copies (ADR-0034): the person's connected
+  // projects, so those this device does not hold can be opened from their
+  // server copy. No request is made where the connector is off, nor where
+  // server copies are on: there the list above covers them and restores them.
   const [connected, setConnected] = useState<ConnectedProject[]>([]);
   useEffect(() => {
-    if (!hostedConnectorEnabled()) return;
+    if (!hostedConnectorEnabled() || serverCopyEnabled()) return;
     let cancelled = false;
     void listConnectedProjects().then((listed) => {
       if (!cancelled && listed.ok) setConnected(listed.projects);
@@ -143,6 +283,15 @@ export function LibraryRoot() {
       onOpenSettings={() => navigate("/settings")}
       connected={connected}
       onOpenConnected={(id) => navigate(routeHref({ kind: "connected", id }))}
+      {...(serverCopies ? { serverCopies } : {})}
+      onDeleted={(id) => {
+        deleteLocalProjectDb(id);
+        try {
+          setLocalOnly(id, false);
+        } catch {
+          /* a stale opt-out for a deleted project changes nothing */
+        }
+      }}
       {...(authUser ? { user: authUser } : {})}
     />
   );

@@ -80,6 +80,7 @@ async function setup(
   withStore = true,
   hostedConnector = false,
   history?: ConnectorHistoryReader,
+  serverCopy = false,
 ) {
   const sessionStore = new InMemorySessionStore(
     () => `sid${Math.random().toString(36).slice(2)}`,
@@ -98,6 +99,7 @@ async function setup(
       ? {
           capabilityRooms: {
             store,
+            ...(serverCopy ? { serverCopy: true as const } : {}),
             ...(hostedConnector
               ? {
                   hostedConnector: {
@@ -599,5 +601,84 @@ describe("connector tokens (ADR-0033 §3)", () => {
       (await post(app, "/connector/tokens/0123456789abcdef/revoke", { cookie: cookieFor(sid), origin: null })).status,
     ).toBe(403);
     expect((await post(app, "/connector/tokens/0123456789abcdef/revoke", {})).status).toBe(401);
+  });
+});
+
+describe("server copies (ADR-0035)", () => {
+  const copyBody = JSON.stringify({
+    roomId: ROOM,
+    kind: "copy",
+    projectId: "proj-1",
+    projectName: "Untitled",
+  });
+  const list = (app: Hono, cookie?: string) =>
+    Promise.resolve(
+      app.request("/project-replicas", { headers: cookie ? { cookie } : {} }),
+    );
+
+  it("is not offered where the deployment keeps no copies", async () => {
+    const { app, store, sid } = await setup(true, true);
+    const cookie = cookieFor(sid);
+    expect(
+      (await post(app, "/capability-rooms", { cookie, body: copyBody })).status,
+    ).toBe(400);
+    expect(store.map.size).toBe(0);
+    expect((await list(app, cookie)).status).toBe(404);
+  });
+
+  it("keeps, lists and relabels a copy for the signed-in person only", async () => {
+    const { app, store, sid } = await setup(true, false, undefined, true);
+    const cookie = cookieFor(sid);
+    expect((await list(app)).status).toBe(401);
+    expect(
+      (await post(app, "/capability-rooms", { cookie, body: copyBody })).status,
+    ).toBe(200);
+    const renamed = await post(app, `/project-replicas/${ROOM}/name`, {
+      cookie,
+      body: JSON.stringify({ name: "Thesis" }),
+    });
+    expect(renamed.status).toBe(200);
+
+    const listed = await list(app, cookie);
+    expect(listed.headers.get("cache-control")).toBe("no-store");
+    expect(await listed.json()).toEqual({
+      ok: true,
+      replicas: [{ roomId: ROOM, projectId: "proj-1", name: "Thesis", kind: "copy" }],
+    });
+    expect(store.map.get(ROOM)).toMatchObject({ kind: "copy", createdBy: "alice" });
+
+    // Without the connector there is nothing to turn a copy into.
+    const kind = await post(app, `/project-replicas/${ROOM}/kind`, {
+      cookie,
+      body: JSON.stringify({ kind: "connector" }),
+    });
+    expect(kind.status).toBe(404);
+    expect(store.map.get(ROOM)?.kind).toBe("copy");
+  });
+
+  it("connects a kept project in place and disconnects it back to a copy", async () => {
+    const { app, store, sid } = await setup(true, true, undefined, true);
+    const cookie = cookieFor(sid);
+    await post(app, "/capability-rooms", { cookie, body: copyBody });
+    const projects = async () =>
+      (
+        (await (
+          await app.request("/connector/projects", { headers: { cookie } })
+        ).json()) as { projects: { roomId: string }[] }
+      ).projects.map((p) => p.roomId);
+    const set = (kind: string, withCookie: string | null = cookie) =>
+      post(app, `/project-replicas/${ROOM}/kind`, {
+        cookie: withCookie,
+        body: JSON.stringify({ kind }),
+      });
+
+    expect(await projects()).toEqual([]);
+    expect((await set("connector", null)).status).toBe(401);
+    expect((await set("connector")).status).toBe(200);
+    expect(await projects()).toEqual([ROOM]);
+    expect((await set("copy")).status).toBe(200);
+    expect(await projects()).toEqual([]);
+    expect(store.map.get(ROOM)).toMatchObject({ kind: "copy", projectId: "proj-1" });
+    expect(store.map.get(ROOM)).not.toHaveProperty("revokedAtMs");
   });
 });

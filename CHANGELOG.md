@@ -77,6 +77,21 @@ The first public cut. Everything below is built, tested (2300+ unit tests,
   could not be panned), so a zoomed page scrolls to every edge at any width,
   and Fit fills the pane when the page is wider than it.
 
+### Server copies (on by default with sign-in)
+
+- On a deployment with sign-in and a persisting relay, the server keeps a copy
+  of the text of every signed-in person's projects, so clearing the browser's
+  data no longer destroys the only copy
+  ([ADR-0035](docs/decisions/ADR-0035-server-copy-by-default.md)). A clean
+  browser lists them under "On the server" and restores them as full projects.
+- Opt out per project ("Keep only in this browser") or per deployment
+  (`GALLEY_SERVER_COPY=0`). Without an account nothing is sent.
+- A copy is not AI-client access: the hosted connector reaches a project only
+  once it is connected, and Disconnect now leaves the copy in place.
+- Deleting a project erases its server copy and its browser database.
+- Each project shows where it is saved, on its card and in the editor.
+- Images and project fonts are not in the copy yet.
+
 ### Security & robustness
 
 - Six-surface adversarial security audit (import parsers, sync relay,
@@ -88,6 +103,14 @@ The first public cut. Everything below is built, tested (2300+ unit tests,
 
 ### Migration notes
 
+- **Signed-in deployments start keeping server copies (privacy default
+  reversed).** Where web has `GALLEY_AUTH_MODE=oidc`, `GALLEY_DATA_DIR` and
+  `GALLEY_SYNC_PERSIST_DIR`, every signed-in person's projects are uploaded to
+  the relay's persist volume the next time they open Galley, in plain text.
+  The bundled connector component now sets `GALLEY_SYNC_PERSIST_DIR` on web,
+  so overlays that include it get this. Set `GALLEY_SERVER_COPY=0` on web to
+  keep the previous behaviour. A deployment whose web service lacks the
+  variable is unchanged and keeps showing "Only in this browser".
 - **The local MCP bridge takes the hosted connector's tool shapes (breaking for
   MCP clients).** The two ways in now share one tool list
   ([ADR-0033](docs/decisions/ADR-0033-hosted-connector.md) §5). What changes for

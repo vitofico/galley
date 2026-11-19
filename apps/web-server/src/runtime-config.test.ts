@@ -107,6 +107,23 @@ describe("optional hosted adapters", () => {
       ).status,
     ).toBe(404);
   });
+  it("advertises server copies only where the deployment keeps them", async () => {
+    const enabled = createWebServerApp({
+      files: fakeFiles(TREE),
+      serverCopy: true,
+    });
+    expect(await (await enabled.request("/config.js")).text()).toBe(
+      'window.__GALLEY_CONFIG__ = {"serverCopy":true};\n',
+    );
+    expect(
+      (
+        await createWebServerApp({
+          files: fakeFiles(TREE),
+          serverCopy: false,
+        }).request("/config.js")
+      ).status,
+    ).toBe(404);
+  });
   it("advertises the hosted connector only when the operator enabled it", async () => {
     const enabled = createWebServerApp({
       files: fakeFiles(TREE),

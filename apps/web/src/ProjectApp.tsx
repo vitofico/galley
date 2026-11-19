@@ -184,6 +184,8 @@ import {
   listConnectedProjects,
   openConnectorReplica,
 } from "./hosted-connector.js";
+import { ensureServerCopy, serverCopyEnabled } from "./server-copy.js";
+import { IdbProjectStore } from "./idb-project-store.js";
 import { ImportPanel } from "./components/ImportPanel.js";
 import { FigurePanel } from "./components/FigurePanel.js";
 import {
@@ -796,6 +798,12 @@ export function ProjectApp({
   // connector room. Proposals from the connector arrive over that link, so it
   // turns the review surface on just as a Share connection does.
   const [connectorLinked, setConnectorLinked] = useState(false);
+  // Server copy (ADR-0035): whether the server holds a replica of this project.
+  // Null while that is being found out; "local" means this browser holds the
+  // only copy, which the topbar says for as long as it is true.
+  const [serverCopy, setServerCopy] = useState<"server" | "local" | null>(
+    null,
+  );
   // M8: a live connection means a SHARED session, where `offline` is a real
   // signal (edits aren't reaching peers); solo-local sessions suppress it.
   const saveState = useSaveState(saveTarget, {
@@ -2433,37 +2441,65 @@ export function ProjectApp({
     return { room, syncUrl, mainFile: mainPath, grantId };
   };
 
-  // Hosted connector (ADR-0033 §1): while a project the person CONNECTED is
-  // open, keep its server replica current over a connection of its own, beside
-  // any Share connection. Nothing runs unless the operator enabled the
-  // connector, and never for a joiner's session (someone else's project). It
-  // waits for the local project to load first, so an empty document is never
-  // what reaches the server.
+  // Server replica (ADR-0035, ADR-0033 §1): while a project this browser holds
+  // is open, keep its server replica current over a connection of its own,
+  // beside any Share connection. On a signed-in deployment that keeps server
+  // copies every project has one unless the person opted it out; elsewhere
+  // only a project connected to the hosted connector does. Never for a
+  // joiner's session (someone else's project). It waits for the local project
+  // to load first, so an empty document is never what reaches the server.
   useEffect(() => {
-    if (!hostedConnectorEnabled() || config.syncUrl !== undefined) return;
+    if (config.syncUrl !== undefined) return;
+    const copies = serverCopyEnabled();
+    if (!copies && !hostedConnectorEnabled()) {
+      setServerCopy("local");
+      return;
+    }
     let disposed = false;
     let replica: ReturnType<typeof openConnectorReplica> | undefined;
-    void Promise.all([session.whenReady, listConnectedProjects()])
-      .then(([, listed]) => {
-        if (disposed || !listed.ok) return;
-        const connected = listed.projects.find(
-          (p) => p.projectId === projectId,
-        );
-        if (!connected) return;
+    // The name is read from the library's registry once the project has
+    // loaded: the header's own copy of it may not have arrived yet.
+    const room = copies
+      ? session.whenReady
+          .then(() => new IdbProjectStore().getProject(projectId))
+          .catch(() => null)
+          .then((row) => ensureServerCopy(projectId, row?.name ?? ""))
+      : listConnectedProjects().then((listed) => {
+          const found = listed.ok
+            ? listed.projects.find((p) => p.projectId === projectId)
+            : undefined;
+          return found ? { roomId: found.roomId, kind: "connector" } : null;
+        });
+    void Promise.all([session.whenReady, room])
+      .then(([, found]) => {
+        if (disposed) return;
+        if (!found) {
+          setServerCopy("local");
+          return;
+        }
         replica = openConnectorReplica(
           session.project,
           resolveSyncUrl(configuredSyncUrlOverride(), window.location),
-          connected.roomId,
+          found.roomId,
         );
-        connectorRoom.current = connected.roomId;
-        setConnectorLinked(true);
+        replica.onSynced(() => {
+          if (!disposed) setServerCopy("server");
+        });
+        if (found.kind === "connector") {
+          connectorRoom.current = found.roomId;
+          setConnectorLinked(true);
+        }
       })
-      .catch(() => undefined); // a misconfigured relay address: stay local
+      .catch(() => {
+        // A misconfigured relay address: stay local, and say so.
+        if (!disposed) setServerCopy("local");
+      });
     return () => {
       disposed = true;
       replica?.destroy();
       connectorRoom.current = undefined;
       setConnectorLinked(false);
+      setServerCopy(null);
     };
   }, [projectId, session]);
 
@@ -7416,6 +7452,22 @@ export function ProjectApp({
               {config.connectedProjectId !== undefined
                 ? "Server copy"
                 : "Collaborative"}
+            </span>
+          )}
+          {config.syncUrl === undefined && serverCopy !== null && (
+            <span
+              className="collab-chip"
+              data-testid="server-copy-status"
+              data-state={serverCopy}
+              title={
+                serverCopy === "server"
+                  ? "This server keeps a copy of this project's text. Images and fonts stay in this browser."
+                  : "This project exists only in this browser. Clearing the browser's data deletes it."
+              }
+            >
+              {serverCopy === "server"
+                ? "Saved on this server"
+                : "Only in this browser"}
             </span>
           )}
         </div>
