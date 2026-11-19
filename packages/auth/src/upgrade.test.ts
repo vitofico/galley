@@ -5,7 +5,8 @@
  */
 import { describe, it, expect } from "vitest";
 import type { Authorizer } from "@galley/shared";
-import { InMemorySessionStore, authorizeSyncUpgrade, parseCookie } from "./index.js";
+import { authorizeSyncUpgrade, parseCookie } from "./index.js";
+import { InMemorySessionStore } from "./test-support.js";
 
 const COOKIE = "__Host-galley.sid";
 

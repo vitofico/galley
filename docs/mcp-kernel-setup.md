@@ -264,9 +264,10 @@ destroys the key); the next Enable mints a brand-new room, key, and code.
 **Durable pairing.** After a successful handshake the kernel stores the obtained
 room + key under `${XDG_STATE_HOME:-$HOME/.local/state}/galley/kernel/pairing.json`
 (dir 0700, file 0600, integrity-MAC'd with a local-only key so a copied file fails
-on another machine). **Later kernel runs need no re-paste** — run `galley-mcp
---sync <url>` (or with the same `--pairing-code`, which is ignored when a valid
-durable pairing exists). Re-pair only after a Revoke.
+on another machine). **Later kernel runs need no re-paste.** Run `galley-mcp
+--sync <url>` and omit the code from flags and the environment. After Revoke and
+re-enable, launch with the new pairing code. A successful handshake replaces the
+previous pairing.
 
 ### 2. Start the kernel in control mode
 

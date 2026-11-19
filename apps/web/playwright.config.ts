@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig, devices } from "@playwright/test";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+const junitDirectory = process.env.GALLEY_JUNIT_DIR;
 // The built SPA bundle, served by BOTH `vite preview` and the real web-server below.
 const WEB_DIST = resolve(HERE, "dist");
 // Test-only @preview registry fixture (e2e/fixtures/registry): a node:http server
@@ -73,7 +74,18 @@ export default defineConfig({
   expect: { timeout: 30_000 },
   fullyParallel: false,
   workers: 1,
-  reporter: "list",
+  reporter: junitDirectory
+    ? [
+        ["list"],
+        [
+          "junit",
+          {
+            outputFile: resolve(junitDirectory, "playwright.xml"),
+            includeProjectInTestName: true,
+          },
+        ],
+      ]
+    : "list",
   use: {
     baseURL: "http://localhost:4173",
     trace: "retain-on-failure",
