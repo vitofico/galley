@@ -105,7 +105,8 @@ All opt-in via the URL (or the in-app settings):
 | web + sync | `GALLEY_SESSION_DIR`, `GALLEY_DATA_DIR` | durable, **shared** session + data dirs. Mount the SAME volume into both containers — a session minted by `web` is validated by `sync` by reading these dirs. Under OIDC, `GALLEY_DATA_DIR` on `web` additionally hosts the **capability-room registry** (`capability-rooms/`): Share/Agent-Access rooms are registered there by `web` and authorized from it by `sync`. `web` without it logs a startup warning and Share/Agent Access fail closed against an auth-required relay. |
 | sync | `GALLEY_SYNC_AUTH=required` | gate the ws upgrade on session + project membership; reserved `share-…` capability rooms (Share / Agent Access) are instead gated on an **active registration** in the shared registry (see "Capability rooms" below). Any non-empty value other than `required`/`off` **throws at startup**. Requires the shared `GALLEY_SESSION_DIR` + `GALLEY_DATA_DIR` **and** `GALLEY_SYNC_ALLOWED_ORIGINS` or the service **refuses to start** (fail-closed — see Security notes). |
 | sync | `GALLEY_SYNC_ALLOWED_ORIGINS` | comma-separated exact browser Origins allowed to open a ws upgrade (CSWSH defense). Optional with auth off (unset = no Origin check, unchanged). **REQUIRED under `GALLEY_SYNC_AUTH=required`** — capability rooms are authorized by registration, not cookies, so the Origin wall is what stops a hostile page from driving a leaked room id; an auth-required relay without it refuses to start. Native (non-browser) clients send no Origin and pass only for an active registered capability room. |
-| sync | `GALLEY_SYNC_PERSIST_DIR`, `GALLEY_SYNC_PERSIST_ROOMS` | optional durable volume for room state. Unset = the relay keeps nothing on disk (default). `GALLEY_SYNC_PERSIST_ROOMS` chooses what is kept: `all` (default) or `connector`, only projects connected to the hosted connector (needs `GALLEY_SYNC_AUTH=required`). Any other value **throws at startup**. |
+| sync | `GALLEY_SYNC_PERSIST_DIR`, `GALLEY_SYNC_PERSIST_ROOMS` | optional durable volume for room state. Unset = the relay keeps nothing on disk (default). `GALLEY_SYNC_PERSIST_ROOMS` chooses what is kept: `all` (default) or `connector`, only project replicas: server copies and projects connected to the hosted connector (needs `GALLEY_SYNC_AUTH=required`). Any other value **throws at startup**. |
+| web | `GALLEY_SYNC_PERSIST_DIR`, `GALLEY_SERVER_COPY` | **server copies** (see "Server copies" below). With `GALLEY_AUTH_MODE=oidc`, `GALLEY_DATA_DIR` and `GALLEY_SYNC_PERSIST_DIR` set on web, every signed-in person's projects are kept on the server **by default**. Web does not open the persist dir for this: the variable tells it the relay keeps rooms. `GALLEY_SERVER_COPY=0` turns copies off; `=1` **refuses to start** where a prerequisite is missing; any other value throws. |
 | connector, web | `GALLEY_CONNECTOR_STATE_DIR` | optional volume for Auto mode: the connector writes checkpoints and an activity trail there, web mounts it read-only to show them to the project's owner. Unset on the connector = it never applies a change itself. Must not be `GALLEY_DATA_DIR`. |
 | connector | `GALLEY_DATA_DIR`, `GALLEY_CONNECTOR_SYNC_URL`, `GALLEY_CONNECTOR_COMPILE_URL`, `PORT` | the hosted connector service (see "Hosted connector" below). The data dir and the relay address (`ws://` or `wss://`) are required; the compile address (`http://` or `https://`) is optional, and without it the `compile` tool reports `not_configured`. `PORT` defaults to 8790. A missing or malformed value **throws at startup**. |
 | web | `GALLEY_HOSTED_CONNECTOR=1` | let signed-in people connect a project to the hosted connector (see "Hosted connector" below). Default off. Requires `GALLEY_AUTH_MODE=oidc` and `GALLEY_DATA_DIR`, or the service **refuses to start**. |
@@ -198,6 +199,48 @@ and **Agent Access** must be **registered** before the relay admits anyone:
 With auth **off** (the default), none of this machinery runs: Share and Agent
 Access behave exactly as in the zero-config local mode.
 
+#### Server copies (on by default with sign-in)
+
+A project lives in the browser that created it, and a browser's "clear data"
+deletes it. On a deployment with sign-in the server therefore keeps a copy of
+every project unless told not to
+([ADR-0035](decisions/ADR-0035-server-copy-by-default.md)):
+
+- The browser registers a durable `copy` room per project and keeps the
+  project synced into it, while the project is open and, for every project it
+  holds, whenever the Projects page is open. The relay stores the room on
+  disk. **The server then holds the text of every signed-in person's projects
+  in plain text**, readable by whoever operates it.
+- A browser that does not hold a project (a new device, or the same one after
+  its data was cleared) lists it on the Projects page under **On the server**
+  and restores it from the copy.
+- A person opts a project out with **Keep only in this browser** in its menu.
+  That revokes the room and the relay erases the copy within about half a
+  minute. Deleting a project does the same.
+- The copy is text. Images and project fonts are not in it.
+- A copy is not readable by the hosted connector. Only connecting a project
+  (below) gives an AI client access to it.
+- Limit: 1024 copies per person.
+
+It is on when all of these hold, and off otherwise:
+
+```
+# web
+GALLEY_AUTH_MODE=oidc
+GALLEY_DATA_DIR=/var/lib/galley/projects
+GALLEY_SYNC_PERSIST_DIR=/var/lib/galley/crdt   # states that the relay persists; web does not open it
+# sync (a volume mounted at the persist dir)
+GALLEY_SYNC_AUTH=required
+GALLEY_SYNC_PERSIST_DIR=/var/lib/galley/crdt
+GALLEY_SYNC_PERSIST_ROOMS=connector
+```
+
+The two services cannot check each other. If web is told the relay persists
+and the relay has no volume, people are shown "Saved on this server" for a
+copy that is gone when the relay restarts. Set `GALLEY_SERVER_COPY=0` on web
+to keep projects in the browser only; people then see "Only in this browser"
+on every project. Back up the persist volume: it holds documents.
+
 #### Hosted connector (connected projects)
 
 The hosted connector lets an AI chat client work on a project with no Galley
@@ -209,7 +252,9 @@ mode the server applies it, provided you gave the connector a state volume
 (below); without one a project set to Auto is reviewed like one set to Ask.
 
 A project lives in the browser. For the server to work on it with no tab open,
-the server needs its own copy, so connecting a project means exactly that:
+the server needs its own copy. Where server copies are on (above) it already
+has one, and connecting lets the connector reach it. Elsewhere connecting a
+project is what creates the copy:
 
 - In **Settings → Agent Access → Hosted connector**, a signed-in person
   connects a project. The browser registers a durable `connector` room for it
@@ -230,10 +275,13 @@ the server needs its own copy, so connecting a project means exactly that:
   project's History. The newest 50 checkpoints are kept per project, and at
   most 500 file operations or 16 MiB are applied per project per hour; past
   that, changes wait for review.
-- **Disconnect** revokes the room. The relay drops any connection to it and
-  erases the stored copy within about half a minute; the connector erases the
-  project's checkpoints and activity trail on the same schedule. The project in the
-  browser is untouched.
+- **Disconnect** ends the connector's access. Where the deployment keeps
+  server copies, the room becomes a plain copy room again and its stored
+  document stays, as for every other project. Otherwise (or when the project
+  is kept only in the browser) the room is revoked: the relay drops any
+  connection to it and erases the stored copy within about half a minute, and
+  the connector erases the project's checkpoints and activity trail on the
+  same schedule. The project in the browser is untouched.
 - Limits: 32 connected projects per person, one room per project.
 - **Access tokens** are created in the same Settings card, one per AI client.
   A token (`gly_…`) acts as the person who created it, on every project they

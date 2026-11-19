@@ -45,6 +45,7 @@ const record = (
   createdBy: "alice",
   createdAtMs: Date.now(),
   ...(kind === "connector" ? { projectId: "proj-1", reviewMode: "ask" } : {}),
+  ...(kind === "copy" ? { projectId: "proj-1" } : {}),
 });
 
 /** A native ws peer: it sends no Origin, like the connector service will. */
@@ -108,12 +109,13 @@ describe("GALLEY_SYNC_PERSIST_ROOMS", () => {
 });
 
 describe("connected projects on the relay", () => {
-  it("keeps a replica of a connected project only, and erases it on disconnect", async () => {
+  // A server copy (ADR-0035) is kept exactly like a connected project's replica.
+  it.each(["connector", "copy"] as const)("keeps a replica of a %s room only, and erases it when the room is revoked", async (kind) => {
     const root = await mkdtemp(join(tmpdir(), "galley-connector-rooms-"));
     const dataDir = join(root, "data");
     const persistDir = join(root, "crdt");
     const registry = new FsCapabilityRoomRegistry(dataDir);
-    await registry.put(record(CONNECTED, "connector"));
+    await registry.put(record(CONNECTED, kind));
     await registry.put(record(SHARED, "share"));
 
     const options = {
@@ -160,7 +162,7 @@ describe("connected projects on the relay", () => {
 
       // Disconnect: the grant is revoked, and the replica goes with it.
       await registry.put({
-        ...record(CONNECTED, "connector"),
+        ...record(CONNECTED, kind),
         revokedAtMs: Date.now(),
         revokedBy: "alice",
       });

@@ -228,7 +228,8 @@ galley-mcp --sync ws://localhost:1234 --pairing-code <code>
 
 After a successful handshake the kernel stores the pairing under
 `${XDG_STATE_HOME:-$HOME/.local/state}/galley/kernel/pairing.json`, so later runs
-need no re-paste. Re-pair only after you click Revoke.
+need no re-paste. Omit the code when you resume. After Revoke and re-enable, pass
+the new code to replace the saved pairing.
 
 Three things stay under your control:
 

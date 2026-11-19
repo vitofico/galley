@@ -59,6 +59,10 @@ export {
   revokeCapabilityRoom,
   listConnectedProjects,
   setConnectorReviewMode,
+  listProjectReplicas,
+  setProjectReplicaKind,
+  setProjectReplicaName,
+  MAX_ACTIVE_COPY_ROOMS_PER_USER,
   MAX_ACTIVE_CAPABILITY_ROOMS_PER_USER,
   MAX_ACTIVE_CONTROL_ROOMS_PER_USER,
   MAX_ACTIVE_CONNECTOR_ROOMS_PER_USER,
@@ -71,6 +75,8 @@ export type {
   RevokeCapabilityRoomInput,
   ConnectedProject,
   SetConnectorReviewModeInput,
+  ProjectReplica,
+  SetProjectReplicaKindInput,
 } from "./capability-rooms.js";
 export {
   createConnectorToken,

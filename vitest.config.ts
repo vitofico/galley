@@ -1,4 +1,7 @@
+import { join } from "node:path";
 import { defineConfig } from "vitest/config";
+
+const junitDirectory = process.env.GALLEY_JUNIT_DIR;
 
 /**
  * Root Vitest config. The whole workspace is tested from one runner so the
@@ -14,6 +17,10 @@ export default defineConfig({
     include: ["packages/*/src/**/*.test.ts", "apps/*/src/**/*.test.ts"],
     exclude: ["**/node_modules/**", "**/dist/**", "**/e2e/**"],
     environment: "node",
+    ...(junitDirectory && {
+      reporters: ["default", "junit"],
+      outputFile: { junit: join(junitDirectory, "vitest.xml") },
+    }),
     // The suite exercises real sockets, filesystem writes and WebCrypto. A
     // worker per visible Docker CPU starves those operations on shared runners.
     maxWorkers: 2,

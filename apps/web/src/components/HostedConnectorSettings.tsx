@@ -1,10 +1,8 @@
 import { useEffect, useState } from "react";
 import type { ConnectorReviewMode } from "@galley/shared";
 import {
-  connectProject,
   connectedElsewhere,
   createConnectorToken,
-  disconnectProject,
   listConnectedProjects,
   listConnectorActivity,
   listConnectorTokens,
@@ -15,6 +13,11 @@ import {
   type ConnectorResult,
   type ConnectorToken,
 } from "../hosted-connector.js";
+import {
+  connectKeepingCopy,
+  disconnectKeepingCopy,
+  serverCopyEnabled,
+} from "../server-copy.js";
 import { IdbProjectStore } from "../idb-project-store.js";
 import { loadLocalProfile } from "../local-profile.js";
 import { navigate, routeHref } from "../router.js";
@@ -89,11 +92,22 @@ export function HostedConnectorSettings() {
     <>
       <p className="settings-card-lead">
         Reach a project from an AI chat client at an address on this server,
-        with <strong>no Galley tab open</strong>. Connecting a project{" "}
-        <strong>keeps a copy of it on this server</strong>, readable by whoever
-        runs the server, until you disconnect it. The copy is brought up to date
-        whenever the project is open in Galley, so open it once after
-        connecting. A connected project can also be opened, from that copy, in{" "}
+        with <strong>no Galley tab open</strong>.{" "}
+        {serverCopyEnabled() ? (
+          <>
+            The connector works on the copy this server already keeps of the
+            project; connecting is what lets an AI client reach that copy.
+          </>
+        ) : (
+          <>
+            Connecting a project{" "}
+            <strong>keeps a copy of it on this server</strong>, readable by
+            whoever runs the server, until you disconnect it. The copy is
+            brought up to date whenever the project is open in Galley, so open
+            it once after connecting.
+          </>
+        )}{" "}
+        A connected project can also be opened, from that copy, in{" "}
         <strong>any browser signed in to your account</strong>. It is{" "}
         <strong>off for every project</strong> until you connect one here.
       </p>
@@ -154,7 +168,7 @@ export function HostedConnectorSettings() {
                     data-project-id={p.id}
                     disabled={busy !== null}
                     onClick={() =>
-                      void run(p.id, () => connectProject(p.id, p.name))
+                      void run(p.id, () => connectKeepingCopy(p.id, p.name))
                     }
                   >
                     Connect
@@ -199,7 +213,9 @@ export function HostedConnectorSettings() {
                       data-project-id={p.id}
                       disabled={busy !== null}
                       onClick={() =>
-                        void run(p.id, () => disconnectProject(grant.roomId))
+                        void run(p.id, () =>
+                          disconnectKeepingCopy(grant.roomId, p.id),
+                        )
                       }
                     >
                       Disconnect
@@ -214,9 +230,23 @@ export function HostedConnectorSettings() {
           })}
       </div>
       <p className="settings-note">
-        Disconnecting ends the connector&apos;s access to that project and
-        erases its server copy, with any checkpoints and the record of
-        changes, within a minute. The project on this device is not touched.
+        {serverCopyEnabled() ? (
+          <>
+            Disconnecting ends the connector&apos;s access to that project. Its
+            server copy stays, with any checkpoints, as it does for every
+            project; to erase it, choose &ldquo;Keep only in this
+            browser&rdquo; on the project in the library. A project already
+            kept only in this browser has its server copy erased within a
+            minute.
+          </>
+        ) : (
+          <>
+            Disconnecting ends the connector&apos;s access to that project and
+            erases its server copy, with any checkpoints and the record of
+            changes, within a minute.
+          </>
+        )}{" "}
+        The project on this device is not touched.
       </p>
       <ConnectorTokens />
     </>

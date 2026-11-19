@@ -39,6 +39,9 @@ import {
   revokeCapabilityRoom,
   listConnectedProjects,
   setConnectorReviewMode,
+  listProjectReplicas,
+  setProjectReplicaKind,
+  setProjectReplicaName,
   createConnectorToken,
   listConnectorTokens,
   revokeConnectorToken,
@@ -70,6 +73,14 @@ export interface AuthRouterDeps {
    */
   capabilityRooms?: {
     store: CapabilityRoomStore;
+    /**
+     * This deployment keeps server copies (ADR-0035). Set → `copy` rooms may
+     * be registered, `GET /project-replicas` lists the caller's own and
+     * `POST /project-replicas/:roomId/name` relabels one after a rename; where
+     * the hosted connector is on too, `POST /project-replicas/:roomId/kind`
+     * turns a copy into a connected project and back.
+     */
+    serverCopy?: true;
     /**
      * The operator enabled the hosted connector (ADR-0033, default off). Set →
      * `connector` rooms may be registered, and the connected-project routes
@@ -435,6 +446,7 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
           sessionExpiresAtMs: session.expiresAtMs,
           nowMs: now(),
           allowConnector: deps.capabilityRooms?.hostedConnector !== undefined,
+          allowCopy: deps.capabilityRooms?.serverCopy === true,
         });
       } catch (error) {
         if (error instanceof OwnedProjectLimitError)
@@ -458,6 +470,46 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
       });
       return constJson(c, result.status, result.body);
     });
+
+    // Server copies (ADR-0035). The list returns room ids for the same reason
+    // the connected-project list below does: they are the caller's OWN
+    // capabilities, and the browser needs them to keep each project synced
+    // and to restore one it no longer holds.
+    if (deps.capabilityRooms.serverCopy === true) {
+      app.get("/project-replicas", async (c) => {
+        c.header("cache-control", "no-store");
+        const session = await sessionOf(c);
+        if (!session) return c.json({ ok: false, code: "unauthenticated" }, 401);
+        return c.json({
+          ok: true,
+          replicas: await listProjectReplicas(store, session.userId, now()),
+        });
+      });
+      app.post("/project-replicas/:roomId/name", async (c) => {
+        const post = await readJsonPost(c);
+        if ("refusal" in post) return post.refusal;
+        const result = await setProjectReplicaName(store, {
+          roomId: c.req.param("roomId"),
+          body: post.body,
+          userId: post.session.userId,
+          nowMs: now(),
+        });
+        return constJson(c, result.status, result.body);
+      });
+      if (deps.capabilityRooms.hostedConnector !== undefined) {
+        app.post("/project-replicas/:roomId/kind", async (c) => {
+          const post = await readJsonPost(c);
+          if ("refusal" in post) return post.refusal;
+          const result = await setProjectReplicaKind(store, {
+            roomId: c.req.param("roomId"),
+            body: post.body,
+            userId: post.session.userId,
+            nowMs: now(),
+          });
+          return constJson(c, result.status, result.body);
+        });
+      }
+    }
 
     // Connected projects (ADR-0033 §1, §3), mounted only when the operator
     // enabled the hosted connector. The list returns room ids: they are the

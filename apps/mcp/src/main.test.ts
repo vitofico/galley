@@ -5,15 +5,18 @@ import { fileURLToPath } from "node:url";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { savePairing } from "./pairing-store.js";
+import { loadPairing, savePairing } from "./pairing-store.js";
+import { CollabConnection, WebSocketTransport, deriveBootstrap, mintPairingCode, type WebSocketLike } from "@galley/collab";
+import { WebSocket } from "ws";
+import * as Y from "yjs";
+import { roomFingerprint } from "./config.js";
+import { startFakePairingResponder } from "./pairing-test-responder.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 /**
- * The `galley-mcp` bin end to end, as an MCP client spawns it: over real stdio,
- * with NO Galley and NO relay running. An MCP client (or a registry probing the
- * server) must be able to complete the handshake and list the tools before the
- * user opens the project; only tool calls depend on the file replicating.
+ * Drive the real `galley-mcp` executable over stdio. Startup and tool discovery
+ * work without a live project. Re-pairing runs against a disposable relay.
  */
 
 const BIN = fileURLToPath(new URL("../bin/galley-mcp.mjs", import.meta.url));
@@ -27,7 +30,7 @@ async function deadPort(): Promise<number> {
   return port;
 }
 
-describe("galley-mcp bin — starts with no Galley running", () => {
+describe("galley-mcp bin", () => {
   it("resumes an authenticated durable pairing using only --sync", async () => {
     const dir = await mkdtemp(join(tmpdir(), "galley-resume-"));
     const env = { GALLEY_MCP_PAIRING_FILE: join(dir, "pairing.json") };
@@ -48,6 +51,61 @@ describe("galley-mcp bin — starts with no Galley running", () => {
       expect((await client.listTools()).tools.some((t) => t.name === "list_projects")).toBe(true);
     } finally {
       await client.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("pairs again with an explicit fresh code even when a previous pairing is stored", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "galley-repair-"));
+    const env = { GALLEY_MCP_PAIRING_FILE: join(dir, "pairing.json") };
+    const previous = {
+      controlRoom: "share-0123456789abcdef0123456789abcdef",
+      responseKey: Buffer.alloc(32, 7).toString("base64url"),
+    };
+    const replacement = {
+      controlRoom: "share-fedcba9876543210fedcba9876543210",
+      responseKey: Buffer.alloc(32, 8).toString("base64url"),
+    };
+    // Keep the relay outside this package's TypeScript compilation root.
+    const syncServer = "../../sync/src/sync-server.js";
+    const { startSyncServer } = (await import(syncServer)) as {
+      startSyncServer: (port: number) => Promise<{ port: number; close(): Promise<void> }>;
+    };
+    const relay = await startSyncServer(0);
+    const syncUrl = `ws://127.0.0.1:${relay.port}`;
+    const code = mintPairingCode();
+    const { pairingRoom } = await deriveBootstrap(code);
+    const host = { doc: new Y.Doc() };
+    const browser = new CollabConnection(
+      host,
+      new WebSocketTransport(() => new WebSocket(`${syncUrl}/${pairingRoom}`) as unknown as WebSocketLike),
+      { author: { kind: "human", userId: "pairing-browser" } },
+    );
+    const stopResponder = startFakePairingResponder(host, code, { syncUrl, ...replacement });
+    const client = new Client({ name: "galley-repair-test", version: "0.0.0" });
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [BIN, "--sync", syncUrl, "--pairing-code", code],
+      env,
+      stderr: "pipe",
+    });
+    let stderr = "";
+    transport.stderr?.on("data", (chunk) => { stderr += chunk.toString(); });
+    try {
+      await savePairing(previous, env);
+      browser.connect();
+      await client.connect(transport, { timeout: 10_000 });
+      const stored = await loadPairing(env);
+      expect(stored?.controlRoom).toBe(replacement.controlRoom);
+      expect(stored?.responseKey === replacement.responseKey).toBe(true);
+      expect((await client.listTools()).tools.some((tool) => tool.name === "list_projects")).toBe(true);
+      await expect.poll(() => stderr).toContain(`control room configured: ${roomFingerprint(replacement.controlRoom)}`);
+    } finally {
+      await client.close();
+      stopResponder();
+      browser.destroy();
+      host.doc.destroy();
+      await relay.close();
       await rm(dir, { recursive: true, force: true });
     }
   }, 30_000);

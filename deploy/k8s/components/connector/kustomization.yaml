@@ -11,8 +11,11 @@
 #   3. the connector Deployment, Service, Ingress and network rules
 #      (connector.yaml).
 #
-# Enabling this means the server stores connected projects IN PLAIN TEXT on the
-# galley-crdt volume. Nothing is stored for a project nobody connected.
+# Because the relay now persists, web is told so (GALLEY_SYNC_PERSIST_DIR), and
+# with sign-in that turns SERVER COPIES on (ADR-0035): the server stores the
+# text of EVERY signed-in person's projects IN PLAIN TEXT on the galley-crdt
+# volume, unless a person keeps a project in their browser only. Add
+# GALLEY_SERVER_COPY=0 to web to store connected projects only.
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 
@@ -34,6 +37,9 @@ patches:
                 env:
                   - name: GALLEY_HOSTED_CONNECTOR
                     value: "1"
+                  # States that the relay persists rooms; web does not mount it.
+                  - name: GALLEY_SYNC_PERSIST_DIR
+                    value: "/var/lib/galley/crdt"
                   - name: GALLEY_CONNECTOR_STATE_DIR
                     value: "/var/lib/galley/connector"
                 volumeMounts:
