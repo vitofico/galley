@@ -1,9 +1,9 @@
 name: Release
 
-# Runs on merges to main: enforces the full green-gate, then cuts a CalVer
+# Runs on pushes to main: verifies the full green-gate, then cuts a CalVer
 # release (git tag + GitHub release) and publishes the runtime container image
-# to GHCR. Tagging is idempotent — if today's CalVer tag already exists the
-# release steps are skipped.
+# to GHCR. Documentation-only changes skip release. If today's CalVer tag
+# already exists, the publish steps are skipped.
 
 on:
   push:
@@ -14,23 +14,48 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
-permissions:
-  contents: write # create tags + releases
-  packages: write # push images to GHCR
+permissions: {}
 
 concurrency:
   group: release-main
   cancel-in-progress: false
 
 jobs:
+  changes:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/changes.yml
+
   green-gate:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}
     name: Full green-gate (Docker)
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify the PR green-gate tested this tree
+        id: proof
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if bash scripts/verify-pr-green-gate.sh; then
+            echo 'verified=true' >> "$GITHUB_OUTPUT"
+            echo 'The successful PR green-gate tested this exact tree.'
+          else
+            echo 'No matching full PR green-gate evidence. Running the full gate.'
+          fi
 
       - name: Run the full green-gate (typecheck + unit + web build + e2e)
+        if: steps.proof.outputs.verified != 'true'
         # `run`, NOT `up --exit-code-from test`: the `up` form starts every
         # service and aborts the whole stack when the slim `unit` service
         # exits first, killing the e2e container mid-run (SIGTERM/143).
@@ -39,6 +64,9 @@ jobs:
   release:
     name: Tag, release & publish image
     needs: green-gate
+    permissions:
+      contents: write # create tags + releases
+      packages: write # push images to GHCR
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

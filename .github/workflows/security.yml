@@ -32,10 +32,16 @@ permissions:
   pull-requests: read
 
 jobs:
+  changes:
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/changes.yml
+
   # --- dependency audit -------------------------------------------------------
   # Calls scripts/security-scan.sh's policy directly via pnpm audit so CI and
   # local runs share one source of truth for the ignore-list + thresholds.
   dependency-audit:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}
     name: Dependency audit (pnpm)
     runs-on: ubuntu-latest
     steps:
@@ -85,9 +91,10 @@ jobs:
 
   # --- SAST -------------------------------------------------------------------
   semgrep:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}
     name: SAST (semgrep)
     runs-on: ubuntu-latest
-    if: always()
     container:
       image: semgrep/semgrep:1.97.0
     steps:
@@ -118,9 +125,10 @@ jobs:
   # Builds the galley-runtime target, then trivy-scans it. Fails only on fixable
   # HIGH/CRITICAL so unpatched upstream noise doesn't wedge the gate.
   trivy-image:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}
     name: Runtime image scan (trivy)
     runs-on: ubuntu-latest
-    if: always()
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -148,9 +156,10 @@ jobs:
   # Generates a CycloneDX SBOM and attaches it as a workflow artifact (audit
   # trail of what the build actually ships). Never fails the gate.
   sbom:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}
     name: SBOM (CycloneDX)
     runs-on: ubuntu-latest
-    if: always()
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
