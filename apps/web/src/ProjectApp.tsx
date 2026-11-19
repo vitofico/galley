@@ -184,6 +184,8 @@ import {
   listConnectedProjects,
   openConnectorReplica,
 } from "./hosted-connector.js";
+import { watchCopyAssets } from "./server-copy-assets.js";
+import { hostedStorageEnabled } from "./blob-session.js";
 import { ensureServerCopy, serverCopyEnabled } from "./server-copy.js";
 import { IdbProjectStore } from "./idb-project-store.js";
 import { ImportPanel } from "./components/ImportPanel.js";
@@ -801,9 +803,9 @@ export function ProjectApp({
   // Server copy (ADR-0035): whether the server holds a replica of this project.
   // Null while that is being found out; "local" means this browser holds the
   // only copy, which the topbar says for as long as it is true.
-  const [serverCopy, setServerCopy] = useState<"server" | "local" | null>(
-    null,
-  );
+  const [serverCopy, setServerCopy] = useState<
+    "server" | "local" | "assets" | null
+  >(null);
   // M8: a live connection means a SHARED session, where `offline` is a real
   // signal (edits aren't reaching peers); solo-local sessions suppress it.
   const saveState = useSaveState(saveTarget, {
@@ -2456,6 +2458,7 @@ export function ProjectApp({
       return;
     }
     let disposed = false;
+    let stopAssets: (() => void) | undefined;
     let replica: ReturnType<typeof openConnectorReplica> | undefined;
     // The name is read from the library's registry once the project has
     // loaded: the header's own copy of it may not have arrived yet.
@@ -2483,7 +2486,16 @@ export function ProjectApp({
           found.roomId,
         );
         replica.onSynced(() => {
-          if (!disposed) setServerCopy("server");
+          if (disposed) return;
+          if (copies && hostedStorageEnabled()) {
+            stopAssets = watchCopyAssets(
+              session.project,
+              projectId,
+              resolveSyncUrl(configuredSyncUrlOverride(), window.location),
+              found.roomId,
+              setServerCopy,
+            );
+          } else setServerCopy("server");
         });
         if (found.kind === "connector") {
           connectorRoom.current = found.roomId;
@@ -2496,6 +2508,7 @@ export function ProjectApp({
       });
     return () => {
       disposed = true;
+      stopAssets?.();
       replica?.destroy();
       connectorRoom.current = undefined;
       setConnectorLinked(false);
@@ -7460,14 +7473,20 @@ export function ProjectApp({
               data-testid="server-copy-status"
               data-state={serverCopy}
               title={
-                serverCopy === "server"
-                  ? "This server keeps a copy of this project's text. Images and fonts stay in this browser."
-                  : "This project exists only in this browser. Clearing the browser's data deletes it."
+                serverCopy === "assets"
+                  ? "The text is synced. Some project assets still need to finish copying."
+                  : serverCopy === "server"
+                    ? hostedStorageEnabled() && serverCopyEnabled()
+                      ? "This server keeps the project text and referenced assets."
+                      : "This server keeps a copy of this project's text. Images and fonts stay in this browser."
+                    : "This project exists only in this browser. Clearing the browser's data deletes it."
               }
             >
               {serverCopy === "server"
                 ? "Saved on this server"
-                : "Only in this browser"}
+                : serverCopy === "assets"
+                  ? "Asset copy incomplete"
+                  : "Only in this browser"}
             </span>
           )}
         </div>

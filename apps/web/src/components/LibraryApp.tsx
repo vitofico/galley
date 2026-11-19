@@ -1,3 +1,4 @@
+import { hostedStorageEnabled } from "../blob-session.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Project, ProjectId, ProjectStore, UserId } from "@galley/shared";
 import { ProjectImportPanel } from "./ProjectImportPanel.js";
@@ -34,6 +35,10 @@ export interface LibraryAppProps {
   onOpen: (projectId: ProjectId) => void;
   /** Open the device-scoped settings surface (`/settings`). Optional for tests. */
   onOpenSettings?: () => void;
+  recovery?: {
+    list(): Promise<Project[]>;
+    recover(project: Project): Promise<void>;
+  };
   /**
    * The signed-in auth user (auth-on deployments only). When present, an
    * AccountChip is rendered in the header alongside the settings button.
@@ -58,7 +63,7 @@ export interface LibraryAppProps {
 }
 
 /** Where a held project's content is, as its card says it. */
-export type ServerCopyState = "server" | "uploading" | "local";
+export type ServerCopyState = "server" | "uploading" | "assets" | "local";
 
 /**
  * The library's view of the account's server copies. Each action resolves to
@@ -86,6 +91,7 @@ export interface LibraryServerCopies {
 const SERVER_COPY_LABELS: Record<ServerCopyState, string> = {
   server: "Saved on this server",
   uploading: "Uploading",
+  assets: "Asset copy incomplete",
   local: "Only in this browser",
 };
 
@@ -193,6 +199,7 @@ export function LibraryApp({
   userId,
   onOpen,
   onOpenSettings,
+  recovery,
   user,
   connected = [],
   onOpenConnected,
@@ -201,6 +208,7 @@ export function LibraryApp({
 }: LibraryAppProps) {
   // What a server-copy action or a refused delete has to tell the person.
   const [notice, setNotice] = useState<string | null>(null);
+  const [recoverable, setRecoverable] = useState<Project[] | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -542,6 +550,46 @@ export function LibraryApp({
           )}
         </div>
       </header>
+      {recovery && (
+        <details
+          onToggle={(event) => {
+            if (event.currentTarget.open)
+              void recovery
+                .list()
+                .then(setRecoverable)
+                .catch(() =>
+                  setNotice("Could not read the local project registry."),
+                );
+          }}
+        >
+          <summary>Recover projects from this browser</summary>
+          <p>
+            Choose a project from an earlier local profile to add it to this
+            library. Recovered projects stay in this browser until you enable a
+            server copy.
+          </p>
+          {recoverable?.length === 0 && <p>No other local projects found.</p>}
+          {recoverable?.map((project) => (
+            <button
+              type="button"
+              key={project.id}
+              onClick={async () => {
+                try {
+                  await recovery.recover(project);
+                  await reload();
+                  setRecoverable(await recovery.list());
+                } catch {
+                  setNotice(
+                    "Could not recover the project. Its stored document is still in this browser.",
+                  );
+                }
+              }}
+            >
+              Recover {project.name}
+            </button>
+          ))}
+        </details>
+      )}
       <div className="library-controls" data-testid="library-controls">
         <button
           type="button"
@@ -705,7 +753,9 @@ export function LibraryApp({
                 </h2>
                 <p className="library-connected-hint">
                   {serverCopies !== undefined
-                    ? "Projects this server keeps for your account that this browser does not hold. Opening one restores its text here; images and fonts are not in the server copy."
+                    ? hostedStorageEnabled()
+                      ? "Open a project to restore its text, images and fonts in this browser."
+                      : "Projects this server keeps for your account that this browser does not hold. Opening one restores its text here; images and fonts are not in the server copy."
                     : "Projects you connected from another device. They open from their server copy, to read and to review changes."}
                 </p>
                 <div className="library-grid">

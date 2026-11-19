@@ -7,6 +7,7 @@
  * login page: the property under test is what Galley keeps for a signed-in
  * account, not the provider's own UI. Never deploy it.
  */
+import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createHash, createSign, generateKeyPairSync, randomBytes } from "node:crypto";
 
@@ -47,7 +48,22 @@ const json = (res, status, value) => {
   res.end(JSON.stringify(value));
 };
 
+const policyKey = process.env.POLICY_KEY
+  ? await readFile(process.env.POLICY_KEY)
+  : null;
 createServer((req, res) => {
+  if (
+    req.url === "/storage-policy" &&
+    req.method === "POST" &&
+    policyKey &&
+    req.headers.authorization === "Bearer " + policyKey.toString("base64url")
+  ) {
+    return json(res, 200, {
+      maxBytes: 128 * 1024 * 1024,
+      maxOwnedProjects: null,
+      expiresAt: Date.now() + 60000,
+    });
+  }
   const url = new URL(req.url ?? "/", ISSUER);
   if (url.pathname === "/healthz") return json(res, 200, { ok: true });
   if (url.pathname === "/.well-known/openid-configuration")

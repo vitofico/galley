@@ -1,4 +1,5 @@
-import { mkdtempSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { existsSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,8 +30,12 @@ const REGISTRY_INTEGRITY = resolve(REGISTRY_DIR, "integrity.json");
 const COPY_DIR = (process.env.GALLEY_E2E_COPY_DIR ??= mkdtempSync(
   join(tmpdir(), "galley-e2e-copy-"),
 ));
+const POLICY_KEY = join(COPY_DIR, "policy.key");
+if (!existsSync(POLICY_KEY))
+  writeFileSync(POLICY_KEY, randomBytes(32), { mode: 0o600, flag: "wx" });
 const COPY_WEB = "http://localhost:4179";
 const COPY_ENV = {
+  GALLEY_SYNC_HOSTED_BLOBS: "1",
   GALLEY_SESSION_DIR: join(COPY_DIR, "sessions"),
   GALLEY_DATA_DIR: join(COPY_DIR, "data"),
   GALLEY_SYNC_PERSIST_DIR: join(COPY_DIR, "crdt"),
@@ -162,7 +167,7 @@ export default defineConfig({
       // Test-only OpenID provider for the signed-in stack below.
       command: "node e2e/fixtures/oidc/server.mjs",
       url: "http://localhost:4180/healthz",
-      env: { OIDC_PORT: "4180" },
+      env: { OIDC_PORT: "4180", POLICY_KEY },
       reuseExistingServer: false,
       timeout: 60_000,
     },
@@ -174,6 +179,8 @@ export default defineConfig({
       env: {
         ...COPY_ENV,
         PORT: "1235",
+        GALLEY_STORAGE_POLICY_URL: "http://localhost:4180/storage-policy",
+        GALLEY_STORAGE_POLICY_KEY_FILE: POLICY_KEY,
         GALLEY_SYNC_AUTH: "required",
         GALLEY_SYNC_ALLOWED_ORIGINS: COPY_WEB,
         GALLEY_SYNC_PERSIST_ROOMS: "connector",

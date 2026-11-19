@@ -643,7 +643,10 @@ describe("server copies (ADR-0035)", () => {
     expect(listed.headers.get("cache-control")).toBe("no-store");
     expect(await listed.json()).toEqual({
       ok: true,
-      replicas: [{ roomId: ROOM, projectId: "proj-1", name: "Thesis", kind: "copy" }],
+      localOnly: [],
+      replicas: [
+        { roomId: ROOM, projectId: "proj-1", name: "Thesis", kind: "copy" },
+      ],
     });
     expect(store.map.get(ROOM)).toMatchObject({ kind: "copy", createdBy: "alice" });
 

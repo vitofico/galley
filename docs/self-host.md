@@ -217,7 +217,13 @@ every project unless told not to
 - A person opts a project out with **Keep only in this browser** in its menu.
   That revokes the room and the relay erases the copy within about half a
   minute. Deleting a project does the same.
-- The copy is text. Images and project fonts are not in it.
+- The project opt-out applies across the signed-in account's browsers.
+- Set `GALLEY_SYNC_HOSTED_BLOBS=1` on web and relay to include images and
+  project fonts. The relay requires a configured storage policy, private key,
+  persistent volume, required auth and allowed origins. Other deployments
+  keep text. The library and editor report incomplete asset transfers.
+- Under **Recover projects from this browser**, the user can choose projects
+  still present under an earlier local profile. They start local-only.
 - A copy is not readable by the hosted connector. Only connecting a project
   (below) gives an AI client access to it.
 - Limit: 1024 copies per person.

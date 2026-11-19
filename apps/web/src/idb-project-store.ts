@@ -265,6 +265,17 @@ export class IdbProjectStore implements ProjectStore {
     return next;
   }
 
+  /** Other locally owned projects still in this browser's registry. */
+  async recoverableProjects(userId: UserId): Promise<Project[]> {
+    const visible = new Set(
+      (await this.listProjectsForUser(userId)).map((p) => p.id),
+    );
+    const rows = await this.backend.getAll<Project>(PROJECTS_STORE);
+    return rows.filter(
+      (p) => p.ownerId.startsWith("local-") && !visible.has(p.id),
+    );
+  }
+
   async listProjectsForUser(userId: UserId): Promise<Project[]> {
     const rows = await this.backend.getAll<MemberRow>(MEMBERS_STORE);
     const ids = rows.filter((r) => r.userId === userId).map((r) => r.projectId);

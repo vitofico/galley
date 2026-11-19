@@ -18,6 +18,9 @@ import {
 import {
   deleteLocalProjectDb,
   eraseServerCopy,
+  saveCopyPreference,
+  migrateCopyPreference,
+  keepRecoveredProjectLocal,
   isLocalOnly,
   listServerCopies,
   restoreServerCopy,
@@ -94,6 +97,7 @@ function useServerCopies(
   const [states, setStates] = useState<ReadonlyMap<string, ServerCopyState>>(
     new Map(),
   );
+  const [accountLocalOnly, setAccountLocalOnly] = useState<string[]>([]);
   const setState = (id: string, state: ServerCopyState) =>
     setStates((prev) => new Map(prev).set(id, state));
   const syncUrl = () =>
@@ -110,11 +114,27 @@ function useServerCopies(
       if (cancelled) return;
       // No answer: nothing is known to be on the server, and the cards say so.
       const onServer = listed.ok ? listed.copies : [];
+      const accountPrefs = listed.ok ? listed.localOnly : [];
+      if (listed.ok) {
+        for (const project of held.filter((p) => isLocalOnly(p.id))) {
+          if (await migrateCopyPreference(project.id)) {
+            accountPrefs.push(project.id);
+            const index = onServer.findIndex((c) => c.projectId === project.id);
+            if (index !== -1) onServer.splice(index, 1);
+          }
+          if (cancelled) return;
+        }
+      }
+      setAccountLocalOnly(accountPrefs);
       const copyOf = (id: string) => onServer.find((c) => c.projectId === id);
       // A project kept in this browser only is skipped, unless it is connected
       // to the hosted connector: that replica exists by the person's choice.
       const pending = listed.ok
-        ? held.filter((p) => !isLocalOnly(p.id) || copyOf(p.id) !== undefined)
+        ? held.filter(
+            (p) =>
+              !isLocalOnly(p.id) &&
+              (!accountPrefs.includes(p.id) || copyOf(p.id) !== undefined),
+          )
         : [];
       setCopies(onServer);
       setStates(
@@ -125,7 +145,14 @@ function useServerCopies(
       for (const p of pending) {
         const result = await uploadServerCopy(p, copyOf(p.id), syncUrl());
         if (cancelled) return;
-        setState(p.id, result === "synced" ? "server" : "local");
+        setState(
+          p.id,
+          result === "synced"
+            ? "server"
+            : result === "assets"
+              ? "assets"
+              : "local",
+        );
       }
     })();
     return () => {
@@ -137,23 +164,21 @@ function useServerCopies(
   return {
     copies,
     states,
-    isLocalOnly,
+    isLocalOnly: (id) => accountLocalOnly.includes(id) || isLocalOnly(id),
     setLocalOnly: async (project, localOnly) => {
+      const saved = await saveCopyPreference(project.id, localOnly);
+      if (!saved.ok) return saved.error;
+      setAccountLocalOnly((prev) =>
+        localOnly
+          ? [...prev, project.id]
+          : prev.filter((id) => id !== project.id),
+      );
       try {
-        setLocalOnly(project.id, localOnly);
+        setLocalOnly(project.id, false);
       } catch {
-        return "This browser could not store the choice, so nothing was changed.";
+        /* A legacy browser flag can still keep this project local. */
       }
       if (localOnly) {
-        const erased = await eraseServerCopy(project.id);
-        if (!erased.ok) {
-          try {
-            setLocalOnly(project.id, false);
-          } catch {
-            /* the flag stays; the next load retries nothing and says "local" */
-          }
-          return `The server still holds this project. ${erased.error}`;
-        }
         setCopies((prev) =>
           prev === null ? prev : prev.filter((c) => c.projectId !== project.id),
         );
@@ -162,7 +187,14 @@ function useServerCopies(
       }
       setState(project.id, "uploading");
       const result = await uploadServerCopy(project, undefined, syncUrl());
-      setState(project.id, result === "synced" ? "server" : "local");
+      setState(
+        project.id,
+        result === "synced"
+          ? "server"
+          : result === "assets"
+            ? "assets"
+            : "local",
+      );
       return result === "failed"
         ? "The server copy could not be written. It is retried when you open the project or this page."
         : null;
@@ -279,6 +311,13 @@ export function LibraryRoot() {
     <LibraryApp
       store={store}
       userId={userId}
+      recovery={{
+        list: () => store.recoverableProjects(userId),
+        recover: async (project) => {
+          keepRecoveredProjectLocal(project.id);
+          await store.addMember(project.id, userId, "owner");
+        },
+      }}
       onOpen={onOpen}
       onOpenSettings={() => navigate("/settings")}
       connected={connected}

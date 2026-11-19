@@ -25,7 +25,8 @@
  *  - **Frame-loop.** A single transport frame may carry several top-level
  *    messages (a real server batches); we drain them all.
  */
-import type { Doc } from "yjs";
+import { encodeStateVector, type Doc } from "yjs";
+import { DURABLE_DELIVERY_MESSAGE, decodeDurableDelivery, encodeDurableDelivery } from "./durable-delivery.js";
 import * as syncProtocol from "y-protocols/sync";
 import {
   Awareness,
@@ -399,6 +400,38 @@ export class CollabConnection {
     }
     this.syncedHandlers.add(handler);
     return () => this.syncedHandlers.delete(handler);
+  }
+
+  /** Confirm this snapshot has reached persistent storage before a short-lived
+   * publisher disconnects. Quota resolution may initially refuse growth; the
+   * relay requests the missing Yjs updates again once admission is ready. */
+  confirmPersisted(timeoutMs: number): Promise<boolean> {
+    const token = crypto.randomUUID();
+    const request = encodeDurableDelivery({ kind: "request", token, stateVector: encodeStateVector(this.doc) });
+    return new Promise(resolve => {
+      let retry: ReturnType<typeof setTimeout> | undefined;
+      const send = () => this.transport.send(request);
+      const finish = (ok: boolean) => {
+        clearTimeout(deadline);
+        clearTimeout(retry);
+        unsubscribe();
+        resolve(ok);
+      };
+      const deadline = setTimeout(() => finish(false), timeoutMs);
+      const unsubscribe = this.transport.onMessage(data => {
+        if (data[0] !== DURABLE_DELIVERY_MESSAGE) return;
+        try {
+          const frame = decodeDurableDelivery(data);
+          if (frame.token !== token) return;
+          if (frame.kind === "complete") finish(true);
+          else if (frame.kind === "unavailable") {
+            clearTimeout(retry);
+            retry = setTimeout(send, 500);
+          }
+        } catch { /* Ignore a malformed acknowledgement. */ }
+      });
+      send();
+    });
   }
 
   private markSynced(): void {

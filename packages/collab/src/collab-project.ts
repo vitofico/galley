@@ -253,8 +253,13 @@ export class CollabProject {
     };
   }
 
+  onBinaryFilesChanged(listener: () => void): () => void {
+    this.binaryMeta.observeDeep(listener);
+    return () => this.binaryMeta.unobserveDeep(listener);
+  }
+
   /** All binary files (including tombstoned), sorted deterministically by [path, id]. */
-  private allBinaryFiles(): BinaryFileSnapshot[] {
+  allBinaryFiles(): BinaryFileSnapshot[] {
     const out: BinaryFileSnapshot[] = [];
     for (const id of this.binaryMeta.keys()) {
       const f = this.getBinary(id);
