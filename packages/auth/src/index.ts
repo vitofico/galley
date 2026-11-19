@@ -62,6 +62,7 @@ export {
   setConnectorReviewMode,
   listProjectReplicas,
   setProjectReplicaKind,
+  setProjectCopyPreference,
   setProjectReplicaName,
   MAX_ACTIVE_COPY_ROOMS_PER_USER,
   MAX_ACTIVE_CAPABILITY_ROOMS_PER_USER,

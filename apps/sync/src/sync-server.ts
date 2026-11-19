@@ -378,6 +378,8 @@ type CapsCache =
 export interface SyncServerOptions {
   /** Optional fsync-backed, token-bound acknowledgement after live delivery. Default off. */
   durableDelivery?: boolean;
+  /** Hosted project replicas confirm background copies before the browser disconnects. */
+  durableReplica?: (room: string) => boolean;
   /** Optional durable room-scoped bytes and retained CRDT history. */
   hostedStorage?: HostedStorage;
   /** Optional service-only room retirement key, never a browser credential. */
@@ -1592,7 +1594,7 @@ export function startSyncServer(
         sendRaw(ws, encodeDurableDelivery({ kind: "unavailable", token }));
       const store = room.store;
       if (
-        !options.durableDelivery ||
+        (!options.durableDelivery && !options.durableReplica?.(roomName)) ||
         !store?.flush ||
         room.persistenceFailed ||
         pendingDurable.size >= 8 ||

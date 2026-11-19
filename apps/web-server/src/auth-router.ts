@@ -41,6 +41,7 @@ import {
   setConnectorReviewMode,
   listProjectReplicas,
   setProjectReplicaKind,
+  setProjectCopyPreference,
   setProjectReplicaName,
   createConnectorToken,
   listConnectorTokens,
@@ -482,8 +483,21 @@ export function createAuthRouter(deps: AuthRouterDeps): Hono {
         if (!session) return c.json({ ok: false, code: "unauthenticated" }, 401);
         return c.json({
           ok: true,
+          localOnly: (await store.list())
+            .filter((r) => r.createdBy === session.userId && r.copyDisabled)
+            .map((r) => r.projectId),
           replicas: await listProjectReplicas(store, session.userId, now()),
         });
+      });
+      app.post("/project-replicas/preference", async (c) => {
+        const post = await readJsonPost(c);
+        if ("refusal" in post) return post.refusal;
+        const result = await setProjectCopyPreference(store, {
+          userId: post.session.userId,
+          body: post.body,
+          nowMs: now(),
+        });
+        return constJson(c, result.status, result.body);
       });
       app.post("/project-replicas/:roomId/name", async (c) => {
         const post = await readJsonPost(c);

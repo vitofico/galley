@@ -124,8 +124,9 @@ room to be **registered and active**:
   room to the connector kind in place, and disconnecting switches it back
   (`POST /auth/project-replicas/:roomId/kind`, creator only).
   `GET /auth/project-replicas` returns the caller's own replica room ids to
-  their session, on the same terms as the connector route below. The copy is
-  text: images and fonts stay in the browser. Without an account no copy
+  their session, on the same terms as the connector route below. The project opt-out is enforced across the account. With hosted
+  storage enabled, the browser copies referenced images and fonts through
+  the relay's quota-enforced hosted blob channel. Other deployments keep text. Without an account no copy
   exists and no request is made.
 - **A connected project on another device**
   ([ADR-0034](decisions/ADR-0034-connected-project-second-device.md)). Any

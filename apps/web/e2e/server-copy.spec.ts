@@ -1,3 +1,5 @@
+import { openFilesDock } from "./files-dock.js";
+import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -117,6 +119,27 @@ test("a signed-in person's project survives a wiped browser", async ({
   expect(room?.kind).toBe("copy");
   await expect.poll(() => storedText(room!.roomId)).toContain(marker);
 
+  await openFilesDock(first.page);
+  const bytes = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  await first.page.getByTestId("upload-binary-input").setInputFiles({
+    name: "figure.png",
+    mimeType: "image/png",
+    buffer: bytes,
+  });
+  await expect
+    .poll(async () =>
+      (
+        await readFile(
+          join(CRDT_DIR, "assets", room!.roomId, hash + ".bin"),
+        ).catch(() => Buffer.alloc(0))
+      ).toString("hex"),
+    )
+    .toBe(bytes.toString("hex"));
+
   // The browser's data is gone: a new profile has no IndexedDB, no
   // localStorage and no cookie. Only the account is the same.
   await first.context.close();
@@ -133,6 +156,30 @@ test("a signed-in person's project survives a wiped browser", async ({
   await expect(
     second.page.locator('[data-testid="editor"] .cm-content'),
   ).toContainText(marker);
+  const restoredBytes = await second.page.evaluate(
+    async ({ projectId, hash }) => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open("galley.blobs." + projectId);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      try {
+        return await new Promise<number[]>((resolve, reject) => {
+          const request = db
+            .transaction("blobs")
+            .objectStore("blobs")
+            .get(hash);
+          request.onsuccess = () =>
+            resolve(Array.from(request.result?.bytes ?? []));
+          request.onerror = () => reject(request.error);
+        });
+      } finally {
+        db.close();
+      }
+    },
+    { projectId, hash },
+  );
+  expect(restoredBytes).toEqual([...bytes]);
   await second.page.goto("/");
   await expect(card(second.page, projectId)).toContainText("Thesis");
   await second.context.close();
@@ -168,7 +215,28 @@ test("a project kept only in this browser is never written to the server", async
 
   expect(
     (await registeredRooms()).filter((r) => r.projectId === optedOut),
-  ).toEqual([]);
+  ).toEqual([
+    expect.objectContaining({
+      copyDisabled: true,
+      revokedAtMs: expect.any(Number),
+    }),
+  ]);
+  const second = await signedIn(browser);
+  const blocked = await second.page.evaluate(async (id) => {
+    const rooms = await (await fetch("/auth/project-replicas")).json();
+    const response = await fetch("/auth/capability-rooms", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: id,
+        kind: "copy",
+        roomId: "share-" + crypto.randomUUID(),
+      }),
+    });
+    return { localOnly: rooms.localOnly.includes(id), status: response.status };
+  }, optedOut);
+  expect(blocked).toEqual({ localOnly: true, status: 403 });
+  await second.context.close();
   expect(await everythingStored()).not.toContain(marker);
   await context.close();
 });
@@ -205,6 +273,40 @@ test("a project that was never opened since is uploaded from the library", async
   expect(room?.kind).toBe("copy");
   expect(await storedText(room!.roomId)).toContain(marker);
   await first.context.close();
+});
+
+test("a changed profile can recover a surviving project locally", async ({
+  browser,
+}) => {
+  const { context, page } = await signedIn(browser);
+  const id = await createProject(page, "Earlier profile");
+  await context.route("**/auth/project-replicas", (route) =>
+    route.fulfill({ status: 503 }),
+  );
+  const marker = "surviving-local-document";
+  await openAndType(page, id, marker);
+  await expect(page.getByTestId("server-copy-status")).toHaveAttribute(
+    "data-state",
+    "local",
+  );
+  await page.evaluate(() => localStorage.removeItem("galley.localProfile"));
+  await context.unroute("**/auth/project-replicas");
+  await page.goto("/");
+  await expect(card(page, id)).toHaveCount(0);
+  await page
+    .getByText("Recover projects from this browser", { exact: true })
+    .click();
+  await page.getByRole("button", { name: "Recover Earlier profile" }).click();
+  await card(page, id).getByTestId("open-project").click();
+  await expect(
+    page.locator('[data-testid="editor"] .cm-content'),
+  ).toContainText(marker);
+  await expect(page.getByTestId("server-copy-status")).toHaveAttribute(
+    "data-state",
+    "local",
+  );
+  expect(await liveRoomsOf(id)).toEqual([]);
+  await context.close();
 });
 
 test("without an account nothing reaches a server", async ({ page }) => {

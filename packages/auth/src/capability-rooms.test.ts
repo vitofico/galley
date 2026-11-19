@@ -18,6 +18,7 @@ import {
   listProjectReplicas,
   setConnectorReviewMode,
   setProjectReplicaKind,
+  setProjectCopyPreference,
   setProjectReplicaName,
   MAX_ACTIVE_COPY_ROOMS_PER_USER,
   MAX_ACTIVE_CAPABILITY_ROOMS_PER_USER,
@@ -729,6 +730,22 @@ describe("copy rooms (ADR-0035)", () => {
       { roomId: room(1), projectId: "p1", name: "Thesis", kind: "copy" },
     ]);
     expect(await listProjectReplicas(store, "bob", NOW)).toEqual([]);
+  });
+
+  it("serializes account opt-outs with automatic copies and preserves explicit connector access", async () => {
+    const store = new MemStore();
+    const preference = (localOnly: boolean) => setProjectCopyPreference(store, {
+      body: { roomId: room(2), projectId: "p", localOnly }, nowMs: NOW, userId: "alice",
+    });
+    await Promise.all([keep(store, {roomId: room(1), projectId: "p"}), preference(true)]);
+    expect(await listProjectReplicas(store, "alice", NOW)).toEqual([]);
+    expect((await keep(store, {roomId: room(3), projectId: "p"})).status).toBe(403);
+    expect((await keep(store, {roomId: room(4), projectId: "p"}, "bob")).status).toBe(200);
+    expect((await keep(store, {roomId: room(5), projectId: "p", kind: "connector"})).status).toBe(200);
+    await setProjectReplicaKind(store, {roomId: room(5), userId: "alice", nowMs: NOW, body: {kind: "copy"}});
+    expect(await listProjectReplicas(store, "alice", NOW)).toEqual([]);
+    await preference(false);
+    expect((await keep(store, {roomId: room(6), projectId: "p"})).status).toBe(200);
   });
 
   it("keeps one replica per project, whichever kind it is", async () => {

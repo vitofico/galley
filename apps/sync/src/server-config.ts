@@ -378,6 +378,9 @@ export function buildSyncOptions(
   const replicaRooms = new Set<string>();
   const connectorOpt: SyncServerOptions = persistOpt.crdtStore
     ? {
+        ...(persistOpt.hostedStorage
+          ? { durableReplica: (room: string) => replicaRooms.has(room) }
+          : {}),
         ...(connectorRoomsOnly
           ? { persistRoom: (room) => replicaRooms.has(room) }
           : {}),

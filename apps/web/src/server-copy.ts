@@ -13,6 +13,8 @@
  * nothing here touches the network and a project stays in the browser only.
  * Pure of React (injectable fetch, socket and draft store).
  */
+import { hostedStorageEnabled } from "./blob-session.js";
+import { syncCopyAssets } from "./server-copy-assets.js";
 import * as Y from "yjs";
 import {
   CollabProject,
@@ -78,12 +80,21 @@ function parseCopy(value: unknown): ServerCopy | null {
 /** The signed-in person's server copies. Malformed rows are dropped. */
 export async function listServerCopies(
   fetchImpl: CapabilityFetch = defaultFetch(),
-): Promise<ConnectorResult<{ copies: ServerCopy[] }>> {
+): Promise<ConnectorResult<{ copies: ServerCopy[]; localOnly: string[] }>> {
   const res = await call("/auth/project-replicas", undefined, fetchImpl);
   if (!res.ok) return res;
-  const rows = (res.json as { replicas?: unknown } | undefined)?.replicas;
+  const payload = res.json as {replicas?: unknown; localOnly?: unknown} | undefined;
+  const rows = payload?.replicas;
   if (!Array.isArray(rows)) return { ok: false, error: ERROR_GENERIC };
-  return { ok: true, copies: rows.flatMap((row) => parseCopy(row) ?? []) };
+  return {
+    ok: true,
+    localOnly: Array.isArray(payload?.localOnly)
+      ? payload.localOnly.filter(
+          (v): v is string => typeof v === "string",
+        )
+      : [],
+    copies: rows.flatMap((row) => parseCopy(row) ?? []),
+  };
 }
 
 /** A project name as the registry accepts it: one line, at most 120 characters. */
@@ -92,6 +103,14 @@ const projectName = (name: string): string =>
     .replace(/[\u0000-\u001f\u007f]+/g, " ")
     .trim()
     .slice(0, 120);
+
+export function saveCopyPreference(projectId: string, localOnly: boolean) {
+  return call(
+    "/auth/project-replicas/preference",
+    { projectId, localOnly, roomId: mintShareRoom() },
+    defaultFetch(),
+  );
+}
 
 /** Register a copy room for a project. It fills when the project is synced. */
 export async function keepServerCopy(
@@ -164,11 +183,11 @@ async function relabelServerCopy(
 /** localStorage key: the ids of projects the person keeps in this browser only. */
 export const LOCAL_ONLY_KEY = "galley.serverCopy.localOnly.v1";
 
-function localOnlyIds(): string[] {
+const RECOVERY_LOCAL_KEY = "galley.serverCopy.recoveredLocal.v1";
+
+function localOnlyIds(key = LOCAL_ONLY_KEY): string[] {
   try {
-    const parsed: unknown = JSON.parse(
-      localStorage.getItem(LOCAL_ONLY_KEY) ?? "[]",
-    );
+    const parsed: unknown = JSON.parse(localStorage.getItem(key) ?? "[]");
     return Array.isArray(parsed)
       ? parsed.filter((v): v is string => typeof v === "string")
       : [];
@@ -179,17 +198,47 @@ function localOnlyIds(): string[] {
 
 /** Whether the person opted this project out of its server copy. */
 export function isLocalOnly(projectId: string): boolean {
-  return localOnlyIds().includes(projectId);
+  return (
+    localOnlyIds().includes(projectId) ||
+    localOnlyIds(RECOVERY_LOCAL_KEY).includes(projectId)
+  );
 }
 
 /**
  * Record the per-project opt-out. Throws when it cannot be stored: an opt-out
  * that is forgotten on the next load would put the project back on the server.
  */
-export function setLocalOnly(projectId: string, localOnly: boolean): void {
-  const ids = localOnlyIds().filter((id) => id !== projectId);
+export function setLocalOnly(
+  projectId: string,
+  localOnly: boolean,
+  key = LOCAL_ONLY_KEY,
+): void {
+  const ids = localOnlyIds(key).filter((id) => id !== projectId);
   if (localOnly) ids.push(projectId);
-  localStorage.setItem(LOCAL_ONLY_KEY, JSON.stringify(ids));
+  localStorage.setItem(key, JSON.stringify(ids));
+  if (
+    !localOnly &&
+    key !== RECOVERY_LOCAL_KEY &&
+    localOnlyIds(RECOVERY_LOCAL_KEY).includes(projectId)
+  )
+    setLocalOnly(projectId, false, RECOVERY_LOCAL_KEY);
+}
+
+export function keepRecoveredProjectLocal(projectId: string) {
+  setLocalOnly(projectId, true, RECOVERY_LOCAL_KEY);
+}
+
+/** Upgrade a browser-only opt-out once the user is signed in. A recovered
+ * local project is never disclosed to an account by this migration. */
+export async function migrateCopyPreference(projectId: string) {
+  if (
+    !localOnlyIds().includes(projectId) ||
+    localOnlyIds(RECOVERY_LOCAL_KEY).includes(projectId)
+  )
+    return false;
+  const result = await saveCopyPreference(projectId, true);
+  if (result.ok) setLocalOnly(projectId, false);
+  return result.ok;
 }
 
 /**
@@ -202,6 +251,10 @@ export async function ensureServerCopy(
   name: string,
   fetchImpl: CapabilityFetch = defaultFetch(),
 ): Promise<ServerCopy | null> {
+  if (isLocalOnly(projectId)) {
+    await migrateCopyPreference(projectId);
+    return null;
+  }
   const listed = await listServerCopies(fetchImpl);
   if (!listed.ok) return null;
   const existing = listed.copies.find((c) => c.projectId === projectId);
@@ -209,7 +262,7 @@ export async function ensureServerCopy(
     await relabelServerCopy(existing, name, fetchImpl);
     return existing;
   }
-  if (isLocalOnly(projectId)) return null;
+  if (listed.localOnly.includes(projectId)) return null;
   const kept = await keepServerCopy(projectId, name, fetchImpl);
   return kept.ok ? kept.copy : null;
 }
@@ -254,7 +307,7 @@ export async function uploadServerCopy(
   existing: ServerCopy | undefined,
   syncUrl: string,
   deps: ServerCopySyncDeps = {},
-): Promise<"synced" | "empty" | "failed"> {
+): Promise<"synced" | "assets" | "empty" | "failed"> {
   const project = new CollabProject();
   const store = (deps.draftStore ?? createIndexeddbDraftStore)(
     localProjectDbName(held.id),
@@ -270,7 +323,11 @@ export async function uploadServerCopy(
       if (!kept.ok) return "failed";
       copy = kept.copy;
     } else {
-      await relabelServerCopy(copy, held.name, deps.fetchImpl ?? defaultFetch());
+      await relabelServerCopy(
+        copy,
+        held.name,
+        deps.fetchImpl ?? defaultFetch(),
+      );
     }
     connection = openConnectorReplica(
       project,
@@ -278,9 +335,18 @@ export async function uploadServerCopy(
       copy.roomId,
       deps.socketFactory,
     );
-    return (await whenSynced(connection, deps.timeoutMs ?? 30_000))
-      ? "synced"
-      : "failed";
+    if (!(await whenSynced(connection, deps.timeoutMs ?? 30_000)))
+      return "failed";
+    if (
+      hostedStorageEnabled() &&
+      !(await connection.confirmPersisted(deps.timeoutMs ?? 30_000))
+    ) return "failed";
+    try {
+      await syncCopyAssets(project, held.id, syncUrl, copy.roomId);
+    } catch {
+      return "assets";
+    }
+    return "synced";
   } catch {
     return "failed";
   } finally {
@@ -314,6 +380,16 @@ export async function restoreServerCopy(
     if (!(await whenSynced(connection, deps.timeoutMs ?? 30_000)))
       return "failed";
     if (!hasContent(project.doc)) return "empty";
+    // Copies created before hosted assets can contain pointers whose bytes
+    // were never uploaded. Preserve their text; the editor retries the assets
+    // and displays an incomplete-copy status while any are missing.
+    await syncCopyAssets(
+      project,
+      copy.projectId,
+      syncUrl,
+      copy.roomId,
+      true,
+    ).catch(() => undefined);
     store = (deps.draftStore ?? createIndexeddbDraftStore)(
       localProjectDbName(copy.projectId),
       project.doc,

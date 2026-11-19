@@ -193,7 +193,10 @@ function parseRegisterBody(
     // A copy room is a project's replica and carries no grant.
     if (!allowCopy || projectId === undefined || reviewMode !== undefined)
       return null;
-  } else if ((kind !== "share" && kind !== "control") || reviewMode !== undefined)
+  } else if (
+    (kind !== "share" && kind !== "control") ||
+    reviewMode !== undefined
+  )
     return null;
   if (projectId !== undefined) {
     if (
@@ -328,9 +331,21 @@ export async function registerCapabilityRoom(
         if (existing.createdBy !== input.userId) return fail(403, "forbidden");
       }
 
-      const mine = (await store.list()).filter(
+      const records = await store.list();
+      if (
+        kind === "copy" &&
+        records.some(
+          (r) =>
+            r.createdBy === input.userId &&
+            r.projectId === projectId &&
+            r.copyDisabled,
+        )
+      )
+        return fail(403, "forbidden");
+      const mine = records.filter(
         (r) =>
-          r.createdBy === input.userId && isActiveCapabilityRoom(r, input.nowMs),
+          r.createdBy === input.userId &&
+          isActiveCapabilityRoom(r, input.nowMs),
       );
       const copies = mine.filter((r) => r.kind === "copy");
       if (
@@ -429,8 +444,73 @@ export async function revokeCapabilityRoom(
     // FIFO-prune their oldest. (Only a fresh write can grow the count, but the
     // prune is idempotent housekeeping; running it after an idempotent re-
     // revoke would simply find nothing to do.)
-    if (result.status === 200) await pruneTombstones(store, locks, input.userId);
+    if (result.status === 200)
+      await pruneTombstones(store, locks, input.userId);
     return result;
+  });
+}
+
+/** Change the account preference under the same lock as automatic registration. */
+export async function setProjectCopyPreference(
+  store: CapabilityRoomStore,
+  input: { userId: string; nowMs: number; body: unknown },
+): Promise<CapabilityRoomRouteResult> {
+  const { projectId, localOnly, roomId } = (input.body ?? {}) as Record<
+    string,
+    unknown
+  >;
+  if (
+    typeof localOnly !== "boolean" ||
+    typeof projectId !== "string" ||
+    !parseRegisterBody({ kind: "copy", projectId, roomId }, false, true) ||
+    !isCapabilityRoomId(roomId)
+  )
+    return fail(400, "invalid");
+  const locks = locksFor(store);
+  return locks.run(`user:${input.userId}`, async () => {
+    const records = (await store.list()).filter(
+      (r) => r.createdBy === input.userId,
+    );
+    const preferences = records.filter((r) => r.copyDisabled);
+    const previous = preferences.find((r) => r.projectId === projectId);
+    const active = records.find(
+      (r) =>
+        r.projectId === projectId &&
+        isProjectReplicaKind(r.kind) &&
+        isActiveCapabilityRoom(r, input.nowMs),
+    );
+    if (
+      localOnly &&
+      !previous &&
+      preferences.length >= MAX_ACTIVE_COPY_ROOMS_PER_USER
+    )
+      return fail(409, "cap-exceeded");
+    if (localOnly && (active || !previous)) {
+      const id = active?.roomId ?? roomId;
+      const result = await locks.run(`room:${id}`, async () => {
+        if (!active && (await store.get(id))) return fail(409, "exists");
+        await store.put({
+          ...(active ?? {
+            version: 1 as const,
+            roomId: id,
+            kind: "copy" as const,
+            projectId,
+            createdBy: input.userId,
+            createdAtMs: input.nowMs,
+          }),
+          revokedAtMs: input.nowMs,
+          revokedBy: input.userId,
+          ...(!previous ? { copyDisabled: true as const } : {}),
+        });
+        return ok();
+      });
+      if (result.status !== 200) return result;
+    } else if (!localOnly && previous) {
+      const { copyDisabled: _, ...tombstone } = previous;
+      await store.put(tombstone);
+    }
+    await pruneTombstones(store, locks, input.userId);
+    return ok();
   });
 }
 
@@ -512,6 +592,22 @@ export async function setProjectReplicaKind(
       )
         return fail(404, "unknown");
       if (existing.kind === kind) return ok();
+      if (
+        kind === "copy" &&
+        (await store.list()).some(
+          (r) =>
+            r.createdBy === input.userId &&
+            r.projectId === existing.projectId &&
+            r.copyDisabled,
+        )
+      ) {
+        await store.put({
+          ...existing,
+          revokedAtMs: input.nowMs,
+          revokedBy: input.userId,
+        });
+        return ok();
+      }
       if (kind === "connector") {
         const connected = (await store.list()).filter(
           (r) =>
@@ -661,7 +757,10 @@ async function pruneTombstones(
   let mine: CapabilityRoomRecord[];
   try {
     mine = (await store.list()).filter(
-      (r) => r.createdBy === userId && r.revokedAtMs !== undefined,
+      (r) =>
+        r.createdBy === userId &&
+        r.revokedAtMs !== undefined &&
+        !r.copyDisabled,
     );
   } catch {
     return; // housekeeping only

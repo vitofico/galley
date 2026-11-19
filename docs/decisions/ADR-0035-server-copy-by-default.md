@@ -56,7 +56,7 @@ count toward neither the 128-room limit nor the 32 connected projects.
 
 - **Per project:** "Keep only in this browser" in the project's menu revokes
   its room. The relay drops it and erases the stored copy within about half a
-  minute. The choice is remembered in that browser.
+  minute. The account remembers this choice for the project across browsers. The registry serializes preference changes with copy registration. An explicit connector grant can still create a connector replica, which disconnect revokes when the project is opted out.
 - **Per deployment:** the default follows the configuration. Copies are on
   when the web service has `GALLEY_AUTH_MODE=oidc`, `GALLEY_DATA_DIR` and
   `GALLEY_SYNC_PERSIST_DIR` (the web service cannot see the relay's
@@ -105,13 +105,18 @@ only in the editor.
 - The privacy statement of a signed-in deployment is reversed: the server
   holds every project unless the person or the operator opts out. README, the
   security model and the self-host guide say so.
-- **Text only.** Images and project fonts live in the browser's blob store and
-  are not in the copy. Hosted blobs need a storage-policy service on the relay
-  and are the follow-up; until then the interface says the copy is text.
+- Where hosted storage is configured, the replica includes live binary assets
+  such as images and project fonts. The browser sends locally granted bytes
+  through the quota-enforced hosted channel and verifies bytes on restore.
+  A background upload on these deployments waits for the relay to confirm
+  the local document's state vector has reached persistent storage.
+  Other deployments keep a text copy. Existing text copies can recover text
+  even when referenced bytes were never uploaded.
 - Version history made in a browser stays in that browser. A restored project
   starts a new history.
-- The opt-out is remembered per browser. A second browser that also holds the
-  project and was not told will upload it again.
+- The library can recover a surviving registry entry from an earlier local
+  profile on the same browser. Recovery requires choosing the project on the
+  device and keeps it local by default. Clearing IndexedDB erases this option.
 - A relay that was started without a persist volume while the web service
   claims one gives people a copy that vanishes when the relay restarts. The
   two settings must agree, as the connector's already had to.

@@ -104,6 +104,8 @@ export interface CapabilityRoomRecord {
   projectName?: string;
   /** Tombstone marker: set on revoke, never cleared. */
   revokedAtMs?: number;
+  /** A durable account preference on a revoked replica. */
+  copyDisabled?: true;
   revokedBy?: string;
 }
 

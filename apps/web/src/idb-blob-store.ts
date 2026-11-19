@@ -185,6 +185,12 @@ export class IndexeddbBlobBackend implements BlobBackend {
     this.maxBytes = opts.maxBytes ?? DEFAULT_BLOB_QUOTA_BYTES;
   }
 
+  async close(): Promise<void> {
+    const db = await this.dbPromise;
+    db?.close();
+    this.dbPromise = undefined;
+  }
+
   private open(): Promise<IDBDatabase> {
     if (!this.dbPromise) {
       const p = new Promise<IDBDatabase>((resolve, reject) => {
