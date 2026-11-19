@@ -1,0 +1,55 @@
+name: Classify changes
+
+on:
+  workflow_call:
+    outputs:
+      docs-only:
+        value: ${{ jobs.changes.outputs.docs-only }}
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      docs-only: ${{ steps.diff.outputs.docs-only }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Check the complete change against its base
+        id: diff
+        env:
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_FORCED: ${{ github.event.forced }}
+        run: |
+          # An empty, ambiguous or unavailable diff keeps the full checks.
+          base=$(git rev-parse --verify HEAD^1) || exit 0
+          case "$GITHUB_EVENT_NAME" in
+            pull_request)
+              head=$(git rev-parse --verify HEAD^2) || exit 0
+              [[ "$head" == "$PR_HEAD" ]] || exit 0
+              ;;
+            push)
+              [[ "$PUSH_FORCED" == false && "$base" == "$PUSH_BEFORE" ]] || exit 0
+              ;;
+            *) exit 0 ;;
+          esac
+
+          # Disabling rename detection checks both the old and new paths.
+          changes=$(git diff --raw --no-renames "$base" HEAD) || exit 0
+          [[ -n "$changes" ]] || exit 0
+          # Both sides must be regular, non-executable files or absent.
+          while read -r old_mode new_mode _; do
+            [[ "$old_mode" == :100644 || "$old_mode" == :000000 ]] || exit 0
+            [[ "$new_mode" == 100644 || "$new_mode" == 000000 ]] || exit 0
+          done <<< "$changes"
+          if git diff --quiet --no-renames "$base" HEAD -- . \
+            ':(exclude,top,glob)*.md' ':(exclude,top,glob)docs/**/*.md' \
+            ':(exclude,top,glob)docs/**/*.png' ':(exclude,top,glob)docs/**/*.svg'; then
+            echo 'docs-only=true' >> "$GITHUB_OUTPUT"
+          fi

@@ -38,14 +38,26 @@ export const CAPABILITY_ROOM_PREFIX = "share-";
  *    kept synced into (ADR-0033). No expiry; the relay PERSISTS it, so the
  *    server holds a replica while no tab is open. The record is also the
  *    project's connector GRANT: it carries the review mode.
+ *  - `"copy"` — the room a signed-in person's project is kept synced into so
+ *    the server holds a replica of it (ADR-0035). No expiry; the relay
+ *    PERSISTS it. It is a replica and nothing more: it carries no grant, so
+ *    the hosted connector cannot see it. Connecting the project turns its
+ *    copy room into a connector room in place, and disconnecting turns it
+ *    back.
  */
-export type CapabilityRoomKind = "share" | "control" | "connector";
+export type CapabilityRoomKind = "share" | "control" | "connector" | "copy";
+
+/** The kinds that name a project and that the relay keeps on disk. */
+export const isProjectReplicaKind = (
+  kind: unknown,
+): kind is "connector" | "copy" => kind === "connector" || kind === "copy";
 
 /** The set of known kinds, exported so validators never drift from the type. */
 export const CAPABILITY_ROOM_KINDS: readonly CapabilityRoomKind[] = [
   "share",
   "control",
   "connector",
+  "copy",
 ];
 
 /**
@@ -77,16 +89,17 @@ export interface CapabilityRoomRecord {
   expiresAtMs?: number;
   /**
    * The project the room belongs to. Informational for share/control rooms
-   * (never used for authorization); REQUIRED for a connector room, where it
-   * names the connected project.
+   * (never used for authorization); REQUIRED for a connector or copy room,
+   * where it names the project the replica belongs to.
    */
   projectId?: string;
   /** Connector rooms only: the grant's review mode. Absent reads as `"ask"`. */
   reviewMode?: ConnectorReviewMode;
   /**
-   * Connector rooms only: the project's name when it was connected, so the
-   * connector can tell an AI client which project is which. A label, never an
-   * identifier: it is not kept in step with later renames.
+   * Connector and copy rooms: the project's name when the room was registered,
+   * so a browser that does not hold the project (and the connector) can tell
+   * which project is which. A label, never an identifier: it is not kept in
+   * step with later renames.
    */
   projectName?: string;
   /** Tombstone marker: set on revoke, never cleared. */

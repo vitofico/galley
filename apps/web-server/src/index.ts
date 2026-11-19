@@ -90,6 +90,8 @@ export interface WebServerAppOptions {
   hostedStorage?: boolean;
   /** The hosted connector is enabled (ADR-0033): the SPA offers "Connect". */
   hostedConnector?: boolean;
+  /** Signed-in people's projects are kept on the server (ADR-0035). */
+  serverCopy?: boolean;
   /**
    * Service-authenticated internal membership-read wiring (Wave 13 cloud enabler).
    * When present, a `/internal/projects/:projectId/membership/:userId` route is
@@ -234,6 +236,8 @@ export interface RuntimeConfigValues {
   hostedStorage?: true;
   /** People may connect a project to the hosted connector (ADR-0033). */
   hostedConnector?: true;
+  /** Every project is kept on the server unless opted out (ADR-0035). */
+  serverCopy?: true;
 }
 
 export function renderRuntimeConfigScript(values: RuntimeConfigValues): string {
@@ -248,6 +252,7 @@ export function renderRuntimeConfigScript(values: RuntimeConfigValues): string {
   if (values.hostedRuns !== undefined) config["hostedRuns"] = values.hostedRuns;
   if (values.hostedStorage === true) config["hostedStorage"] = true;
   if (values.hostedConnector === true) config["hostedConnector"] = true;
+  if (values.serverCopy === true) config["serverCopy"] = true;
   const json = JSON.stringify(config)
     .replace(/</g, "\\u003c")
     .replace(/>/g, "\\u003e")
@@ -323,7 +328,8 @@ export function createWebServerApp(options: WebServerAppOptions): Hono {
     authEnabled ||
     hostedRuns !== null ||
     options.hostedStorage === true ||
-    options.hostedConnector === true
+    options.hostedConnector === true ||
+    options.serverCopy === true
       ? {
           ...(compileUrl !== null ? { compileUrl } : {}),
           ...(syncUrl !== null ? { syncUrl } : {}),
@@ -335,6 +341,7 @@ export function createWebServerApp(options: WebServerAppOptions): Hono {
           ...(options.hostedConnector === true
             ? { hostedConnector: true as const }
             : {}),
+          ...(options.serverCopy === true ? { serverCopy: true as const } : {}),
         }
       : null;
   const app = new Hono();

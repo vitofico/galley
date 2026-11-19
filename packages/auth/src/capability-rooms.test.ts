@@ -15,7 +15,11 @@ import {
   registerCapabilityRoom,
   revokeCapabilityRoom,
   listConnectedProjects,
+  listProjectReplicas,
   setConnectorReviewMode,
+  setProjectReplicaKind,
+  setProjectReplicaName,
+  MAX_ACTIVE_COPY_ROOMS_PER_USER,
   MAX_ACTIVE_CAPABILITY_ROOMS_PER_USER,
   MAX_ACTIVE_CONTROL_ROOMS_PER_USER,
   MAX_ACTIVE_CONNECTOR_ROOMS_PER_USER,
@@ -53,6 +57,7 @@ const register = (
     sessionExpiresAtMs: number;
     nowMs: number;
     allowConnector: boolean;
+    allowCopy: boolean;
   }> = {},
 ) =>
   registerCapabilityRoom(store, {
@@ -63,6 +68,7 @@ const register = (
     ...(over.allowConnector !== undefined
       ? { allowConnector: over.allowConnector }
       : {}),
+    ...(over.allowCopy !== undefined ? { allowCopy: over.allowCopy } : {}),
   });
 
 describe("registerCapabilityRoom — validation", () => {
@@ -675,5 +681,133 @@ describe("connector rooms (ADR-0033)", () => {
     await revokeCapabilityRoom(store, { roomId: room(1), userId: "alice", nowMs: NOW });
     expect(await set(room(1), { reviewMode: "ask" })).toEqual(unknown); // disconnected
     expect(store.map.get(room(1))?.reviewMode).toBe("auto"); // tombstone untouched
+  });
+});
+
+describe("copy rooms (ADR-0035)", () => {
+  const room = (n: number) => `share-copy${String(n).padStart(25, "0")}`;
+  const keep = (
+    store: CapabilityRoomStore,
+    body: Record<string, unknown>,
+    userId = "alice",
+  ) =>
+    register(
+      store,
+      { kind: "copy", ...body },
+      { userId, allowCopy: true, allowConnector: true },
+    );
+  const unknown = { status: 404, body: { ok: false, code: "unknown" } };
+
+  it("is refused as an unknown kind where the deployment keeps no copies, and needs a project", async () => {
+    const store = new MemStore();
+    const invalid = { status: 400, body: { ok: false, code: "invalid" } };
+    expect(
+      await register(store, { roomId: ROOM, kind: "copy", projectId: "p1" }),
+    ).toEqual(invalid);
+    expect(await keep(store, { roomId: ROOM })).toEqual(invalid);
+    expect(store.map.size).toBe(0);
+  });
+
+  it("registers without an expiry or a review mode, and is no grant to the connector", async () => {
+    const store = new MemStore();
+    expect(
+      (await keep(store, { roomId: room(1), projectId: "p1", projectName: "Thesis" }))
+        .status,
+    ).toBe(200);
+    expect(store.map.get(room(1))).toEqual({
+      version: 1,
+      roomId: room(1),
+      kind: "copy",
+      createdBy: "alice",
+      createdAtMs: NOW,
+      projectId: "p1",
+      projectName: "Thesis",
+    });
+    // The connector reaches connected projects only: a copy is not one.
+    expect(await listConnectedProjects(store, "alice", NOW)).toEqual([]);
+    expect(await listProjectReplicas(store, "alice", NOW)).toEqual([
+      { roomId: room(1), projectId: "p1", name: "Thesis", kind: "copy" },
+    ]);
+    expect(await listProjectReplicas(store, "bob", NOW)).toEqual([]);
+  });
+
+  it("keeps one replica per project, whichever kind it is", async () => {
+    const store = new MemStore();
+    const exists = { status: 409, body: { ok: false, code: "exists" } };
+    await keep(store, { roomId: room(1), projectId: "p1" });
+    expect(await keep(store, { roomId: room(2), projectId: "p1" })).toEqual(exists);
+    expect(
+      await keep(store, { roomId: room(3), kind: "connector", projectId: "p1" }),
+    ).toEqual(exists);
+    // Once the copy is erased the project may be kept again.
+    await revokeCapabilityRoom(store, { roomId: room(1), userId: "alice", nowMs: NOW });
+    expect((await keep(store, { roomId: room(4), projectId: "p1" })).status).toBe(200);
+  });
+
+  it(`has its own cap of ${MAX_ACTIVE_COPY_ROOMS_PER_USER}, apart from shares and connected projects`, async () => {
+    const store = new MemStore();
+    for (let i = 0; i < MAX_ACTIVE_COPY_ROOMS_PER_USER; i++)
+      await store.put({
+        version: 1,
+        roomId: room(i),
+        kind: "copy",
+        createdBy: "alice",
+        createdAtMs: NOW,
+        projectId: `p${i}`,
+      });
+    expect(await keep(store, { roomId: room(5000), projectId: "one-more" })).toEqual({
+      status: 409,
+      body: { ok: false, code: "cap-exceeded" },
+    });
+    // Far past the 128-room cap, sharing and connecting still work.
+    expect((await register(store, { roomId: ROOM, kind: "share" })).status).toBe(200);
+    expect(
+      (await keep(store, { roomId: room(5001), kind: "connector", projectId: "c1" }))
+        .status,
+    ).toBe(200);
+  });
+
+  it("becomes a connected project and a copy again in place, for its owner only", async () => {
+    const store = new MemStore();
+    await keep(store, { roomId: room(1), projectId: "p1", projectName: "Thesis" });
+    await register(store, { roomId: room(2), kind: "share" });
+    const set = (roomId: string, body: unknown, userId = "alice") =>
+      setProjectReplicaKind(store, { roomId, body, userId, nowMs: NOW });
+
+    expect((await set(room(1), { kind: "connector" })).status).toBe(200);
+    expect(await listConnectedProjects(store, "alice", NOW)).toEqual([
+      { roomId: room(1), projectId: "p1", name: "Thesis", reviewMode: "ask", connectedAtMs: NOW },
+    ]);
+    await setConnectorReviewMode(store, {
+      roomId: room(1),
+      body: { reviewMode: "auto" },
+      userId: "alice",
+      nowMs: NOW,
+    });
+
+    // Disconnecting ends the grant and keeps the same replica room.
+    expect((await set(room(1), { kind: "copy" })).status).toBe(200);
+    expect(await listConnectedProjects(store, "alice", NOW)).toEqual([]);
+    expect(store.map.get(room(1))).toMatchObject({ kind: "copy", projectId: "p1" });
+    expect(store.map.get(room(1))).not.toHaveProperty("reviewMode");
+    expect(store.map.get(room(1))).not.toHaveProperty("revokedAtMs");
+
+    expect((await set(room(1), { kind: "share" })).status).toBe(400);
+    expect(await set(room(1), { kind: "connector" }, "bob")).toEqual(unknown);
+    expect(await set(room(2), { kind: "connector" })).toEqual(unknown); // a share room
+    await revokeCapabilityRoom(store, { roomId: room(1), userId: "alice", nowMs: NOW });
+    expect(await set(room(1), { kind: "connector" })).toEqual(unknown); // erased
+  });
+
+  it("is relabelled by its owner after a rename", async () => {
+    const store = new MemStore();
+    await keep(store, { roomId: room(1), projectId: "p1", projectName: "Untitled" });
+    const rename = (body: unknown, userId = "alice") =>
+      setProjectReplicaName(store, { roomId: room(1), body, userId, nowMs: NOW });
+    expect((await rename({ name: "Thesis" })).status).toBe(200);
+    expect((await listProjectReplicas(store, "alice", NOW))[0]?.name).toBe("Thesis");
+    expect((await rename({ name: "x".repeat(121) })).status).toBe(400);
+    expect(await rename({ name: "Mine now" }, "bob")).toEqual(unknown);
+    expect(store.map.get(room(1))?.projectName).toBe("Thesis");
   });
 });

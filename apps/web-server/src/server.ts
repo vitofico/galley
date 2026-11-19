@@ -50,6 +50,12 @@
  *                                      the hosted connector (ADR-0033). Default
  *                                      OFF. Needs OIDC and `GALLEY_DATA_DIR`, and
  *                                      a relay that persists (apps/sync).
+ *   - `GALLEY_SERVER_COPY`           — `0` turns server copies off (ADR-0035).
+ *                                      Unset → every signed-in person's projects
+ *                                      are kept on the server, wherever OIDC,
+ *                                      `GALLEY_DATA_DIR` and
+ *                                      `GALLEY_SYNC_PERSIST_DIR` (the relay's
+ *                                      persist volume, named here too) are set.
  *   - `GALLEY_CONNECTOR_STATE_DIR`   — the connector service's own volume, mounted
  *                                      READ-ONLY here: the activity trail and
  *                                      checkpoints of changes it applied in Auto
@@ -108,6 +114,7 @@ import {
 } from "./account-lifecycle.js";
 import {
   isHostedConnectorEnabled,
+  isServerCopyEnabled,
   isOidcEnabled,
   isOidcHttpAllowed,
   resolveAuthStores,
@@ -167,6 +174,8 @@ const hostedAccountPath = process.env.GALLEY_HOSTED_ACCOUNT_PATH ?? null;
 // Hosted connector (ADR-0033, default off). Fails closed here, at startup, on a
 // typo or without sign-in and the shared data volume.
 const hostedConnector = isHostedConnectorEnabled(process.env);
+// Server copies (ADR-0035, on wherever sign-in and a persisting relay exist).
+const serverCopy = isServerCopyEnabled(process.env);
 
 /**
  * Build the OIDC auth router from env, or null when auth is OFF (the default).
@@ -254,6 +263,7 @@ async function buildAuthRouter(): Promise<Hono | null> {
                 ? async (subject) => (await policy(subject)).maxOwnedProjects
                 : undefined,
             ),
+            ...(serverCopy ? { serverCopy: true as const } : {}),
             ...(hostedConnector
               ? {
                   hostedConnector: {
@@ -389,6 +399,7 @@ Promise.all(
       hostedAccountPath,
       hostedStorage: process.env.GALLEY_SYNC_HOSTED_BLOBS === "1",
       hostedConnector,
+      serverCopy,
       ...(authRouter ? { authRouter } : {}),
       ...(internalMembership ? { internalMembership } : {}),
       ...(accountLifecycleRouter ? { accountLifecycleRouter } : {}),
