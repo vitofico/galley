@@ -66,9 +66,8 @@ export interface ControlKernelConfig {
    *     from `--control-room`/`--response-key`. MEMORY-ONLY: never written to the
    *     durable store (args are an explicit, ephemeral override).
    *   - `"pairing-code"`: B2 — the operator pasted only a one-time `--pairing-code`.
-   *     `controlRoom`/`responseKey` are NOT yet known here; main.ts first tries a
-   *     MAC-verified durable pairing, then runs the handshake with `pairingCode`,
-   *     then persists the result so future runs need no re-paste.
+   *     Startup runs a handshake with `pairingCode` and persists the result on
+   *     success so future runs need no re-paste.
    *   - `"durable"`: only the relay was supplied; startup must authenticate an
    *     existing saved pairing or fail with a re-pair instruction.
    */
@@ -78,7 +77,7 @@ export interface ControlKernelConfig {
   /**
    * The per-session response-auth key (HIGH-1): 32 raw bytes. Present for
    * `authSource:"args"` (decoded from `--response-key`); for `"pairing-code"` it is
-   * obtained by the handshake / durable store at startup, never from argv.
+   * obtained by the handshake at startup.
    */
   responseKey?: Uint8Array;
   /** The one-time pairing code (B2) — present ONLY for `authSource:"pairing-code"`. */
@@ -368,7 +367,7 @@ export function parseKernelConfig(
   }
   if (pairingCode !== undefined) {
     // B2: the operator pasted the one-time code. The control room + response
-    // key are obtained at startup (durable store → handshake), never from argv.
+    // key are obtained through the handshake at startup.
     // STRICT: a valid code is base64url of exactly PAIRING_CODE_BYTES (128-bit) —
     // a wrong-length code is a paste error / weak material, so fail loud (it is
     // NOT a silent fall-back to any legacy room/key that may also be present).

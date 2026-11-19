@@ -126,9 +126,9 @@ warning** (emitted to stderr at startup) rather than failing loud or letting
 stale env silently override the operator's explicit intent. Startup resolves the
 authority in order:
 
-1. **`--pairing-code`** (if given) — try a MAC-verified durable pairing first (no
-   re-handshake), else run the handshake, then `savePairing()`. Any legacy room/key
-   present alongside it are ignored with a warning.
+1. **`--pairing-code`** (if given). Run the handshake and replace the stored pairing
+   after success. A failed handshake preserves the stored pairing and stops startup.
+   Any legacy room/key present alongside the code are ignored with a warning.
 2. else **legacy args** — ephemeral override, never persisted.
 3. else a **MAC-verified durable pairing**.
 4. else an honest error.
