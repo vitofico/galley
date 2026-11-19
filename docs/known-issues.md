@@ -74,13 +74,6 @@ not a replacement for a fronting reverse proxy: internet-facing deployments must
 terminate TLS and apply per-IP rate, connection-count, and request-size limits at
 the gateway.
 
-### Auth ships in-memory stores only
-
-`@galley/auth` provides only `InMemorySessionStore` / `InMemoryOidcLoginStateStore`:
-sessions do not survive a server restart, and there is no at-rest session storage to
-protect. If a persistent (e.g. filesystem-backed) store is added, its file
-permissions, at-rest format, and expiry sweep need their own security review.
-
 ### SEC-SHARE-1 · collaboration roles are enforced client-side only — MED
 
 Share links carry a viewer/editor role that fails closed (absent/unknown ⇒

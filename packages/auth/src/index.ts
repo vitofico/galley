@@ -26,7 +26,6 @@ export type {
   ClaimsValidationOptions,
   ClaimsResult,
 } from "./oidc-core.js";
-export { InMemorySessionStore, InMemoryOidcLoginStateStore } from "./stores.js";
 export {
   verifyIdToken,
   remoteJwks,

@@ -1,11 +1,4 @@
-/**
- * The shared commit-message format (roadmap #11/#12), lifted out of the Node-only
- * `git-version-store` so the BROWSER's GitHub push path can stamp the SAME trailer
- * block. `git-version-store.test.ts` remains the behavioral regression net for the
- * local git path; these tests pin the encoder's own contract — most importantly
- * that a hostile display label cannot FORGE a trailer, because this encoder now
- * also receives peer/CRDT-derived names (untrusted input).
- */
+/** Regression coverage for commit-message trailers, including untrusted contributor labels. */
 import { describe, it, expect } from "vitest";
 import {
   encodeMessage,

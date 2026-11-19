@@ -4,7 +4,7 @@
  * and ONE-TIME login-state consumption (state replay defense).
  */
 import { describe, it, expect } from "vitest";
-import { InMemorySessionStore, InMemoryOidcLoginStateStore } from "./index.js";
+import { InMemorySessionStore, InMemoryOidcLoginStateStore } from "./test-support.js";
 import type { OidcLoginState, SessionRecord } from "@galley/shared";
 
 const record = (over: Partial<SessionRecord> = {}): SessionRecord => ({

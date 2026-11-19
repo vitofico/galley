@@ -45,13 +45,6 @@ export {
   PROJECT_MANIFEST_PATH,
   PROJECT_INSTRUCTIONS_PATH,
 } from "./materialize.js";
-// Roadmap #14 (Unification) seed: single-file draft → one-file ProjectSnapshot.
-export {
-  draftToProjectSnapshot,
-  DEFAULT_DRAFT_PATH,
-  DEFAULT_DRAFT_FILE_ID,
-} from "./unify.js";
-export type { DraftImportOptions } from "./unify.js";
 export {
   snapshotDoc,
   restoreDoc,

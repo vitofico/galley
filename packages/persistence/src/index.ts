@@ -20,8 +20,6 @@ export {
   membershipAuthorizer,
   projectOrGroupMembershipAuthorizer,
 } from "./authorizer.js";
-export { GitVersionStore } from "./git-version-store.js";
-export type { SecondsClock } from "./git-version-store.js";
 // The commit-message format (roadmap #11/#12) — also on the `/browser` barrel,
 // which is how the web app's GitHub push path reaches the same encoder.
 export {

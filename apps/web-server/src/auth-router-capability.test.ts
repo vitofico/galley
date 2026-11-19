@@ -18,11 +18,11 @@ import type {
   OidcProviderConfig,
 } from "@galley/shared";
 import { isCapabilityRoomId } from "@galley/shared";
+import type { JwksGetter } from "@galley/auth";
 import {
   InMemorySessionStore,
   InMemoryOidcLoginStateStore,
-  type JwksGetter,
-} from "@galley/auth";
+} from "@galley/auth/test-support";
 import {
   createAuthRouter,
   MAX_CAPABILITY_BODY_BYTES,

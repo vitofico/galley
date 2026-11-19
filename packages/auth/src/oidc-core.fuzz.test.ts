@@ -1,6 +1,6 @@
 /**
  * Adversarial property/fuzz harness for the PURE OIDC core + stores
- * (oidc-core.ts, stores.ts, upgrade.ts), wave-33 #22.2 — the LAST light auth
+ * (oidc-core.ts, test-support.ts, upgrade.ts), wave-33 #22.2 — the LAST light auth
  * surfaces. Signature verification lives in verify.fuzz.test.ts (jose-backed).
  *
  * The cores are already adversarially tested (oidc-core.test.ts / stores.test.ts /
@@ -33,12 +33,12 @@ import {
   parseTokenResponse,
   userIdFromOidc,
   randomToken,
-  InMemorySessionStore,
-  InMemoryOidcLoginStateStore,
   authorizeSyncUpgrade,
   type RandomSource,
   type ClaimsValidationOptions,
 } from "./index.js";
+import { InMemorySessionStore, InMemoryOidcLoginStateStore } from "./test-support.js";
+
 import type { Authorizer, OidcProviderConfig } from "@galley/shared";
 
 const ISSUER = "https://idp.example.com";

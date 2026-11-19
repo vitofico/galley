@@ -9,11 +9,11 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import * as jose from "jose";
 import type { OidcLoginState, OidcProviderConfig } from "@galley/shared";
+import type { JwksGetter } from "@galley/auth";
 import {
   InMemorySessionStore,
   InMemoryOidcLoginStateStore,
-  type JwksGetter,
-} from "@galley/auth";
+} from "@galley/auth/test-support";
 import {
   createAuthRouter,
   safeReturnTo,

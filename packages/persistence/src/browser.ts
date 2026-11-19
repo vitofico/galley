@@ -5,9 +5,8 @@
  * (`pushTree`/`fetchTree` + redaction + caps + `HttpRemoteSync`), the browser
  * adapter (`createBrowserRemoteSync`, `createBrowserGitHttp`, `createMemoryGitFs`),
  * and the export-as-git-repo core (`exportProjectAsGitRepo`, roadmap #17.5).
- * It deliberately does NOT re-export the main barrel — that pulls
- * `git-version-store` and the Node-only `git-remote-node` (both `node:fs`), which
- * would break the Vite browser bundle. `apps/web` imports from HERE.
+ * The main barrel imports the Node-only `git-remote-node` and its filesystem
+ * dependency. `apps/web` uses this entry point to keep Node modules out of Vite.
  */
 import "./browser-buffer.js";
 export {
@@ -38,9 +37,7 @@ export { createBrowserRemoteSync } from "./browser-remote-sync.js";
 // Browser-safe by construction (in-memory git fs + object plumbing, no node:*).
 export { exportProjectAsGitRepo } from "./project-export-git.js";
 export type { GitRepoExport, GitExportOutcome, GitExportOptions } from "./project-export-git.js";
-// The commit-message format (roadmap #11/#12). Browser-safe by construction (pure
-// string work, no `node:*`) — the GitHub push path stamps the same trailers the
-// local `GitVersionStore` writes, instead of inventing a second format.
+// The shared commit-message encoder and trailer helpers use only strings.
 export {
   encodeMessage,
   decodeMessage,
