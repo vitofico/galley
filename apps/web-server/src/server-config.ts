@@ -40,6 +40,34 @@ export function isOidcEnabled(env: WebEnv = process.env): boolean {
 }
 
 /**
+ * Server copies (ADR-0035): every project of a signed-in person is kept on the
+ * server unless they opt it out. ON BY DEFAULT wherever it can work, which
+ * needs sign-in (a copy belongs to an account), the shared `GALLEY_DATA_DIR`
+ * (where its room is registered for the relay to read) and a relay that keeps
+ * rooms on disk. This process cannot see the relay's env, so the operator
+ * states the last one here too, with the same `GALLEY_SYNC_PERSIST_DIR`.
+ *
+ * `GALLEY_SERVER_COPY=0` is the operator's opt-out. `1` insists: it throws
+ * where a prerequisite is missing, instead of quietly leaving every project
+ * in the browser only. Anything else throws.
+ */
+export function isServerCopyEnabled(env: WebEnv = process.env): boolean {
+  const raw = env.GALLEY_SERVER_COPY?.trim() ?? "";
+  if (raw !== "" && raw !== "0" && raw !== "1")
+    throw new Error("GALLEY_SERVER_COPY must be 0 or 1");
+  if (raw === "0") return false;
+  const possible =
+    isOidcEnabled(env) &&
+    Boolean(env.GALLEY_DATA_DIR?.trim()) &&
+    Boolean(env.GALLEY_SYNC_PERSIST_DIR?.trim());
+  if (raw === "1" && !possible)
+    throw new Error(
+      "GALLEY_SERVER_COPY=1 requires GALLEY_AUTH_MODE=oidc, GALLEY_DATA_DIR and GALLEY_SYNC_PERSIST_DIR",
+    );
+  return possible;
+}
+
+/**
  * `GALLEY_HOSTED_CONNECTOR=1` — the operator switch for the hosted connector
  * (ADR-0033, default OFF). On → people may connect a project, which keeps a
  * replica of it on the server. Strictly `1`, `0` or unset: a typo throws, and

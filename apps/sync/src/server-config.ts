@@ -23,11 +23,12 @@
  *     compacted on reap/shutdown.
  *
  *   - `GALLEY_SYNC_PERSIST_ROOMS` — which rooms that volume keeps: `all` (the
- *     default, unchanged) or `connector`, only the rooms of projects a person
- *     connected to the hosted connector (ADR-0033). `connector` needs the
- *     persist dir and `GALLEY_SYNC_AUTH=required`, because a connected project
- *     is a registered room. Either way, once a connector room is revoked (the
- *     project was disconnected) its stored state is erased.
+ *     default, unchanged) or `connector`, only the rooms that hold a replica
+ *     of a person's project: a server copy (ADR-0035) or a project connected
+ *     to the hosted connector (ADR-0033). `connector` needs the persist dir
+ *     and `GALLEY_SYNC_AUTH=required`, because such a room is a registered
+ *     room. Either way, once one is revoked (the project was opted out,
+ *     disconnected or deleted) its stored state is erased.
  *
  * FAIL CLOSED: all three pieces must agree across containers via mounted volumes.
  * When auth is required but the durable, SHARED `GALLEY_SESSION_DIR` (and/or the
@@ -52,7 +53,7 @@ import {
   authorizeCapabilityRoomUpgrade,
   createAccountResourcePolicyReader,
 } from "@galley/auth";
-import { isCapabilityRoomId } from "@galley/shared";
+import { isCapabilityRoomId, isProjectReplicaKind } from "@galley/shared";
 import { readFileSync, lstatSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { compactUpdates } from "@galley/collab";
@@ -370,19 +371,23 @@ export function buildSyncOptions(
   // registry record (no cookie); every other room keeps the session+membership
   // gate below, unchanged.
   const capabilityRegistry = new FsCapabilityRoomRegistry(dataDir);
-  // Hosted connector (ADR-0033). The rooms seen ACTIVE with kind `connector`:
-  // every join authorizes first (below), so by the time the relay creates a
-  // room and asks whether to persist it, its kind is already known here.
-  const connectorRooms = new Set<string>();
+  // Project replicas: connector rooms (ADR-0033) and server copies (ADR-0035).
+  // The rooms seen ACTIVE with either kind: every join authorizes first
+  // (below), so by the time the relay creates a room and asks whether to
+  // persist it, its kind is already known here.
+  const replicaRooms = new Set<string>();
   const connectorOpt: SyncServerOptions = persistOpt.crdtStore
     ? {
         ...(connectorRoomsOnly
-          ? { persistRoom: (room) => connectorRooms.has(room) }
+          ? { persistRoom: (room) => replicaRooms.has(room) }
           : {}),
-        // A disconnected project (its connector room revoked) keeps no server copy.
+        // A project whose room was revoked (disconnected, opted out or
+        // deleted) keeps no server copy.
         roomsToRetire: async () =>
           (await capabilityRegistry.list())
-            .filter((r) => r.kind === "connector" && r.revokedAtMs !== undefined)
+            .filter(
+              (r) => isProjectReplicaKind(r.kind) && r.revokedAtMs !== undefined,
+            )
             .map((r) => r.roomId),
       }
     : {};
@@ -403,8 +408,9 @@ export function buildSyncOptions(
           registry: capabilityRegistry,
           nowMs: Date.now(),
         });
-        if (allowed && record?.kind === "connector") connectorRooms.add(room);
-        else connectorRooms.delete(room);
+        if (allowed && isProjectReplicaKind(record?.kind))
+          replicaRooms.add(room);
+        else replicaRooms.delete(room);
         return allowed;
       },
     },

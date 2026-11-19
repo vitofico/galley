@@ -18,6 +18,7 @@ import {
   isOidcEnabled,
   isOidcHttpAllowed,
   isHostedConnectorEnabled,
+  isServerCopyEnabled,
   resolveInternalMembershipConfig,
 } from "./server-config.js";
 import { FsSessionStore, FsOidcLoginStateStore } from "@galley/persistence";
@@ -215,5 +216,35 @@ describe("GALLEY_HOSTED_CONNECTOR — operator switch, fail closed", () => {
     expect(() =>
       isHostedConnectorEnabled({ GALLEY_HOSTED_CONNECTOR: "1", GALLEY_AUTH_MODE: "oidc" }),
     ).toThrow(/requires/);
+  });
+});
+
+describe("GALLEY_SERVER_COPY: on by default wherever it can work", () => {
+  const ready = {
+    GALLEY_AUTH_MODE: "oidc",
+    GALLEY_DATA_DIR: "/data",
+    GALLEY_SYNC_PERSIST_DIR: "/data/crdt",
+  };
+
+  it("is on with sign-in, the data volume and a persisting relay, with no switch set", () => {
+    expect(isServerCopyEnabled(ready)).toBe(true);
+    expect(isServerCopyEnabled({ ...ready, GALLEY_SERVER_COPY: "1" })).toBe(true);
+  });
+
+  it.each(Object.keys(ready))("is off without %s", (missing) => {
+    const env: Record<string, string> = { ...ready };
+    delete env[missing];
+    expect(isServerCopyEnabled(env)).toBe(false);
+    // Insisting on it where it cannot work refuses to start.
+    expect(() => isServerCopyEnabled({ ...env, GALLEY_SERVER_COPY: "1" })).toThrow(
+      /requires/,
+    );
+  });
+
+  it("is off when the operator opts out, and refuses a typo", () => {
+    expect(isServerCopyEnabled({ ...ready, GALLEY_SERVER_COPY: "0" })).toBe(false);
+    expect(() => isServerCopyEnabled({ ...ready, GALLEY_SERVER_COPY: "off" })).toThrow(
+      /must be 0 or 1/,
+    );
   });
 });

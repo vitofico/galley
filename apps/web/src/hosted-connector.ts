@@ -72,7 +72,7 @@ const ERROR_GENERIC =
 const defaultFetch = (): CapabilityFetch => fetch as unknown as CapabilityFetch;
 
 /** One same-origin, cookie-authenticated call; never throws. */
-async function call(
+export async function call(
   path: string,
   body: unknown,
   fetchImpl: CapabilityFetch,

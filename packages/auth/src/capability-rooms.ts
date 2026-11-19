@@ -29,6 +29,7 @@ import {
   CONNECTOR_REVIEW_MODES,
   isActiveCapabilityRoom,
   isCapabilityRoomId,
+  isProjectReplicaKind,
   type CapabilityRoomKind,
   type CapabilityRoomRecord,
   type CapabilityRoomStore,
@@ -41,6 +42,12 @@ export const MAX_ACTIVE_CAPABILITY_ROOMS_PER_USER = 128;
 export const MAX_ACTIVE_CONTROL_ROOMS_PER_USER = 8;
 /** Max projects one user may keep connected to the hosted connector (ADR-0033). */
 export const MAX_ACTIVE_CONNECTOR_ROOMS_PER_USER = 32;
+/**
+ * Max server copies one user may keep (ADR-0035). Every project has one by
+ * default, so they are counted apart from the share/control rooms above: a
+ * person with many projects must still be able to share one.
+ */
+export const MAX_ACTIVE_COPY_ROOMS_PER_USER = 1024;
 /**
  * Max revocation TOMBSTONES retained per user, FIFO-pruned on revoke
  * (verification round, M: unbounded permanent tombstones). Tombstones must
@@ -136,6 +143,11 @@ export interface RegisterCapabilityRoomInput {
    * Unset → a `connector` registration is `invalid`, like any unknown kind.
    */
   allowConnector?: boolean;
+  /**
+   * Whether this deployment keeps server copies (ADR-0035). Unset → a `copy`
+   * registration is `invalid`, like any unknown kind.
+   */
+  allowCopy?: boolean;
 }
 
 const isReviewMode = (value: unknown): value is ConnectorReviewMode =>
@@ -152,6 +164,7 @@ const isProjectName = (v: unknown): v is string =>
 function parseRegisterBody(
   body: unknown,
   allowConnector: boolean,
+  allowCopy: boolean,
 ): {
   roomId: string;
   kind: CapabilityRoomKind;
@@ -168,7 +181,7 @@ function parseRegisterBody(
   if (!isCapabilityRoomId(roomId)) return null;
   if (
     projectName !== undefined &&
-    (kind !== "connector" || !isProjectName(projectName))
+    (!isProjectReplicaKind(kind) || !isProjectName(projectName))
   )
     return null;
   if (kind === "connector") {
@@ -176,6 +189,10 @@ function parseRegisterBody(
     // its review mode defaults to the safe one.
     if (!allowConnector || projectId === undefined) return null;
     if (reviewMode !== undefined && !isReviewMode(reviewMode)) return null;
+  } else if (kind === "copy") {
+    // A copy room is a project's replica and carries no grant.
+    if (!allowCopy || projectId === undefined || reviewMode !== undefined)
+      return null;
   } else if ((kind !== "share" && kind !== "control") || reviewMode !== undefined)
     return null;
   if (projectId !== undefined) {
@@ -187,12 +204,12 @@ function parseRegisterBody(
     ) {
       return null;
     }
-    return kind === "connector"
+    return isProjectReplicaKind(kind)
       ? {
           roomId,
           kind,
           projectId,
-          reviewMode: reviewMode ?? "ask",
+          ...(kind === "connector" ? { reviewMode: reviewMode ?? "ask" } : {}),
           ...(projectName !== undefined ? { projectName } : {}),
         }
       : { roomId, kind, projectId };
@@ -270,16 +287,21 @@ async function gcCapabilityRooms(
  *      createdBy+kind (re-POST → ok, no rewrite); anyone/anything else →
  *      constant `forbidden`. An EXPIRED (non-revoked) record may be
  *      re-registered by its ORIGINAL creator only.
- *   5. Caps: ≤128 active rooms/user, ≤8 active control rooms/user, ≤32
- *      connected projects/user, and ONE active connector room per project.
- *   6. Write: control rooms expire AT THE SESSION'S EXPIRY; share and connector
- *      rooms carry no default expiry (revocation/abandonment ends them).
+ *   5. Caps: ≤128 active share/control/connector rooms/user, ≤8 active control
+ *      rooms/user, ≤32 connected projects/user, ≤1024 server copies/user, and
+ *      ONE active replica room (connector or copy) per project.
+ *   6. Write: control rooms expire AT THE SESSION'S EXPIRY; share, connector
+ *      and copy rooms carry no default expiry (revocation/abandonment ends them).
  */
 export async function registerCapabilityRoom(
   store: CapabilityRoomStore,
   input: RegisterCapabilityRoomInput,
 ): Promise<CapabilityRoomRouteResult> {
-  const parsed = parseRegisterBody(input.body, input.allowConnector === true);
+  const parsed = parseRegisterBody(
+    input.body,
+    input.allowConnector === true,
+    input.allowCopy === true,
+  );
   if (parsed === null) return fail(400, "invalid");
   const { roomId, kind, projectId, reviewMode, projectName } = parsed;
   const locks = locksFor(store);
@@ -310,7 +332,11 @@ export async function registerCapabilityRoom(
         (r) =>
           r.createdBy === input.userId && isActiveCapabilityRoom(r, input.nowMs),
       );
-      if (mine.length >= MAX_ACTIVE_CAPABILITY_ROOMS_PER_USER)
+      const copies = mine.filter((r) => r.kind === "copy");
+      if (
+        kind !== "copy" &&
+        mine.length - copies.length >= MAX_ACTIVE_CAPABILITY_ROOMS_PER_USER
+      )
         return fail(409, "cap-exceeded");
       if (
         kind === "control" &&
@@ -319,13 +345,20 @@ export async function registerCapabilityRoom(
       ) {
         return fail(409, "cap-exceeded");
       }
-      if (kind === "connector") {
-        const connected = mine.filter((r) => r.kind === "connector");
+      if (isProjectReplicaKind(kind)) {
         // One room per project: a second would leave two server replicas of
-        // the same project, and the connector could not tell which is current.
-        if (connected.some((r) => r.projectId === projectId))
+        // the same project, and nothing could tell which is current.
+        if (
+          mine.some(
+            (r) => isProjectReplicaKind(r.kind) && r.projectId === projectId,
+          )
+        )
           return fail(409, "exists");
-        if (connected.length >= MAX_ACTIVE_CONNECTOR_ROOMS_PER_USER)
+        const cap =
+          kind === "copy"
+            ? MAX_ACTIVE_COPY_ROOMS_PER_USER
+            : MAX_ACTIVE_CONNECTOR_ROOMS_PER_USER;
+        if (mine.filter((r) => r.kind === kind).length >= cap)
           return fail(409, "cap-exceeded");
       }
 
@@ -398,6 +431,131 @@ export async function revokeCapabilityRoom(
     // revoke would simply find nothing to do.)
     if (result.status === 200) await pruneTombstones(store, locks, input.userId);
     return result;
+  });
+}
+
+/** One project the server holds a replica of, as its owner sees it (ADR-0035). */
+export interface ProjectReplica {
+  /** The durable room the project is synced into: the owner's own capability. */
+  roomId: string;
+  projectId: string;
+  /** The project's name when the room was registered; absent on older records. */
+  name?: string;
+  /** `connector` when the project is also connected to the hosted connector. */
+  kind: "copy" | "connector";
+}
+
+/** Every project `userId` has a server replica of, copies and connected alike. */
+export async function listProjectReplicas(
+  store: CapabilityRoomStore,
+  userId: string,
+  nowMs: number,
+): Promise<ProjectReplica[]> {
+  const out: (ProjectReplica & { createdAtMs: number })[] = [];
+  for (const r of await store.list()) {
+    if (
+      !isProjectReplicaKind(r.kind) ||
+      r.createdBy !== userId ||
+      typeof r.projectId !== "string" ||
+      !isActiveCapabilityRoom(r, nowMs)
+    )
+      continue;
+    out.push({
+      roomId: r.roomId,
+      projectId: r.projectId,
+      ...(isProjectName(r.projectName) ? { name: r.projectName } : {}),
+      kind: r.kind,
+      createdAtMs: r.createdAtMs,
+    });
+  }
+  return out
+    .sort(
+      (a, b) => a.createdAtMs - b.createdAtMs || (a.roomId < b.roomId ? -1 : 1),
+    )
+    .map(({ createdAtMs: _, ...replica }) => replica);
+}
+
+export interface SetProjectReplicaKindInput {
+  /** The roomId from the URL param (UNTRUSTED). */
+  roomId: string;
+  /** The parsed JSON request body (UNTRUSTED): `{ kind }`. */
+  body: unknown;
+  userId: string;
+  nowMs: number;
+}
+
+/**
+ * Turn a project's copy room into a connector room, or back (ADR-0035). The
+ * room and its stored replica stay as they are: connecting a project must not
+ * empty the server copy, and disconnecting it must not either. Only the
+ * creator may switch, only while the room is an ACTIVE replica room; every
+ * other case answers the same `404 unknown` as revoke (no ownership oracle).
+ * A room that becomes a connector room starts in Ask, and one that becomes a
+ * copy room loses its review mode with its grant.
+ */
+export async function setProjectReplicaKind(
+  store: CapabilityRoomStore,
+  input: SetProjectReplicaKindInput,
+): Promise<CapabilityRoomRouteResult> {
+  const kind = (input.body as { kind?: unknown } | null)?.kind;
+  if (!isProjectReplicaKind(kind)) return fail(400, "invalid");
+  if (!isCapabilityRoomId(input.roomId)) return fail(404, "unknown");
+  const locks = locksFor(store);
+  return locks.run(`user:${input.userId}`, () =>
+    locks.run(`room:${input.roomId}`, async () => {
+      const existing = await store.get(input.roomId);
+      if (
+        existing === null ||
+        existing.createdBy !== input.userId ||
+        !isProjectReplicaKind(existing.kind) ||
+        !isActiveCapabilityRoom(existing, input.nowMs)
+      )
+        return fail(404, "unknown");
+      if (existing.kind === kind) return ok();
+      if (kind === "connector") {
+        const connected = (await store.list()).filter(
+          (r) =>
+            r.kind === "connector" &&
+            r.createdBy === input.userId &&
+            isActiveCapabilityRoom(r, input.nowMs),
+        );
+        if (connected.length >= MAX_ACTIVE_CONNECTOR_ROOMS_PER_USER)
+          return fail(409, "cap-exceeded");
+      }
+      const { reviewMode: _, ...rest } = existing;
+      await store.put({
+        ...rest,
+        kind,
+        ...(kind === "connector" ? { reviewMode: "ask" as const } : {}),
+      });
+      return ok();
+    }),
+  );
+}
+
+/**
+ * Relabel a project's replica room after a rename, so a browser that restores
+ * the project names it as its owner last did. Same access rule and the same
+ * `404 unknown` as {@link setProjectReplicaKind}.
+ */
+export async function setProjectReplicaName(
+  store: CapabilityRoomStore,
+  input: SetProjectReplicaKindInput,
+): Promise<CapabilityRoomRouteResult> {
+  const name = (input.body as { name?: unknown } | null)?.name;
+  if (!isProjectName(name)) return fail(400, "invalid");
+  if (!isCapabilityRoomId(input.roomId)) return fail(404, "unknown");
+  return locksFor(store).run(`room:${input.roomId}`, async () => {
+    const existing = await store.get(input.roomId);
+    if (
+      existing === null ||
+      existing.createdBy !== input.userId ||
+      !isProjectReplicaKind(existing.kind) ||
+      !isActiveCapabilityRoom(existing, input.nowMs)
+    )
+      return fail(404, "unknown");
+    await store.put({ ...existing, projectName: name });
+    return ok();
   });
 }
 

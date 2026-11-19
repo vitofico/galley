@@ -1,4 +1,6 @@
-import { dirname, resolve } from "node:path";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, devices } from "@playwright/test";
 
@@ -18,6 +20,22 @@ const REGISTRY_INTEGRITY = resolve(REGISTRY_DIR, "integrity.json");
 // where Firefox/WebKit diverge from Chromium: app boot, the ~28 MB WASM compiler
 // loading in a Web Worker, real glyph rendering (fonts), and IndexedDB
 // persistence. Selected by FILE PATH so the spec files stay untouched.
+// Server-copy stack (ADR-0035, e2e/server-copy.spec.ts): a signed-in deployment
+// with its own relay, web server and OpenID provider stub, sharing one scratch
+// volume. The directory is minted once by the runner and inherited by the
+// workers through the environment, so the spec reads the same files the
+// servers write.
+const COPY_DIR = (process.env.GALLEY_E2E_COPY_DIR ??= mkdtempSync(
+  join(tmpdir(), "galley-e2e-copy-"),
+));
+const COPY_WEB = "http://localhost:4179";
+const COPY_ENV = {
+  GALLEY_SESSION_DIR: join(COPY_DIR, "sessions"),
+  GALLEY_DATA_DIR: join(COPY_DIR, "data"),
+  GALLEY_SYNC_PERSIST_DIR: join(COPY_DIR, "crdt"),
+  GALLEY_INSECURE_COOKIES: "1",
+};
+
 const SMOKE = [
   // Editor → live-preview loop: app boot, WASM compiler ready, SVG render, and a
   // located diagnostic. The core happy path in a real browser.
@@ -125,6 +143,49 @@ export default defineConfig({
       command: "pnpm --filter @galley/web-server start",
       url: "http://localhost:4178/healthz",
       env: { PORT: "4178", WEB_ROOT: WEB_DIST },
+      reuseExistingServer: false,
+      timeout: 120_000,
+    },
+    {
+      // Test-only OpenID provider for the signed-in stack below.
+      command: "node e2e/fixtures/oidc/server.mjs",
+      url: "http://localhost:4180/healthz",
+      env: { OIDC_PORT: "4180" },
+      reuseExistingServer: false,
+      timeout: 60_000,
+    },
+    {
+      // The relay as a signed-in deployment runs it: upgrades need a session,
+      // and only registered project replicas are kept on disk.
+      command: "pnpm --filter @galley/sync start",
+      port: 1235,
+      env: {
+        ...COPY_ENV,
+        PORT: "1235",
+        GALLEY_SYNC_AUTH: "required",
+        GALLEY_SYNC_ALLOWED_ORIGINS: COPY_WEB,
+        GALLEY_SYNC_PERSIST_ROOMS: "connector",
+      },
+      reuseExistingServer: false,
+      timeout: 60_000,
+    },
+    {
+      // The web server with real OIDC sign-in and server copies at their
+      // default: on, because sign-in, the data volume and the relay's persist
+      // volume are all configured. No GALLEY_SERVER_COPY is set.
+      command: "pnpm --filter @galley/web-server start",
+      url: `${COPY_WEB}/healthz`,
+      env: {
+        ...COPY_ENV,
+        PORT: "4179",
+        WEB_ROOT: WEB_DIST,
+        GALLEY_AUTH_MODE: "oidc",
+        GALLEY_OIDC_ISSUER: "http://localhost:4180",
+        GALLEY_OIDC_CLIENT_ID: "galley-e2e",
+        GALLEY_OIDC_ALLOW_HTTP: "1",
+        GALLEY_PUBLIC_BASE_URL: COPY_WEB,
+        GALLEY_SYNC_URL: "ws://localhost:1235",
+      },
       reuseExistingServer: false,
       timeout: 120_000,
     },

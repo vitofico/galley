@@ -14,6 +14,12 @@ type Update = {
 
 const [latestUpdate, ...earlierUpdates]: [Update, ...Update[]] = [
   {
+    id: "server-copy-by-default",
+    title: "Your projects are kept on the server when you are signed in",
+    description:
+      "On a server with sign-in, Galley now keeps a copy of each project's text there, so clearing your browser's data no longer deletes your work: sign in again and open it from On the server. The copy is readable by whoever runs the server. Choose Keep only in this browser in a project's menu to opt it out. Images and fonts are not in the copy yet. Without an account nothing leaves your browser.",
+  },
+  {
     id: "before-you-send",
     title: "Check your document before sending",
     description:

@@ -48,7 +48,46 @@ export interface LibraryAppProps {
    */
   connected?: readonly { projectId: string; name?: string }[];
   onOpenConnected?: (projectId: string) => void;
+  /**
+   * Server copies (ADR-0035), on a deployment that keeps them. Omitted where
+   * it keeps none: the page then says projects live in this browser only.
+   */
+  serverCopies?: LibraryServerCopies;
+  /** Called after a project was deleted, to drop what this browser held for it. */
+  onDeleted?: (projectId: ProjectId) => void;
 }
+
+/** Where a held project's content is, as its card says it. */
+export type ServerCopyState = "server" | "uploading" | "local";
+
+/**
+ * The library's view of the account's server copies. Each action resolves to
+ * null on success or to a sentence to show the person.
+ */
+export interface LibraryServerCopies {
+  /** The account's replicas on the server; null until the server answered. */
+  copies:
+    | readonly { projectId: string; name?: string; kind: "copy" | "connector" }[]
+    | null;
+  /** Known states of the projects this browser holds. */
+  states: ReadonlyMap<string, ServerCopyState>;
+  isLocalOnly: (projectId: string) => boolean;
+  /** Opt a project out of (or back into) its server copy. */
+  setLocalOnly: (
+    project: { id: string; name: string },
+    localOnly: boolean,
+  ) => Promise<string | null>;
+  /** Write a project this browser does not hold into it, from the server copy. */
+  restore: (copy: { projectId: string; name?: string }) => Promise<string | null>;
+  /** Erase a project's server copy, ahead of deleting the project. */
+  erase: (projectId: string) => Promise<string | null>;
+}
+
+const SERVER_COPY_LABELS: Record<ServerCopyState, string> = {
+  server: "Saved on this server",
+  uploading: "Uploading",
+  local: "Only in this browser",
+};
 
 /**
  * Sort projects for stable display: by name (case-insensitive), then id as a
@@ -157,7 +196,12 @@ export function LibraryApp({
   user,
   connected = [],
   onOpenConnected,
+  serverCopies,
+  onDeleted,
 }: LibraryAppProps) {
+  // What a server-copy action or a refused delete has to tell the person.
+  const [notice, setNotice] = useState<string | null>(null);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
@@ -305,11 +349,44 @@ export function LibraryApp({
   const handleDelete = useCallback(
     async (id: ProjectId) => {
       setConfirmingDeleteId(null);
+      setNotice(null);
+      // The server copy goes first: a project deleted here while the server
+      // still held it would come back in "On the server".
+      const refused = (await serverCopies?.erase(id)) ?? null;
+      if (refused !== null) {
+        setNotice(refused);
+        return;
+      }
       await store.deleteProject(id);
+      onDeleted?.(id);
       await reload();
     },
-    [store, reload],
+    [store, reload, serverCopies, onDeleted],
   );
+
+  const handleRestore = async (copy: { projectId: string; name?: string }) => {
+    if (serverCopies === undefined || restoringId !== null) return;
+    setNotice(null);
+    setRestoringId(copy.projectId);
+    const refused = await serverCopies.restore(copy);
+    setRestoringId(null);
+    if (refused !== null) setNotice(refused);
+    else onOpen(copy.projectId);
+  };
+
+  const handleSetLocalOnly = async (project: Project, localOnly: boolean) => {
+    setNotice(null);
+    setNotice((await serverCopies?.setLocalOnly(project, localOnly)) ?? null);
+  };
+
+  // Projects the server holds and this browser does not. With server copies
+  // they are restored here; a connector-only deployment opens them as a guest.
+  const elsewhere =
+    serverCopies !== undefined
+      ? connectedElsewhere(serverCopies.copies ?? [], projects)
+      : onOpenConnected !== undefined
+        ? connectedElsewhere(connected, projects)
+        : [];
 
   const cancelDelete = useCallback(() => {
     const projectId = confirmingDeleteId;
@@ -457,6 +534,12 @@ export function LibraryApp({
         <div className="library-header-text">
           <h1 className="library-title">Projects</h1>
           <p className="library-subtitle">Open a project or start a new one.</p>
+          {serverCopies === undefined && (
+            <p className="library-subtitle" data-testid="library-local-only">
+              Projects are stored only in this browser. Clearing its data
+              deletes them: export a project from its editor to keep a file.
+            </p>
+          )}
         </div>
       </header>
       <div className="library-controls" data-testid="library-controls">
@@ -603,8 +686,12 @@ export function LibraryApp({
         </div>
       ) : (
         <>
-          {onOpenConnected !== undefined &&
-            connectedElsewhere(connected, projects).length > 0 && (
+          {notice !== null && (
+            <p className="library-empty" role="alert" data-testid="library-notice">
+              {notice}
+            </p>
+          )}
+          {elsewhere.length > 0 && (
               <section
                 className="library-connected"
                 data-testid="library-connected"
@@ -617,11 +704,12 @@ export function LibraryApp({
                   On the server
                 </h2>
                 <p className="library-connected-hint">
-                  Projects you connected from another device. They open from
-                  their server copy, to read and to review changes.
+                  {serverCopies !== undefined
+                    ? "Projects this server keeps for your account that this browser does not hold. Opening one restores its text here; images and fonts are not in the server copy."
+                    : "Projects you connected from another device. They open from their server copy, to read and to review changes."}
                 </p>
                 <div className="library-grid">
-                  {connectedElsewhere(connected, projects).map((c) => (
+                  {elsewhere.map((c) => (
                     <article
                       key={c.projectId}
                       className="library-card"
@@ -641,7 +729,9 @@ export function LibraryApp({
                             {c.name ?? c.projectId}
                           </h3>
                           <p className="library-card-meta">
-                            Not on this device
+                            {restoringId === c.projectId
+                              ? "Restoring…"
+                              : "Not on this device"}
                           </p>
                         </div>
                       </div>
@@ -650,7 +740,12 @@ export function LibraryApp({
                         data-testid="open-connected-project"
                         type="button"
                         aria-label={`Open ${c.name ?? c.projectId}`}
-                        onClick={() => onOpenConnected(c.projectId)}
+                        disabled={restoringId !== null}
+                        onClick={() =>
+                          serverCopies !== undefined
+                            ? void handleRestore(c)
+                            : onOpenConnected?.(c.projectId)
+                        }
                       />
                     </article>
                   ))}
@@ -721,6 +816,21 @@ export function LibraryApp({
                         "Typst project"
                       )}
                       {project.archived === true ? " · Archived" : ""}
+                      {serverCopies?.copies != null && (
+                        <span
+                          data-testid="server-copy-state"
+                          data-state={
+                            serverCopies.states.get(project.id) ?? "local"
+                          }
+                        >
+                          {" · "}
+                          {
+                            SERVER_COPY_LABELS[
+                              serverCopies.states.get(project.id) ?? "local"
+                            ]
+                          }
+                        </span>
+                      )}
                     </p>
                     {(project.tags ?? []).length > 0 && (
                       <div
@@ -807,6 +917,26 @@ export function LibraryApp({
                       >
                         {project.archived === true ? "Unarchive" : "Archive"}
                       </button>
+                      {serverCopies !== undefined &&
+                        serverCopies.copies?.find(
+                          (c) => c.projectId === project.id,
+                        )?.kind !== "connector" && (
+                          <button
+                            type="button"
+                            data-testid="toggle-server-copy"
+                            onClick={() => {
+                              setMenuProjectId(null);
+                              void handleSetLocalOnly(
+                                project,
+                                !serverCopies.isLocalOnly(project.id),
+                              );
+                            }}
+                          >
+                            {serverCopies.isLocalOnly(project.id)
+                              ? "Keep a copy on this server"
+                              : "Keep only in this browser"}
+                          </button>
+                        )}
                       <button
                         type="button"
                         className="library-card-delete"
